@@ -23,14 +23,22 @@ function sensitivityColor(tag) {
   return SENSITIVITY_COLORS[tag] || SENSITIVITY_COLORS.default;
 }
 
+const EMPTY_LAYER = { nodes: [], edges: [] };
+const EMPTY_HIGHLIGHTS = {};
+
 export default function FlowView({ repoHash }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
   const [selected, setSelected] = useState(null);
 
-  const slice = useGraphStore((s) => (repoHash ? s.byRepo[repoHash] : null));
-  const projection = (slice && slice.layers && slice.layers.flow) || { nodes: [], edges: [] };
-  const highlights = (slice && slice.highlights) || {};
+  const projection = useGraphStore(
+    (s) => (repoHash && s.byRepo[repoHash] && s.byRepo[repoHash].layers.flow) || EMPTY_LAYER,
+  );
+  const highlights = useGraphStore(
+    (s) => (repoHash && s.byRepo[repoHash] && s.byRepo[repoHash].highlights) || EMPTY_HIGHLIGHTS,
+  );
+
+  const layoutRanRef = useRef(false);
 
   // Pre-compute per-symbol flow membership so a node-tap can summarise the
   // call chains that touch it without rescanning everything.
@@ -99,6 +107,13 @@ export default function FlowView({ repoHash }) {
             },
           },
           {
+            selector: 'node.highlighted',
+            style: {
+              'border-width': 4,
+              'border-color': 'data(hlColor)',
+            },
+          },
+          {
             selector: 'edge',
             style: {
               'curve-style': 'bezier',
@@ -129,14 +144,38 @@ export default function FlowView({ repoHash }) {
       disposed = true;
       try { if (cy) cy.destroy(); } catch (_) {}
       cyRef.current = null;
+      layoutRanRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Data effect — projection changes only. Layout runs once; subsequent
+  // projection changes use 'draft' fcose / non-randomized dagre.
   useEffect(() => {
     renderElements();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projection, highlights]);
+  }, [projection]);
+
+  // Highlights effect — class toggle only, never touches layout.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.batch(() => {
+      cy.nodes('.highlighted').forEach((n) => {
+        if (!highlights[n.id()]) {
+          n.removeClass('highlighted');
+          n.data('hlColor', 'rgba(0,0,0,0)');
+        }
+      });
+      Object.entries(highlights).forEach(([id, color]) => {
+        const n = cy.getElementById(id);
+        if (n && n.length) {
+          n.data('hlColor', color);
+          n.addClass('highlighted');
+        }
+      });
+    });
+  }, [highlights]);
 
   function renderElements() {
     const cy = cyRef.current;
@@ -144,14 +183,14 @@ export default function FlowView({ repoHash }) {
 
     const nodes = (projection.nodes || []).map((n) => {
       const sk = (n.metadata && n.metadata.symbol_kind) || 'default';
-      const hl = highlights[n.id];
       return {
         data: {
           id: n.id,
           label: n.label,
           color: KIND_COLORS[sk] || KIND_COLORS.default,
-          borderColor: hl || 'rgba(0,0,0,0)',
-          borderWidth: hl ? 4 : 0,
+          borderColor: 'rgba(0,0,0,0)',
+          borderWidth: 0,
+          hlColor: 'rgba(0,0,0,0)',
           raw: n,
         },
       };
@@ -178,12 +217,20 @@ export default function FlowView({ repoHash }) {
       cy.add([...nodes, ...edges]);
     });
 
+    if (!nodes.length) {
+      layoutRanRef.current = false;
+      return;
+    }
+
     // Approximate Sankey: dagre LR if available, else horizontal cose.
+    // Don't randomize on subsequent runs so updates don't re-shuffle the layout.
+    const fresh = !layoutRanRef.current;
     const layoutOpts = cy._useDagre
       ? { name: 'dagre', rankDir: 'LR', animate: false, nodeSep: 30, rankSep: 80 }
-      : { name: 'cose', animate: false, randomize: true };
+      : { name: 'cose', animate: false, randomize: fresh };
     try {
       cy.layout(layoutOpts).run();
+      layoutRanRef.current = true;
     } catch (_) {
       try { cy.layout({ name: 'cose', animate: false }).run(); } catch (__) {}
     }

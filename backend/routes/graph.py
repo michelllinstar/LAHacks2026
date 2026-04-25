@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.db import store as db_store
+from backend.lib.auth_guard import require_session
 from backend.models import GraphProjection
 from backend.query import graph_api
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_session)])
 
 _VALID_LAYERS = {"symbol", "flow", "architecture", "invariant"}
 

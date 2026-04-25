@@ -401,6 +401,86 @@ def bulk_insert_symbols(
     return out
 
 
+def bulk_upsert_symbols(
+    repo_hash: str, rows: Sequence[dict]
+) -> list[ObjectId]:
+    """Upsert many symbols in one ``bulk_write`` round-trip.
+
+    For each row we issue an ``UpdateOne`` with ``$setOnInsert`` keyed by the
+    symbols-unique tuple ``(repo_hash, qualified_name, file_path, line_start)``.
+    After the bulk write we fetch the resulting ``_id``s in one ``find`` and
+    return ObjectIds aligned with ``rows``.
+    """
+    if not rows:
+        return []
+    db = get_db()
+    ops: list[UpdateOne] = []
+    for row in rows:
+        key = {
+            "repo_hash": repo_hash,
+            "qualified_name": row["qualified_name"],
+            "file_path": row["file_path"],
+            "line_start": int(row["line_start"]),
+        }
+        doc = {
+            **key,
+            "line_end": int(row["line_end"]),
+            "kind": row["kind"],
+            "signature": row.get("signature"),
+        }
+        ops.append(UpdateOne(key, {"$setOnInsert": doc}, upsert=True))
+    if ops:
+        db["symbols"].bulk_write(ops, ordered=False)
+
+    qnames = list({row["qualified_name"] for row in rows})
+    by_key: dict[tuple[str, str, int], ObjectId] = {}
+    cursor = db["symbols"].find(
+        {"repo_hash": repo_hash, "qualified_name": {"$in": qnames}},
+        {"_id": 1, "qualified_name": 1, "file_path": 1, "line_start": 1},
+    )
+    for doc in cursor:
+        by_key[
+            (doc["qualified_name"], doc["file_path"], int(doc["line_start"]))
+        ] = doc["_id"]
+
+    out: list[ObjectId] = []
+    for row in rows:
+        sid = by_key.get(
+            (row["qualified_name"], row["file_path"], int(row["line_start"]))
+        )
+        out.append(sid if sid is not None else ObjectId())
+    return out
+
+
+def bulk_upsert_embeddings(repo_hash: str, rows: Sequence[dict]) -> None:
+    """Bulk version of :func:`upsert_symbol_embedding`.
+
+    Each row: ``{"symbol_id": ObjectId, "vector": bytes}``.
+    """
+    if not rows:
+        return
+    db = get_db()
+    ops: list[UpdateOne] = []
+    for row in rows:
+        sid = row["symbol_id"]
+        vec = row.get("vector") or b""
+        ops.append(
+            UpdateOne(
+                {"symbol_id": sid},
+                {
+                    "$set": {
+                        "symbol_id": sid,
+                        "repo_hash": repo_hash,
+                        "vector": Binary(vec or b""),
+                    }
+                },
+                upsert=True,
+            )
+        )
+    if ops:
+        db["symbol_embeddings"].bulk_write(ops, ordered=False)
+
+
 def insert_ref(
     repo_hash: str,
     source_symbol_id: ObjectId,
@@ -454,11 +534,11 @@ def upsert_symbol_embedding(
 
 
 def bulk_insert_embeddings(repo_hash: str, rows: Sequence[dict]) -> None:
-    """Each row: ``{"symbol_id": ObjectId, "vector": bytes}``."""
-    if not rows:
-        return
-    for row in rows:
-        upsert_symbol_embedding(repo_hash, row["symbol_id"], row["vector"])
+    """Each row: ``{"symbol_id": ObjectId, "vector": bytes}``.
+
+    Backwards-compatible alias for :func:`bulk_upsert_embeddings`.
+    """
+    bulk_upsert_embeddings(repo_hash, rows)
 
 
 def iter_symbols(repo_hash: str) -> list[dict]:
@@ -648,6 +728,28 @@ def flows_through_symbol(repo_hash: str, symbol_id: ObjectId) -> list[dict]:
     )
 
 
+def flows_touching_symbols(
+    repo_hash: str, symbol_ids: Sequence[ObjectId]
+) -> list[dict]:
+    """Batch version of :func:`flows_through_symbol` over many symbol ids."""
+    if not symbol_ids:
+        return []
+    db = get_db()
+    ids = list(symbol_ids)
+    return list(
+        db["flows"].find(
+            {
+                "repo_hash": repo_hash,
+                "$or": [
+                    {"source_symbol_id": {"$in": ids}},
+                    {"sink_symbol_id": {"$in": ids}},
+                    {"path": {"$in": ids}},
+                ],
+            }
+        )
+    )
+
+
 def count_flows(repo_hash: str) -> int:
     """Total flow count for the repo."""
     db = get_db()
@@ -795,6 +897,43 @@ def get_cluster_for_file(repo_hash: str, file_path: str) -> Optional[dict]:
     if cid is None:
         return None
     return db["clusters"].find_one({"repo_hash": repo_hash, "_id": cid})
+
+
+def clusters_for_files(
+    repo_hash: str, file_paths: Sequence[str]
+) -> dict[str, dict]:
+    """Batch version of :func:`get_cluster_for_file` for many file paths.
+
+    Two queries: one over ``files`` to get each file's ``cluster_id``, one
+    over ``clusters`` to fetch the cluster docs. Returns a mapping from
+    ``file_path`` to its cluster doc; files without a cluster are omitted.
+    """
+    if not file_paths:
+        return {}
+    db = get_db()
+    rows = list(
+        db["files"].find(
+            {
+                "repo_hash": repo_hash,
+                "file_path": {"$in": list(file_paths)},
+                "cluster_id": {"$exists": True},
+            },
+            {"file_path": 1, "cluster_id": 1, "_id": 0},
+        )
+    )
+    cluster_ids = list({r["cluster_id"] for r in rows})
+    cluster_docs = {
+        c["_id"]: c
+        for c in db["clusters"].find(
+            {"repo_hash": repo_hash, "_id": {"$in": cluster_ids}}
+        )
+    }
+    out: dict[str, dict] = {}
+    for r in rows:
+        cdoc = cluster_docs.get(r["cluster_id"])
+        if cdoc is not None:
+            out[r["file_path"]] = cdoc
+    return out
 
 
 def cluster_member_files(repo_hash: str, cluster_id: ObjectId) -> list[str]:

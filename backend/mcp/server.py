@@ -27,7 +27,10 @@ logger = logging.getLogger(__name__)
 def _check_secret(provided: str | None) -> bool:
     expected = os.getenv("MCP_SHARED_SECRET")
     if not expected:
-        return True  # no secret configured -> open in dev
+        # Fail-closed unless explicit dev override.
+        if os.getenv("CARTOGRAPHER_DEV") == "1":
+            return True
+        return False
     return provided == expected
 
 

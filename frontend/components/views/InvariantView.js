@@ -12,10 +12,13 @@ import useGraphStore from '../../lib/graphStore';
  * store, so when the user switches back to the Symbol tab the constrained
  * symbol lights up.
  */
+const EMPTY_LAYER = { nodes: [], edges: [] };
+
 export default function InvariantView({ repoHash }) {
-  const slice = useGraphStore((s) => (repoHash ? s.byRepo[repoHash] : null));
+  const projection = useGraphStore(
+    (s) => (repoHash && s.byRepo[repoHash] && s.byRepo[repoHash].layers.invariant) || EMPTY_LAYER,
+  );
   const applyDelta = useGraphStore((s) => s.applyDelta);
-  const projection = (slice && slice.layers && slice.layers.invariant) || { nodes: [], edges: [] };
 
   const groups = useMemo(() => buildGroups(projection), [projection]);
   const [activeKey, setActiveKey] = useState(null);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import useGraphStore from '../../lib/graphStore';
 
 const KIND_COLORS = {
@@ -16,22 +16,34 @@ const EDGE_COLORS = {
   default: '#475569',
 };
 
+const EMPTY_LAYER = { nodes: [], edges: [] };
+const EMPTY_HIGHLIGHTS = {};
+
 export default function SymbolView({ repoHash }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
+  const layoutRanRef = useRef(false);
   const [selected, setSelected] = useState(null);
-  const slice = useGraphStore((s) => (repoHash ? s.byRepo[repoHash] : null));
-  const projection = (slice && slice.layers && slice.layers.symbol) || { nodes: [], edges: [] };
-  const invariantLayer = (slice && slice.layers && slice.layers.invariant) || { nodes: [], edges: [] };
-  const highlights = (slice && slice.highlights) || {};
 
-  // symbol_id -> { count, max_confidence, source_kinds: string[], items: invariantNode[] }
-  const invariantMap = buildInvariantMap(invariantLayer);
+  // Narrow selectors so unrelated slice changes don't re-render this view.
+  const projection = useGraphStore(
+    (s) => (repoHash && s.byRepo[repoHash] && s.byRepo[repoHash].layers.symbol) || EMPTY_LAYER,
+  );
+  const highlights = useGraphStore(
+    (s) => (repoHash && s.byRepo[repoHash] && s.byRepo[repoHash].highlights) || EMPTY_HIGHLIGHTS,
+  );
+  const invariantLayer = useGraphStore(
+    (s) => (repoHash && s.byRepo[repoHash] && s.byRepo[repoHash].layers.invariant) || EMPTY_LAYER,
+  );
 
-  // Initialise cytoscape on mount
+  // Memoize so repeated identical invariant layer references don't rebuild.
+  const invariantMap = useMemo(() => buildInvariantMap(invariantLayer), [invariantLayer]);
+
+  // ----- Effect 1: cytoscape mount + projection diff. Layout only on data change.
   useEffect(() => {
     let cy;
     let disposed = false;
+    layoutRanRef.current = false;
 
     (async () => {
       if (typeof window === 'undefined') return;
@@ -61,6 +73,13 @@ export default function SymbolView({ repoHash }) {
               'height': 18,
               'border-width': 'data(borderWidth)',
               'border-color': 'data(borderColor)',
+            },
+          },
+          {
+            selector: 'node.highlighted',
+            style: {
+              'border-width': 4,
+              'border-color': 'data(hlColor)',
             },
           },
           {
@@ -105,48 +124,136 @@ export default function SymbolView({ repoHash }) {
 
       cy.on('tap', 'node', (evt) => {
         const data = evt.target.data();
-        setSelected(data.raw);
+        if (data && data.raw) setSelected(data.raw);
       });
       cy.on('tap', (evt) => {
         if (evt.target === cy) setSelected(null);
       });
 
       cyRef.current = cy;
-      renderElements();
+      applyProjection();
     })();
 
     return () => {
       disposed = true;
       try { if (cy) cy.destroy(); } catch (_) {}
       cyRef.current = null;
+      layoutRanRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [repoHash]);
 
-  // Re-render whenever projection, highlights, or invariants change
+  // Re-apply projection on data change. We keep the simpler "remove all + add"
+  // strategy but only run a fresh layout once; subsequent changes use a
+  // 'draft' fcose pass which is much cheaper than the initial 'default' run.
   useEffect(() => {
-    renderElements();
+    applyProjection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projection, highlights, invariantLayer]);
+  }, [projection]);
 
-  function renderElements() {
+  // ----- Effect 2: highlights. Toggle a class — never touches layout.
+  useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
+    cy.batch(() => {
+      cy.nodes('.highlighted').forEach((n) => {
+        if (!highlights[n.id()]) {
+          n.removeClass('highlighted');
+          n.data('hlColor', 'rgba(0,0,0,0)');
+        }
+      });
+      Object.entries(highlights).forEach(([id, color]) => {
+        const n = cy.getElementById(id);
+        if (n && n.length) {
+          n.data('hlColor', color);
+          n.addClass('highlighted');
+        }
+      });
+    });
+  }, [highlights]);
+
+  // ----- Effect 3: invariant badges. Diff the desired badge set.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const desired = {}; // id -> { color, label, sourceId }
+    Object.entries(invariantMap).forEach(([symId, info]) => {
+      if (!cy.getElementById(symId).length) return;
+      desired[`inv-badge-${symId}`] = {
+        color: confidenceColor(info.max_confidence),
+        label: String(info.count),
+        sourceId: symId,
+      };
+    });
+
+    cy.batch(() => {
+      // Remove orphaned badges and their links.
+      cy.nodes('.invariant-badge').forEach((n) => {
+        if (!desired[n.id()]) {
+          cy.getElementById(`inv-link-${n.data('sourceId')}`).remove();
+          n.remove();
+        }
+      });
+      // Add or update existing badges.
+      Object.entries(desired).forEach(([id, info]) => {
+        const existing = cy.getElementById(id);
+        if (existing.length) {
+          existing.data('badgeColor', info.color);
+          existing.data('label', info.label);
+          return;
+        }
+        cy.add({
+          group: 'nodes',
+          data: {
+            id,
+            label: info.label,
+            badgeColor: info.color,
+            sourceId: info.sourceId,
+          },
+          classes: 'invariant-badge',
+        });
+        cy.add({
+          group: 'edges',
+          data: {
+            id: `inv-link-${info.sourceId}`,
+            source: info.sourceId,
+            target: id,
+            color: 'rgba(0,0,0,0)',
+          },
+        });
+      });
+
+      // Update has-invariants class on the underlying symbol nodes.
+      cy.nodes().forEach((n) => {
+        if (n.hasClass('invariant-badge')) return;
+        const inv = invariantMap[n.id()];
+        if (inv) {
+          n.data('invBorderColor', confidenceColor(inv.max_confidence));
+          n.addClass('has-invariants');
+        } else {
+          n.removeClass('has-invariants');
+        }
+      });
+    });
+  }, [invariantMap]);
+
+  function applyProjection() {
+    const cy = cyRef.current;
+    if (!cy) return;
+
     const nodes = (projection.nodes || []).map((n) => {
       const kind = (n.metadata && n.metadata.kind) || 'default';
-      const hl = highlights[n.id];
-      const inv = invariantMap[n.id];
       return {
         data: {
           id: n.id,
           label: n.label,
           color: KIND_COLORS[kind] || KIND_COLORS.default,
-          borderColor: hl || 'rgba(0,0,0,0)',
-          borderWidth: hl ? 4 : 0,
-          invBorderColor: inv ? confidenceColor(inv.max_confidence) : 'rgba(0,0,0,0)',
+          borderColor: 'rgba(0,0,0,0)',
+          borderWidth: 0,
+          hlColor: 'rgba(0,0,0,0)',
+          invBorderColor: 'rgba(0,0,0,0)',
           raw: n,
         },
-        classes: inv ? 'has-invariants' : '',
       };
     });
     const edges = (projection.edges || []).map((e, i) => ({
@@ -158,37 +265,25 @@ export default function SymbolView({ repoHash }) {
       },
     }));
 
-    // Sibling badge nodes for invariant counts (laid out automatically by force layout)
-    const badgeNodes = [];
-    Object.entries(invariantMap).forEach(([symId, info]) => {
-      // only badge if the symbol exists in the projection
-      if (!projection.nodes.some((n) => n.id === symId)) return;
-      badgeNodes.push({
-        data: {
-          id: `inv-badge-${symId}`,
-          label: String(info.count),
-          badgeColor: confidenceColor(info.max_confidence),
-        },
-        classes: 'invariant-badge',
-      });
-      edges.push({
-        data: {
-          id: `inv-link-${symId}`,
-          source: symId,
-          target: `inv-badge-${symId}`,
-          color: 'rgba(0,0,0,0)',
-        },
-      });
-    });
-
     cy.batch(() => {
       cy.elements().remove();
-      cy.add([...nodes, ...badgeNodes, ...edges]);
+      cy.add([...nodes, ...edges]);
     });
+
+    if (!nodes.length) {
+      layoutRanRef.current = false;
+      return;
+    }
 
     const layoutName = cy.layout && cy.extension && cy.extension('layout', 'fcose') ? 'fcose' : 'cose';
     try {
-      cy.layout({ name: layoutName, animate: false, randomize: true }).run();
+      cy.layout({
+        name: layoutName,
+        animate: false,
+        randomize: !layoutRanRef.current,
+        quality: layoutRanRef.current ? 'draft' : 'default',
+      }).run();
+      layoutRanRef.current = true;
     } catch (_) {
       try { cy.layout({ name: 'cose', animate: false }).run(); } catch (__) {}
     }

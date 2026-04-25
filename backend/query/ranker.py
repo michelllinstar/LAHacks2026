@@ -72,17 +72,38 @@ def _cosine(a: bytes, b: bytes) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Signals
+# Per-request cache
 # ---------------------------------------------------------------------------
 
 
-def structural_centrality(repo_hash: str) -> dict[ObjectId, float]:
-    """Approximate PageRank over ``refs``; falls back to out-degree if missing."""
-    symbols = db_store.iter_symbols(repo_hash)
+class RankerContext:
+    """Per-request cache of Layer 1 rows + lazy PageRank.
+
+    ``ranker.combine`` constructs one of these and threads it through every
+    signal helper, so each helper reads from in-memory dicts instead of
+    re-issuing ``iter_symbols`` / ``iter_refs`` / ``iter_files``.
+    """
+
+    def __init__(self, repo_hash: str) -> None:
+        self.repo_hash = repo_hash
+        self.symbols: list[dict] = list(db_store.iter_symbols(repo_hash))
+        self.refs: list[dict] = list(db_store.iter_refs(repo_hash))
+        self.files: list[dict] = list(db_store.iter_files(repo_hash))
+        self.sym_by_id: dict[ObjectId, dict] = {s["_id"]: s for s in self.symbols}
+        self._pagerank: Optional[dict[ObjectId, float]] = None
+
+    def pagerank(self) -> dict[ObjectId, float]:
+        if self._pagerank is None:
+            self._pagerank = _compute_pagerank(self.symbols, self.refs)
+        return self._pagerank
+
+
+def _compute_pagerank(
+    symbols: list[dict], edges: list[dict]
+) -> dict[ObjectId, float]:
     if not symbols:
         return {}
     ids = [doc["_id"] for doc in symbols]
-    edges = db_store.iter_refs(repo_hash)
     try:
         import networkx as nx  # type: ignore
 
@@ -100,10 +121,28 @@ def structural_centrality(repo_hash: str) -> dict[ObjectId, float]:
         return deg
 
 
-def change_recency(repo_hash: str) -> dict[ObjectId, float]:
+# ---------------------------------------------------------------------------
+# Signals
+# ---------------------------------------------------------------------------
+
+
+def structural_centrality(
+    repo_hash: str, ctx: Optional[RankerContext] = None
+) -> dict[ObjectId, float]:
+    """Approximate PageRank over ``refs``; falls back to out-degree if missing."""
+    if ctx is None:
+        ctx = RankerContext(repo_hash)
+    return ctx.pagerank()
+
+
+def change_recency(
+    repo_hash: str, ctx: Optional[RankerContext] = None
+) -> dict[ObjectId, float]:
+    if ctx is None:
+        ctx = RankerContext(repo_hash)
     now = datetime.now(timezone.utc).timestamp()
     by_path: dict[str, float] = {}
-    for doc in db_store.iter_files(repo_hash):
+    for doc in ctx.files:
         ts = doc.get("last_modified")
         if not ts:
             continue
@@ -119,7 +158,7 @@ def change_recency(repo_hash: str) -> dict[ObjectId, float]:
     oldest = min(by_path.values())
     span = max(now - oldest, 1.0)
     out: dict = {}
-    for sym in db_store.iter_symbols(repo_hash):
+    for sym in ctx.symbols:
         ts = by_path.get(sym.get("file_path"))
         if ts is None:
             continue
@@ -127,7 +166,9 @@ def change_recency(repo_hash: str) -> dict[ObjectId, float]:
     return out
 
 
-def co_change_correlation(_repo_hash: str) -> dict:
+def co_change_correlation(
+    _repo_hash: str, ctx: Optional[RankerContext] = None
+) -> dict:
     """No git log mining in MVP; returns empty."""
     return {}
 
@@ -136,6 +177,7 @@ def embedding_similarity(
     repo_hash: str,
     candidate_ids: list[ObjectId],
     query_vector: Optional[bytes],
+    ctx: Optional[RankerContext] = None,
 ) -> dict[ObjectId, float]:
     if not query_vector or not candidate_ids:
         return {}
@@ -148,11 +190,15 @@ def embedding_similarity(
     return out
 
 
-def test_coverage_proxy(repo_hash: str) -> dict[ObjectId, float]:
+def test_coverage_proxy(
+    repo_hash: str, ctx: Optional[RankerContext] = None
+) -> dict[ObjectId, float]:
     """Count refs whose source symbol lives in a test file."""
-    sym_by_id = {doc["_id"]: doc for doc in db_store.iter_symbols(repo_hash)}
+    if ctx is None:
+        ctx = RankerContext(repo_hash)
+    sym_by_id = ctx.sym_by_id
     counts: dict = {}
-    for ref in db_store.iter_refs(repo_hash):
+    for ref in ctx.refs:
         src = sym_by_id.get(ref.get("source_symbol_id"))
         if not src or not _is_test_path(src.get("file_path") or ""):
             continue
@@ -178,11 +224,12 @@ def combine(
     weights_table = _load_weights()
     weights = weights_table.get(task_type) or weights_table.get("modify existing", {})
 
-    sc_raw = structural_centrality(repo_hash)
-    cr_raw = change_recency(repo_hash)
-    cc_raw = co_change_correlation(repo_hash)
-    sim_raw = embedding_similarity(repo_hash, candidate_ids, query_vector)
-    tc_raw = test_coverage_proxy(repo_hash)
+    ctx = RankerContext(repo_hash)
+    sc_raw = structural_centrality(repo_hash, ctx)
+    cr_raw = change_recency(repo_hash, ctx)
+    cc_raw = co_change_correlation(repo_hash, ctx)
+    sim_raw = embedding_similarity(repo_hash, candidate_ids, query_vector, ctx)
+    tc_raw = test_coverage_proxy(repo_hash, ctx)
 
     sc = _normalize(sc_raw)
     cr = _normalize(cr_raw)

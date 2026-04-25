@@ -5,14 +5,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from backend.db import store as db_store
 from backend.indexer.runner import LAYERS, run_index
 from backend.lib import events as event_bus
+from backend.lib.auth_guard import require_session
 from backend.models import IndexJob, IndexStatus, LayerStatus
+from backend.routes.repos import _validate_local_path
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_session)])
 
 
 @router.post("/{repo_hash}/index", response_model=IndexJob)
@@ -26,6 +28,10 @@ def start_index(repo_hash: str, background_tasks: BackgroundTasks) -> IndexJob:
             status_code=400,
             detail="repo has no local_path; clone the repo and re-register with local_path",
         )
+    # Re-validate the stored local_path against the workspace jail before
+    # kicking off the background indexer (the env var may have changed since
+    # the repo was first registered).
+    _validate_local_path(repo_path)
     job_id = uuid.uuid4().hex
     started = datetime.now(timezone.utc).isoformat()
     for layer in LAYERS:

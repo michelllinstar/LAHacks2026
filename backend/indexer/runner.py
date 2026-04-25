@@ -137,21 +137,37 @@ def _run_layer1(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> No
 
     qname_to_id: dict[str, ObjectId] = {}
     embed_blobs = embeddings.embed_symbols(all_symbols)
-    for row, blob in zip(all_symbols, embed_blobs):
-        sid = db_store.insert_symbol(
-            repo_hash,
-            qualified_name=row.qualified_name,
-            file_path=row.file_path,
-            line_start=row.line_start,
-            line_end=row.line_end,
-            kind=row.kind,
-            signature=row.signature,
-        )
+
+    # One bulk upsert for symbols (was N round-trips). The result is a list
+    # of ObjectIds aligned with ``all_symbols``.
+    symbol_rows = [
+        {
+            "qualified_name": row.qualified_name,
+            "file_path": row.file_path,
+            "line_start": row.line_start,
+            "line_end": row.line_end,
+            "kind": row.kind,
+            "signature": row.signature,
+        }
+        for row in all_symbols
+    ]
+    sym_ids = db_store.bulk_upsert_symbols(repo_hash, symbol_rows)
+
+    # One bulk upsert for embeddings (was N round-trips).
+    embed_rows = [
+        {"symbol_id": sid, "vector": blob}
+        for sid, blob in zip(sym_ids, embed_blobs)
+        if sid and blob
+    ]
+    if embed_rows:
+        db_store.bulk_upsert_embeddings(repo_hash, embed_rows)
+
+    # SSE node_added events streamed sequentially against the in-memory
+    # result map — DB cost is amortized; SSE cost is unchanged.
+    for row, sid in zip(all_symbols, sym_ids):
         if not sid:
             continue
         qname_to_id[row.qualified_name] = sid
-        if blob:
-            db_store.upsert_symbol_embedding(repo_hash, sid, blob)
         inserted_count += 1
         emit(
             "node_added",
@@ -179,26 +195,39 @@ def _run_layer1(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> No
     # documents this as best-effort static resolution; the warning below
     # surfaces the loss rate so a noisy demo repo is diagnosable.
     dropped_external = 0
+    ref_rows: list[dict] = []
+    resolved_refs: list[tuple[ObjectId, ObjectId, str]] = []
     for ref in all_refs:
         src_id = qname_to_id.get(ref.source_qname)
         tgt_id = qname_to_id.get(ref.target_qname)
         if not src_id or not tgt_id:
             dropped_external += 1
             continue
-        edge_id = db_store.insert_ref(repo_hash, src_id, tgt_id, ref.edge_kind)
-        emit(
-            "edge_added",
+        ref_rows.append(
             {
-                "layer": layer,
-                "edge": {
-                    "source": str(src_id),
-                    "target": str(tgt_id),
-                    "kind": ref.edge_kind,
-                    "weight": 1.0,
-                    "id": str(edge_id),
-                },
-            },
+                "source_symbol_id": src_id,
+                "target_symbol_id": tgt_id,
+                "edge_kind": ref.edge_kind,
+            }
         )
+        resolved_refs.append((src_id, tgt_id, ref.edge_kind))
+
+    if ref_rows:
+        edge_ids = db_store.bulk_insert_refs(repo_hash, ref_rows)
+        for (src_id, tgt_id, edge_kind), edge_id in zip(resolved_refs, edge_ids):
+            emit(
+                "edge_added",
+                {
+                    "layer": layer,
+                    "edge": {
+                        "source": str(src_id),
+                        "target": str(tgt_id),
+                        "kind": edge_kind,
+                        "weight": 1.0,
+                        "id": str(edge_id),
+                    },
+                },
+            )
 
     if dropped_external:
         total_refs = len(all_refs)

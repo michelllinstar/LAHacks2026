@@ -1,11 +1,11 @@
 import os
 import jwt
 from fastapi import APIRouter, HTTPException, Response
+from backend.lib.auth_guard import _secret
 from backend.models import LoginPayload
 
 router = APIRouter()
 
-SECRET = os.getenv('JWT_SECRET', 'dev-secret-token')
 USERS = [
     {
         'id': 'u1',
@@ -21,7 +21,7 @@ def login(payload: LoginPayload, response: Response):
     if not user:
         raise HTTPException(status_code=401, detail='Invalid credentials')
 
-    token = jwt.encode({'sub': user['id'], 'email': user['email'], 'name': user['name']}, SECRET, algorithm='HS256')
+    token = jwt.encode({'sub': user['id'], 'email': user['email'], 'name': user['name']}, _secret(), algorithm='HS256')
     response.set_cookie(
         'agentverse_session',
         token,

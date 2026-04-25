@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -116,6 +117,7 @@ def build(
     rejected = 0
     comment_budget = max_comment_invariants
     use_llm = bool(os.getenv("ANTHROPIC_API_KEY"))
+    comment_tasks: list[dict] = []
 
     for path in walk_repo(repo_path):
         try:
@@ -149,9 +151,10 @@ def build(
             )
             candidates.extend(def_cands)
 
-            # 3) Comment-derived (optional, capped).
+            # 3) Comment-derived (optional, capped). Collect prompts here;
+            # we dispatch them concurrently after the per-file walk.
             if use_llm and comment_budget > 0:
-                cm_cands = _extract_comment_invariants(
+                file_tasks = _collect_comment_tasks(
                     tree.root_node,
                     source_bytes,
                     file_path_str,
@@ -159,8 +162,14 @@ def build(
                     comment_distance_lines=comment_distance_lines,
                     budget=comment_budget,
                 )
-                candidates.extend(cm_cands)
-                comment_budget -= len(cm_cands)
+                comment_tasks.extend(file_tasks)
+                comment_budget -= len(file_tasks)
+
+    # Execute the LLM-backed comment-derivation tasks concurrently. Cap at 4
+    # in-flight calls (max_comment_invariants=200 budget already enforced).
+    if comment_tasks:
+        cm_cands = _run_comment_tasks(comment_tasks, max_workers=4)
+        candidates.extend(cm_cands)
 
     # ------------------------------------------------------------------
     # Validate, normalize, dedupe.
@@ -556,7 +565,7 @@ _COMMENT_SYSTEM = (
 )
 
 
-def _extract_comment_invariants(
+def _collect_comment_tasks(
     root: Any,
     source: bytes,
     file_path: str,
@@ -565,6 +574,11 @@ def _extract_comment_invariants(
     comment_distance_lines: int,
     budget: int,
 ) -> list[dict]:
+    """Build LLM prompt tasks for comment-derived invariants.
+
+    Each task carries everything needed to materialize a candidate dict
+    once the LLM returns. No network calls are issued here.
+    """
     if budget <= 0:
         return []
     out: list[dict] = []
@@ -616,27 +630,80 @@ def _extract_comment_invariants(
         signature = owner.get("signature") or _node_text(fn_node, source).split("\n", 1)[0]
 
         user = f"Function: {signature}\n\nSource:\n```python\n{snippet}\n```"
-        try:
-            text = llm.complete(_COMMENT_SYSTEM, user, max_tokens=100)
-        except Exception as exc:
-            logger.warning("layer 4: LLM call failed for %s: %s", signature, exc)
-            text = ""
-        text = (text or "").strip()
-        if not text:
-            continue
         out.append(
             {
                 "target_symbol_id": target_id,
-                "text": text,
-                "source_kind": "comment",
+                "signature": signature,
+                "user_prompt": user,
                 "source_location": f"{file_path}:{fn_start}",
-                "confidence": _COMMENT_CONFIDENCE,
             }
         )
         if len(out) >= budget:
             break
 
     return out
+
+
+def _run_comment_tasks(tasks: list[dict], *, max_workers: int = 4) -> list[dict]:
+    """Dispatch comment-derivation LLM calls concurrently.
+
+    Uses a small ``ThreadPoolExecutor`` cap so we don't fan out to hundreds
+    of in-flight requests against the Anthropic API. Works under both the
+    FastAPI BackgroundTask runner and the standalone agent runtime — neither
+    needs to own an asyncio event loop.
+    """
+    if not tasks:
+        return []
+
+    def _one(task: dict) -> Optional[dict]:
+        try:
+            text = llm.complete(_COMMENT_SYSTEM, task["user_prompt"], max_tokens=100)
+        except Exception as exc:
+            logger.warning(
+                "layer 4: LLM call failed for %s: %s", task.get("signature"), exc
+            )
+            return None
+        text = (text or "").strip()
+        if not text:
+            return None
+        return {
+            "target_symbol_id": task["target_symbol_id"],
+            "text": text,
+            "source_kind": "comment",
+            "source_location": task["source_location"],
+            "confidence": _COMMENT_CONFIDENCE,
+        }
+
+    out: list[dict] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for cand in executor.map(_one, tasks):
+            if cand is not None:
+                out.append(cand)
+    return out
+
+
+def _extract_comment_invariants(
+    root: Any,
+    source: bytes,
+    file_path: str,
+    fn_syms: list[dict],
+    *,
+    comment_distance_lines: int,
+    budget: int,
+) -> list[dict]:
+    """Backwards-compatible serial version (collect + run synchronously).
+
+    Kept for callers/tests; ``build`` now uses the parallel pipeline.
+    """
+    tasks = _collect_comment_tasks(
+        root,
+        source,
+        file_path,
+        fn_syms,
+        comment_distance_lines=comment_distance_lines,
+        budget=budget,
+    )
+    return _run_comment_tasks(tasks, max_workers=4)
 
 
 def _has_docstring(body: Any, source: bytes) -> bool:

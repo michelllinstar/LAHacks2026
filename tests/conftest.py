@@ -28,6 +28,14 @@ if str(_REPO_ROOT) not in sys.path:
 os.environ.setdefault("MONGODB_URI", "mongodb://localhost:0")
 os.environ.setdefault("MONGODB_DB_NAME", "cartographer_test")
 
+# CARTOGRAPHER_DEV=1 lets the auth_guard accept the dev JWT secret and lets
+# the MCP server fail-open. We keep existing route tests authenticated by
+# attaching a valid session cookie in the ``client`` fixture below.
+os.environ.setdefault("CARTOGRAPHER_DEV", "1")
+# Existing test_routes_repos.py posts /tmp/bar; widen the workspace jail to
+# /tmp so the contract assertions still pass under the new path validator.
+os.environ.setdefault("CARTOGRAPHER_WORKSPACE_ROOT", "/tmp")
+
 
 @pytest.fixture
 def mock_store(monkeypatch):
@@ -73,9 +81,23 @@ def mock_store(monkeypatch):
 
 @pytest.fixture
 def client(mock_store):
-    """FastAPI TestClient bound to backend.main.app with the store mocked."""
+    """FastAPI TestClient bound to backend.main.app with the store mocked.
+
+    Attaches a valid agentverse_session cookie so existing protected-route
+    tests don't all need to log in first. The dev JWT secret is accepted
+    because conftest sets ``CARTOGRAPHER_DEV=1``.
+    """
+    import jwt
     from fastapi.testclient import TestClient
     from backend.main import app
+    from backend.lib.auth_guard import _secret
+
+    token = jwt.encode(
+        {"sub": "test-user", "email": "test@example.com"},
+        _secret(),
+        algorithm="HS256",
+    )
 
     with TestClient(app) as c:
+        c.cookies.set("agentverse_session", token)
         yield c

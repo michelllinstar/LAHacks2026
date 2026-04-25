@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import useGraphStore from '../../lib/graphStore';
 import ConventionPanel from '../ConventionPanel';
 
+const EMPTY_LAYER = { nodes: [], edges: [] };
+const EMPTY_HIGHLIGHTS = {};
+
 /**
  * Layer 3 cluster diagram.
  *
@@ -18,11 +21,15 @@ import ConventionPanel from '../ConventionPanel';
 export default function ArchitectureView({ repoHash }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
+  const layoutRanRef = useRef(false);
   const [selectedCluster, setSelectedCluster] = useState(null);
 
-  const slice = useGraphStore((s) => (repoHash ? s.byRepo[repoHash] : null));
-  const projection = (slice && slice.layers && slice.layers.architecture) || { nodes: [], edges: [] };
-  const highlights = (slice && slice.highlights) || {};
+  const projection = useGraphStore(
+    (s) => (repoHash && s.byRepo[repoHash] && s.byRepo[repoHash].layers.architecture) || EMPTY_LAYER,
+  );
+  const highlights = useGraphStore(
+    (s) => (repoHash && s.byRepo[repoHash] && s.byRepo[repoHash].highlights) || EMPTY_HIGHLIGHTS,
+  );
   const empty = !projection.nodes || projection.nodes.length === 0;
 
   useEffect(() => {
@@ -65,6 +72,10 @@ export default function ArchitectureView({ repoHash }) {
           {
             selector: 'node:selected',
             style: { 'border-color': '#fbbf24', 'border-width': 3 },
+          },
+          {
+            selector: 'node.highlighted',
+            style: { 'border-color': 'data(hlColor)', 'border-width': 4 },
           },
           // allows: solid green
           {
@@ -130,28 +141,49 @@ export default function ArchitectureView({ repoHash }) {
       disposed = true;
       try { if (cy) cy.destroy(); } catch (_) {}
       cyRef.current = null;
+      layoutRanRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { render(); /* eslint-disable-next-line */ }, [projection, highlights]);
+  // Data effect — projection changes only.
+  useEffect(() => { render(); /* eslint-disable-next-line */ }, [projection]);
+
+  // Highlights effect — class toggle, no layout.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.batch(() => {
+      cy.nodes('.highlighted').forEach((n) => {
+        if (!highlights[n.id()]) {
+          n.removeClass('highlighted');
+          n.data('hlColor', '#60a5fa');
+        }
+      });
+      Object.entries(highlights).forEach(([id, color]) => {
+        const n = cy.getElementById(id);
+        if (n && n.length) {
+          n.data('hlColor', color);
+          n.addClass('highlighted');
+        }
+      });
+    });
+  }, [highlights]);
 
   function render() {
     const cy = cyRef.current;
     if (!cy) return;
 
-    const nodes = (projection.nodes || []).map((n) => {
-      const hl = highlights[n.id];
-      return {
-        data: {
-          id: n.id,
-          label: n.label || '(unnamed cluster)',
-          borderColor: hl || '#60a5fa',
-          borderWidth: hl ? 4 : 2,
-          raw: n,
-        },
-      };
-    });
+    const nodes = (projection.nodes || []).map((n) => ({
+      data: {
+        id: n.id,
+        label: n.label || '(unnamed cluster)',
+        borderColor: '#60a5fa',
+        borderWidth: 2,
+        hlColor: '#60a5fa',
+        raw: n,
+      },
+    }));
 
     const edges = (projection.edges || []).map((e, i) => ({
       data: {
@@ -167,8 +199,21 @@ export default function ArchitectureView({ repoHash }) {
       cy.add([...nodes, ...edges]);
     });
 
-    try { cy.layout({ name: 'fcose', animate: false, randomize: true }).run(); }
-    catch (_) {
+    if (!nodes.length) {
+      layoutRanRef.current = false;
+      return;
+    }
+
+    const fresh = !layoutRanRef.current;
+    try {
+      cy.layout({
+        name: 'fcose',
+        animate: false,
+        randomize: fresh,
+        quality: fresh ? 'default' : 'draft',
+      }).run();
+      layoutRanRef.current = true;
+    } catch (_) {
       try { cy.layout({ name: 'cose', animate: false }).run(); } catch (__) {}
     }
   }

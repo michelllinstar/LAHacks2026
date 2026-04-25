@@ -75,18 +75,24 @@ class QueryEngine:
         cluster_for_path: dict[str, Optional[ObjectId]] = {}
         cluster_docs: dict[ObjectId, dict] = {}
         cluster_counts: dict[ObjectId, int] = {}
+
+        distinct_paths = list({fp for fp in sym_to_file.values() if fp})
+        path_to_cluster_doc = db_store.clusters_for_files(
+            self.repo_hash, distinct_paths
+        )
+        for fp in distinct_paths:
+            cdoc = path_to_cluster_doc.get(fp)
+            if cdoc is None:
+                cluster_for_path[fp] = None
+            else:
+                cid = cdoc["_id"]
+                cluster_for_path[fp] = cid
+                cluster_docs[cid] = cdoc
+
         for sid in candidate_ids:
             fp = sym_to_file.get(sid, "")
             if not fp:
                 continue
-            if fp not in cluster_for_path:
-                cdoc = db_store.get_cluster_for_file(self.repo_hash, fp)
-                if cdoc is None:
-                    cluster_for_path[fp] = None
-                else:
-                    cid = cdoc["_id"]
-                    cluster_for_path[fp] = cid
-                    cluster_docs[cid] = cdoc
             cid = cluster_for_path.get(fp)
             if cid is not None:
                 cluster_counts[cid] = cluster_counts.get(cid, 0) + 1
@@ -170,17 +176,18 @@ class QueryEngine:
             collected: list[dict] = []
             seen_flow_ids: set = set()
             try:
-                for sid in ranked:
+                # One batch query instead of N flows_through_symbol calls.
+                raw_flows = db_store.flows_touching_symbols(
+                    self.repo_hash, list(ranked)
+                )
+                for flow in raw_flows:
+                    fid = flow.get("_id")
+                    if fid in seen_flow_ids:
+                        continue
+                    seen_flow_ids.add(fid)
+                    collected.append(flow)
                     if len(collected) >= 25:
                         break
-                    for flow in db_store.flows_through_symbol(self.repo_hash, sid):
-                        fid = flow.get("_id")
-                        if fid in seen_flow_ids:
-                            continue
-                        seen_flow_ids.add(fid)
-                        collected.append(flow)
-                        if len(collected) >= 25:
-                            break
             except Exception:
                 collected = []
 

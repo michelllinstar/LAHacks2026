@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from sse_starlette.sse import EventSourceResponse
 
 from backend.lib import events as event_bus
+from backend.lib.auth_guard import require_session
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_session)])
 
 
 @router.get("")

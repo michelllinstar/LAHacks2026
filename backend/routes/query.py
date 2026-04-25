@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from backend.lib.auth_guard import require_session
 from backend.models import (
     ArchRequest,
     ArchResponse,
@@ -19,7 +20,7 @@ from backend.models import (
 )
 from backend.query.engine import QueryEngine
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_session)])
 
 
 class DispatchRequest(BaseModel):
