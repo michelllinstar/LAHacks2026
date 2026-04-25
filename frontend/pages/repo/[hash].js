@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import RepoSelector from '../../components/RepoSelector';
 import AgentActivityLog from '../../components/AgentActivityLog';
+import QueryConsole from '../../components/QueryConsole';
 import useGraphStore from '../../lib/graphStore';
 import { connectStream } from '../../lib/sseClient';
 import { getRepo, getGraph, getIndexStatus } from '../../lib/api';
@@ -109,9 +110,12 @@ export default function RepoPage() {
       </nav>
 
       <div className="body">
-        <section className="view">
-          {error && <p className="error">{error}</p>}
-          {hash && <ActiveView repoHash={hash} />}
+        <section className="main-col">
+          <section className="view">
+            {error && <p className="error">{error}</p>}
+            {hash && <ActiveView repoHash={hash} />}
+          </section>
+          {hash && <QueryConsole repoHash={hash} />}
         </section>
         <AgentActivityLog repoHash={hash} />
       </div>
@@ -131,7 +135,8 @@ export default function RepoPage() {
         .tab { background: transparent; border: none; color: #94a3b8; padding: 0.65rem 1rem; cursor: pointer; border-bottom: 2px solid transparent; }
         .tab.active { color: white; border-bottom-color: #60a5fa; }
         .body { flex: 1; display: flex; min-height: 0; }
-        .view { flex: 1; position: relative; overflow: hidden; }
+        .main-col { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+        .view { flex: 1; position: relative; overflow: hidden; min-height: 0; }
         .error { color: #fca5a5; padding: 1rem; }
       `}</style>
     </main>

@@ -89,6 +89,45 @@ export async function findRelevantContext(body) {
   return r.data;
 }
 
+export async function traceDataFlow({ symbol, direction = 'forward', depth = 3, repo_hash }) {
+  if (isMock()) return { flows: [] };
+  const r = await client.post('/api/query/trace_data_flow', {
+    symbol,
+    direction,
+    depth,
+    repo_hash,
+  });
+  return r.data;
+}
+
+export async function findInvariants({ symbol, cluster_id, min_confidence = 0.0, repo_hash }) {
+  if (isMock()) return [];
+  const body = { min_confidence, repo_hash };
+  if (symbol) body.symbol = symbol;
+  if (cluster_id != null && cluster_id !== '') body.cluster_id = cluster_id;
+  const r = await client.post('/api/query/find_invariants', body);
+  return r.data;
+}
+
+export async function describeArchitecture({ path, cluster_id, repo_hash }) {
+  if (isMock()) return { cluster: null, member_files: [] };
+  const body = { repo_hash };
+  if (path) body.path = path;
+  if (cluster_id != null && cluster_id !== '') body.cluster_id = cluster_id;
+  const r = await client.post('/api/query/describe_architecture', body);
+  return r.data;
+}
+
+export async function findExemplars({ task, cluster_id, repo_hash }) {
+  if (isMock()) return { files: [] };
+  const r = await client.post('/api/query/find_exemplars', {
+    task,
+    cluster_id,
+    repo_hash,
+  });
+  return r.data;
+}
+
 export default {
   listRepos,
   createRepo,
@@ -97,4 +136,8 @@ export default {
   getIndexStatus,
   getGraph,
   findRelevantContext,
+  traceDataFlow,
+  findInvariants,
+  describeArchitecture,
+  findExemplars,
 };
