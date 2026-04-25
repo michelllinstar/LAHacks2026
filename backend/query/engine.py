@@ -43,6 +43,11 @@ class QueryEngine:
     # ------------------------------------------------------------------
 
     def find_relevant_context(self, req: FindContextRequest) -> ContextBundle:
+        # SPEC §5.2 prescribes a sequential pipeline: Architecture Analyst
+        # picks a region → Symbol Analyst retrieves and ranks within it →
+        # Invariant Reporter attaches Layer 4 hints. Per §7.2.5 hackathon
+        # scope reduction, only the Symbol Analyst path is implemented; the
+        # other two stages return stub data until Layers 3 and 4 are built.
         decomp = decomposer.decompose(req.task)
         task_type = decomp["task_type"]
         keywords = decomp["keywords"]

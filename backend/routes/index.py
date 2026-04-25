@@ -38,6 +38,11 @@ def start_index(repo_hash: str, background_tasks: BackgroundTasks) -> IndexJob:
             started_at=started,
         )
     emit = event_bus.make_emitter(repo_hash)
+    # SPEC §7.2.2 designates the Indexer uAgent as the sole writer to the index
+    # store. Per §7.2.5 hackathon scope reduction, we run indexing as an
+    # in-process FastAPI BackgroundTask instead — the same run_index() function
+    # the Indexer agent would call. Switching to the agent path is a deployment
+    # change, not a code rewrite.
     background_tasks.add_task(run_index, repo_hash, repo_path, emit, job_id)
     return IndexJob(job_id=job_id, repo_hash=repo_hash, status="started")
 

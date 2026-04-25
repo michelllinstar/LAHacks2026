@@ -166,11 +166,17 @@ def _run_layer1(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> No
             },
         )
 
-    # Resolve refs in a second pass.
+    # Resolve refs in a second pass. Refs whose source or target qname was
+    # not extracted as a Layer 1 symbol — typically calls into external
+    # modules (stdlib, third-party packages) — are dropped. SPEC §4.1
+    # documents this as best-effort static resolution; the warning below
+    # surfaces the loss rate so a noisy demo repo is diagnosable.
+    dropped_external = 0
     for ref in all_refs:
         src_id = qname_to_id.get(ref.source_qname)
         tgt_id = qname_to_id.get(ref.target_qname)
         if not src_id or not tgt_id:
+            dropped_external += 1
             continue
         edge_id = db_store.insert_ref(repo_hash, src_id, tgt_id, ref.edge_kind)
         emit(
@@ -185,6 +191,16 @@ def _run_layer1(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> No
                     "id": str(edge_id),
                 },
             },
+        )
+
+    if dropped_external:
+        total_refs = len(all_refs)
+        logger.warning(
+            "layer 1 dropped %d/%d refs (%.1f%%) targeting unresolved qnames "
+            "(typically external modules); see SPEC §4.1",
+            dropped_external,
+            total_refs,
+            100.0 * dropped_external / max(total_refs, 1),
         )
 
     ended = _now_iso()
