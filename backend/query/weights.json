@@ -1,0 +1,23 @@
+{
+  "modify existing": {
+    "structural_centrality": 0.35,
+    "change_recency": 0.10,
+    "co_change_correlation": 0.10,
+    "embedding_similarity": 0.35,
+    "test_coverage_proxy": 0.10
+  },
+  "add new code": {
+    "structural_centrality": 0.15,
+    "change_recency": 0.30,
+    "co_change_correlation": 0.30,
+    "embedding_similarity": 0.15,
+    "test_coverage_proxy": 0.10
+  },
+  "understand": {
+    "structural_centrality": 0.20,
+    "change_recency": 0.05,
+    "co_change_correlation": 0.05,
+    "embedding_similarity": 0.60,
+    "test_coverage_proxy": 0.10
+  }
+}

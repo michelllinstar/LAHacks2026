@@ -1,0 +1,16 @@
+[
+  {
+    "hash": "a1b2c3d4e5f6",
+    "name": "myapp",
+    "status": "ready",
+    "git_url": "https://github.com/example/myapp",
+    "local_path": null
+  },
+  {
+    "hash": "9f8e7d6c5b4a",
+    "name": "internal-services",
+    "status": "indexing",
+    "git_url": null,
+    "local_path": "/Users/dev/code/internal-services"
+  }
+]

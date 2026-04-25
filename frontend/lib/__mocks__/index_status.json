@@ -1,0 +1,9 @@
+{
+  "repo_hash": "a1b2c3d4e5f6",
+  "layers": {
+    "symbol": { "state": "done", "count": 1284, "started_at": "2026-04-25T10:00:00Z", "ended_at": "2026-04-25T10:02:11Z" },
+    "flow": { "state": "pending", "count": 0, "started_at": null, "ended_at": null },
+    "architecture": { "state": "pending", "count": 0, "started_at": null, "ended_at": null },
+    "invariant": { "state": "pending", "count": 0, "started_at": null, "ended_at": null }
+  }
+}

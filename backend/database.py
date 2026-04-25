@@ -1,47 +1,39 @@
+"""Backwards-compatible shim around :mod:`backend.db.store`.
+
+The original scaffold exposed a single ``cartographer.db`` SQLite file at the
+repo root. Cartographer now uses a control DB plus per-repo index DBs under
+``~/.cartographer/``. This module re-exports the new helpers under the legacy
+names other modules import.
+"""
+
+from __future__ import annotations
+
 import os
-import sqlite3
 from pathlib import Path
-from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent.parent / '.env.local')
+from backend.db.store import (
+    get_control_db,
+    get_repo_db,
+    init_control_db,
+    init_repo_db,
+)
 
-DEFAULT_DB_PATH = Path(__file__).parent.parent / 'cartographer.db'
-DB_PATH = os.getenv('SQLITE_DB_PATH', str(DEFAULT_DB_PATH))
-
-
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA foreign_keys = ON')
-    return conn
-
-
-def init_schema() -> None:
-    conn = get_connection()
-    conn.executescript(
-        '''
-        CREATE TABLE IF NOT EXISTS projects (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            slug       TEXT UNIQUE NOT NULL,
-            name       TEXT NOT NULL,
-            repo_url   TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS diagrams (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id      INTEGER NOT NULL,
-            name            TEXT NOT NULL,
-            description     TEXT,
-            cloudinary_url  TEXT,
-            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_diagrams_project ON diagrams(project_id);
-        '''
-    )
-    conn.commit()
-    conn.close()
+__all__ = [
+    "get_control_db",
+    "get_repo_db",
+    "init_control_db",
+    "init_repo_db",
+]
 
 
-init_schema()
+# Drop the legacy repo-root SQLite file if it survived the migration.
+_LEGACY_DB = Path(__file__).resolve().parent.parent / "cartographer.db"
+try:
+    if _LEGACY_DB.exists():
+        os.remove(_LEGACY_DB)
+except OSError:
+    pass
+
+
+# Ensure the control DB exists as soon as the backend is imported.
+init_control_db()

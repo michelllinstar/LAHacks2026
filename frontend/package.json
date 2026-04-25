@@ -1,14 +1,11 @@
 {
-  "name": "agentverse-omega-claw-uml",
+  "name": "codebase-cartographer-frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev frontend",
-    "build": "next build frontend",
-    "start": "next start frontend",
-    "backend": "uvicorn backend.main:app --reload --port 4000",
-    "agents": "python -m backend.agents.runtime",
-    "mcp": "python -m backend.mcp.server",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
     "lint": "eslint . --ext .js,.jsx"
   },
   "dependencies": {

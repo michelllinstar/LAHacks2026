@@ -1,0 +1,82 @@
+{
+  "region": {
+    "cluster_id": 2,
+    "role": "HTTP route handlers for authentication and user management",
+    "conventions": {
+      "naming": "snake_case async functions decorated with @router.<method>",
+      "error_handling": "raise HTTPException(status_code, detail) on validation/auth failure",
+      "response_shape": "return Pydantic models; FastAPI handles serialization"
+    },
+    "dependencies": {
+      "allowed": [3, 4],
+      "forbidden": [5]
+    }
+  },
+  "exemplars": [
+    { "file_path": "myapp/routes/auth.py", "reason": "Closest match: existing login flow uses the same verify_password + issue_token pattern" },
+    { "file_path": "myapp/routes/users.py", "reason": "Demonstrates the require_token middleware integration this task needs" }
+  ],
+  "relevant_symbols": [
+    {
+      "qualified_name": "myapp.routes.auth.login",
+      "file_path": "myapp/routes/auth.py",
+      "line_start": 18,
+      "line_end": 42,
+      "signature": "def login(payload: LoginPayload) -> Response",
+      "kind": "function",
+      "invariants": [
+        { "text": "payload.email must be non-empty before reaching verify_password", "source_kind": "defensive", "confidence": 0.78 }
+      ],
+      "signals": { "centrality": 0.82, "recency": 0.91, "co_change": 0.66, "embedding": 0.88, "test_coverage": 0.72 }
+    },
+    {
+      "qualified_name": "myapp.services.auth_service.verify_password",
+      "file_path": "myapp/services/auth_service.py",
+      "line_start": 8,
+      "line_end": 14,
+      "signature": "def verify_password(raw: str, hashed: str) -> bool",
+      "kind": "function",
+      "invariants": [
+        { "text": "hashed argument must match bcrypt's $2b$ prefix", "source_kind": "test", "confidence": 0.94 }
+      ],
+      "signals": { "centrality": 0.55, "recency": 0.32, "co_change": 0.44, "embedding": 0.79, "test_coverage": 0.88 }
+    },
+    {
+      "qualified_name": "myapp.services.auth_service.issue_token",
+      "file_path": "myapp/services/auth_service.py",
+      "line_start": 16,
+      "line_end": 26,
+      "signature": "def issue_token(user_id: int) -> str",
+      "kind": "function",
+      "invariants": [
+        { "text": "JWT payload always includes 'exp' set to now + JWT_TTL", "source_kind": "test", "confidence": 0.97 }
+      ],
+      "signals": { "centrality": 0.61, "recency": 0.55, "co_change": 0.5, "embedding": 0.74, "test_coverage": 0.81 }
+    },
+    {
+      "qualified_name": "myapp.middleware.auth.require_token",
+      "file_path": "myapp/middleware/auth.py",
+      "line_start": 11,
+      "line_end": 30,
+      "signature": "def require_token(request: Request) -> User",
+      "kind": "function",
+      "invariants": [
+        { "text": "Returns 401 when Authorization header missing", "source_kind": "test", "confidence": 0.92 }
+      ],
+      "signals": { "centrality": 0.74, "recency": 0.21, "co_change": 0.6, "embedding": 0.58, "test_coverage": 0.9 }
+    }
+  ],
+  "flows": [
+    {
+      "source_symbol": "myapp.routes.auth.login",
+      "sink_symbol": "myapp.services.auth_service.issue_token",
+      "path": ["myapp.routes.auth.login", "myapp.db.queries.find_user_by_email", "myapp.services.auth_service.verify_password", "myapp.services.auth_service.issue_token"],
+      "flow_kind": "return_value",
+      "sensitivity": "credential"
+    }
+  ],
+  "notes": [
+    "Layer 4 invariant 'payload.email must be non-empty' is defensive-derived (confidence 0.78); treat as advisory.",
+    "All public endpoints in this region wrap handlers with require_token; do not skip it for new routes."
+  ]
+}

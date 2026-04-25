@@ -1,16 +1,181 @@
+"""Shared Pydantic contract for Cartographer.
+
+All HTTP routes, agent protocol messages, MCP tools, and frontend mocks share
+these shapes. Pydantic v2 syntax.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Literal, Optional
+
 from pydantic import BaseModel
-from typing import Optional
+
+
+# ---------------------------------------------------------------------------
+# Graph projection (frontend visualization contract)
+# ---------------------------------------------------------------------------
+
+
+class GraphNode(BaseModel):
+    id: str
+    kind: Literal["symbol", "cluster", "flow_node", "invariant"]
+    label: str
+    layer: int
+    metadata: dict[str, Any] = {}
+
+
+class GraphEdge(BaseModel):
+    source: str
+    target: str
+    kind: str
+    weight: float = 1.0
+
+
+class GraphProjection(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+
+
+# ---------------------------------------------------------------------------
+# Repository registration & indexing
+# ---------------------------------------------------------------------------
+
+
+class RepoCreate(BaseModel):
+    git_url: Optional[str] = None
+    local_path: Optional[str] = None
+    name: Optional[str] = None
+
+
+class RepoSummary(BaseModel):
+    hash: str
+    name: str
+    status: Literal["pending", "indexing", "ready", "stale"]
+    git_url: Optional[str] = None
+    local_path: Optional[str] = None
+
+
+class IndexJob(BaseModel):
+    job_id: str
+    repo_hash: str
+    status: str
+
+
+class LayerStatus(BaseModel):
+    state: Literal["pending", "running", "done", "error"]
+    count: int = 0
+    started_at: Optional[str] = None
+    ended_at: Optional[str] = None
+
+
+class IndexStatus(BaseModel):
+    repo_hash: str
+    layers: dict[str, LayerStatus]
+
+
+# ---------------------------------------------------------------------------
+# Context bundle (Query Engine response surface)
+# ---------------------------------------------------------------------------
+
+
+class Region(BaseModel):
+    cluster_id: Optional[int] = None
+    role: str = ""
+    conventions: dict[str, Any] = {}
+    dependencies: dict[str, list[int]] = {}
+
+
+class RelevantSymbol(BaseModel):
+    qualified_name: str
+    file_path: str
+    line_start: int
+    line_end: int
+    signature: str
+    kind: str
+    invariants: list[dict[str, Any]] = []
+    signals: dict[str, float] = {}
+
+
+class Exemplar(BaseModel):
+    file_path: str
+    reason: str
+
+
+class FlowPath(BaseModel):
+    source_symbol: str
+    sink_symbol: str
+    path: list[str]
+    flow_kind: str
+    sensitivity: Optional[str] = None
+
+
+class Invariant(BaseModel):
+    target_symbol: str
+    text: str
+    source_kind: Literal["test", "defensive", "comment"]
+    source_location: str
+    confidence: float
+
+
+class ContextBundle(BaseModel):
+    region: Region
+    exemplars: list[Exemplar]
+    relevant_symbols: list[RelevantSymbol]
+    flows: list[FlowPath]
+    notes: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Query Engine request shapes
+# ---------------------------------------------------------------------------
+
+
+class FindContextRequest(BaseModel):
+    task: str
+    seed_symbol: Optional[str] = None
+    repo_hash: str
+
+
+class FlowRequest(BaseModel):
+    symbol: str
+    direction: Literal["forward", "backward"] = "forward"
+    depth: int = 3
+    repo_hash: str
+
+
+class InvariantRequest(BaseModel):
+    symbol: Optional[str] = None
+    cluster_id: Optional[int] = None
+    min_confidence: float = 0.0
+    repo_hash: str
+
+
+class ArchRequest(BaseModel):
+    path: Optional[str] = None
+    cluster_id: Optional[int] = None
+    repo_hash: str
+
+
+class ArchResponse(BaseModel):
+    cluster: Region
+    member_files: list[str]
+
+
+class ExemplarRequest(BaseModel):
+    task: str
+    cluster_id: int
+    repo_hash: str
+
+
+class ExemplarResponse(BaseModel):
+    files: list[Exemplar]
+
+
+# ---------------------------------------------------------------------------
+# Auth (kept for the existing /api/auth/login route)
+# ---------------------------------------------------------------------------
+
 
 class LoginPayload(BaseModel):
     email: str
     password: str
-
-class ProjectPayload(BaseModel):
-    name: str
-    description: Optional[str] = None
-    cloudinaryUrl: Optional[str] = None
-    repoUrl: Optional[str] = None
-
-class AgentverseQueryPayload(BaseModel):
-    question: str
-    projectContext: Optional[dict] = None

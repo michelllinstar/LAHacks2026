@@ -1,0 +1,1 @@
+"""Cartographer MCP adapter package."""
