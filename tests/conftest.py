@@ -88,12 +88,22 @@ def client(mock_store):
     because conftest sets ``CARTOGRAPHER_DEV=1``.
     """
     import jwt
+    import time
     from fastapi.testclient import TestClient
     from backend.main import app
     from backend.lib.auth_guard import _secret
 
+    # Mint a JWT with an explicit ``exp`` so the token semantics match the
+    # 8-hour HTTP cookie max_age set by routes/auth.py:login. Without this,
+    # PyJWT issues a token with no expiry, and a long-running test session
+    # could see the cookie expire while the JWT still verifies — a quiet
+    # mismatch that was flagged by audit.
     token = jwt.encode(
-        {"sub": "test-user", "email": "test@example.com"},
+        {
+            "sub": "test-user",
+            "email": "test@example.com",
+            "exp": int(time.time()) + 8 * 3600,
+        },
         _secret(),
         algorithm="HS256",
     )

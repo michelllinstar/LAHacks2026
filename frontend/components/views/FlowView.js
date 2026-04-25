@@ -146,8 +146,10 @@ export default function FlowView({ repoHash }) {
       cyRef.current = null;
       layoutRanRef.current = false;
     };
+    // Re-mount per repo so a navigation between two repos doesn't reuse the
+    // previous repo's cytoscape instance (and stale layout).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [repoHash]);
 
   // Data effect — projection changes only. Layout runs once; subsequent
   // projection changes use 'draft' fcose / non-randomized dagre.

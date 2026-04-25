@@ -1,4 +1,5 @@
 import os
+import time
 import jwt
 from fastapi import APIRouter, HTTPException, Response
 from backend.lib.auth_guard import _secret
@@ -21,7 +22,19 @@ def login(payload: LoginPayload, response: Response):
     if not user:
         raise HTTPException(status_code=401, detail='Invalid credentials')
 
-    token = jwt.encode({'sub': user['id'], 'email': user['email'], 'name': user['name']}, _secret(), algorithm='HS256')
+    # ``exp`` matches the cookie max_age below so the JWT and the HTTP
+    # cookie expire together. PyJWT defaults to no expiry, which would
+    # leave the JWT valid after the cookie is purged — a quiet mismatch.
+    token = jwt.encode(
+        {
+            'sub': user['id'],
+            'email': user['email'],
+            'name': user['name'],
+            'exp': int(time.time()) + 8 * 60 * 60,
+        },
+        _secret(),
+        algorithm='HS256',
+    )
     response.set_cookie(
         'agentverse_session',
         token,

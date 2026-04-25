@@ -25,13 +25,19 @@ logger = logging.getLogger(__name__)
 
 
 def _check_secret(provided: str | None) -> bool:
+    """Authorize an MCP tool call.
+
+    Precedence:
+    1. ``MCP_SHARED_SECRET`` set → require ``provided`` to match exactly.
+       ``CARTOGRAPHER_DEV`` is ignored in this branch so a stray dev flag
+       can never weaken a configured secret.
+    2. ``MCP_SHARED_SECRET`` unset → deny all calls unless
+       ``CARTOGRAPHER_DEV=1`` (dev convenience).
+    """
     expected = os.getenv("MCP_SHARED_SECRET")
-    if not expected:
-        # Fail-closed unless explicit dev override.
-        if os.getenv("CARTOGRAPHER_DEV") == "1":
-            return True
-        return False
-    return provided == expected
+    if expected:
+        return provided == expected
+    return os.getenv("CARTOGRAPHER_DEV") == "1"
 
 
 def _engine(repo_hash: str) -> QueryEngine:
