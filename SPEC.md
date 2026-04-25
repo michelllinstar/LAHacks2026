@@ -18,7 +18,7 @@ Cartographer indexes four kinds of knowledge over a repository: the structural i
 
 ### 2.1 Goals
 
-The system must reduce token consumption for context retrieval on a fifty-thousand-line codebase by at least an order of magnitude relative to baseline grep-and-read exploration, measured on a fixed task set. It must produce context bundles that include architectural conventions and implicit constraints, not merely file paths or symbol locations. It must register at least three discoverable agents on Agentverse, each with a distinct capability surface, routable via ASI:One. It must expose its query surface as an OmegaClaw skill that a user can invoke through OmegaClaw without direct knowledge of the underlying agents. It must expose its query surface as an MCP server consumable by Claude Code, Devin, and Cursor without modification.
+The system must reduce token consumption for context retrieval on a fifty-thousand-line codebase by at least an order of magnitude relative to baseline grep-and-read exploration, measured on a fixed task set. It must produce context bundles that include architectural conventions and implicit constraints, not merely file paths or symbol locations. It must register at least three agents on Agentverse, each with a distinct capability surface, with at least one routable via ASI:One as the public entry point and the others reachable as an internal mesh. It must expose its query surface as an OmegaClaw skill that a user can invoke through OmegaClaw without direct knowledge of the underlying agents. It must expose its query surface as an MCP server consumable by Claude Code, Devin, and Cursor without modification.
 
 ### 2.2 Non-Goals
 
@@ -64,7 +64,7 @@ The construction pipeline clusters files using four signals: directory structure
 
 For each cluster, an LLM annotation pass receives a sample of files (up to five, chosen by structural-centrality weight) and produces a structured description through a constrained-generation prompt. The output schema requires the LLM to produce: the cluster's role in one sentence, its naming convention as a regex or glob, its allowed and forbidden dependencies (referenced by other cluster ids), and three to five characteristic code shape patterns observed in the sample.
 
-Storage uses two tables: `clusters` (cluster id, role description, naming convention, code shape JSON) and `cluster_dependencies` (source cluster, target cluster, kind: allowed or forbidden). Each file in `symbols` carries a `cluster_id` foreign key.
+Storage uses three tables: `clusters` (cluster id, role description, naming convention, code shape JSON), `cluster_dependencies` (source cluster, target cluster, kind: allowed or forbidden), and `files` (file path, cluster id) which owns the file-to-cluster mapping. Symbols join to their cluster transitively through `symbols.file_path → files.file_path → files.cluster_id`.
 
 ### 4.4 Layer Four: Implicit-Constraint Layer
 
@@ -118,7 +118,37 @@ The MCP server exposes five tools, one per query type. Each tool's input schema 
 
 ### 7.2 Agentverse Agents
 
-Three uAgents are registered. The Cartographer Coordinator agent receives natural-language queries via ASI:One and dispatches them to the Query Engine. The Architecture Describer agent specializes in `describe_architecture` queries. The Invariant Reporter agent specializes in `find_invariants` queries. Each agent's manifest declares its capability in terms a routing layer can match against. The split is intentional even though one agent could handle all queries — it demonstrates the Agentverse discovery pattern at the granularity the track is judging on.
+#### 7.2.1 Topology
+
+Cartographer registers a mesh of six uAgents on Agentverse. One agent — the Coordinator — is the only public entry point and is the sole agent surfaced to ASI:One as a routable skill. The other five are internal specialists that the Coordinator dispatches to over the Chat Protocol; they are registered with `mailbox=True` so they are reachable without public IPs but their manifests omit the ASI:One discoverability flag so a generic prompt does not bypass the Coordinator. Splitting the mesh this way demonstrates the Agentverse multi-agent pattern while keeping one stable address for external callers.
+
+Every agent runs as a long-lived Python process started from `backend/agents/`. Each derives its address deterministically from a seed phrase stored in `.env.local` (`COORDINATOR_SEED`, `INDEXER_SEED`, etc.) so addresses are stable across restarts and registration is idempotent. Internal messages use a shared protocol module (`backend/agents/protocols.py`) so message schemas evolve in one place.
+
+#### 7.2.2 The Six Agents
+
+**Coordinator.** Receives natural-language queries from ASI:One, the OmegaClaw skill, and the FastAPI `/api/agentverse/` route. Decomposes the query into the Query Engine's structured form using a single small LLM call, decides which specialists to invoke (often more than one in parallel), aggregates their replies into a context bundle, and returns the bundle to the caller. Owns no index data of its own — it is purely a dispatcher and aggregator. Emits `region_highlighted` events on the SSE channel as specialist replies arrive so the Visualization Frontend can flash the touched symbols in real time.
+
+**Indexer.** Receives an `IndexRepo` message containing a repository URL or local path. Walks the file tree, runs tree-sitter, and writes Layer One symbols, Layer Two flows, Layer Three clusters, and Layer Four invariants to the SQLite index store. Emits `IndexProgress` messages as each layer completes; the Coordinator forwards these to the SSE channel. The Indexer is the only agent that writes to the index store; all other specialists are read-only. Long-running by design — an `IndexRepo` reply is sent once when indexing finishes, with intermediate progress streamed.
+
+**Symbol Analyst.** Handles the Layer One retrieval-and-ranking subtask of `find_relevant_context` and any direct symbol-lookup queries. Receives a `SymbolQuery` (task description plus optional seed symbol and optional cluster-id scope from the Architecture Analyst), runs the hybrid embedding-plus-FTS5 retrieval over Layer One described in §5.2, applies the ranking weight combiner from §6, and returns a `SymbolGraph` (ranked symbols with signatures, locations, and the five raw signal values). Holds no LLM — its work is pure retrieval and ranking, which keeps it under the §9.2 latency budget for direct queries.
+
+**Architecture Analyst.** Handles `describe_architecture` and `find_exemplars`. Receives an `ArchQuery` (path or cluster id), looks up the Layer Three cluster record, and returns an `ArchGraph` containing the role description, naming convention, allowed/forbidden dependencies, and characteristic code shapes. For `find_exemplars`, ranks cluster members by structural-centrality weight against the task description and returns the top three to five.
+
+**Flow Analyst.** Handles `trace_data_flow`. Receives a `FlowQuery` (seed symbol plus direction and depth) and returns a `FlowGraph` containing the flow paths Layer Two recorded, including sensitivity tags. Bounded by the depth parameter to keep response payloads small even for highly connected symbols.
+
+**Invariant Reporter.** Handles `find_invariants`. Receives an `InvariantQuery` (target symbol or cluster id) and returns the Layer Four invariants attached to it, each with source kind, source location, and confidence score. Filters out invariants below a configurable confidence threshold by default; the threshold is overridable in the request for callers that want raw output.
+
+#### 7.2.3 Dispatch Policy
+
+The Coordinator's decomposition step classifies the incoming query into one of the five Query Engine types from §5.1 and selects specialists accordingly. `find_relevant_context` runs as a two-stage pipeline that mirrors §5.2: the Coordinator first asks the Architecture Analyst to identify the relevant cluster from the decomposed task, then dispatches the Symbol Analyst with that cluster as a scope filter, then enriches the ranked symbols with a parallel Invariant Reporter call keyed on the returned symbol set. The Coordinator assembles the context bundle defined in §5.3 from the three replies. `trace_data_flow` goes to the Flow Analyst alone. `find_invariants` goes to the Invariant Reporter alone. `describe_architecture` and `find_exemplars` go to the Architecture Analyst alone. New repository registrations go to the Indexer; the Coordinator returns immediately with a job id and forwards `IndexProgress` events to the SSE channel.
+
+#### 7.2.4 Manifests and Discovery
+
+Each agent's Agentverse manifest declares its name, a one-paragraph capability description, and the input message schema. The Coordinator's manifest additionally declares the keywords `code`, `repository`, `codebase`, `architecture`, `convention`, and `invariant` so ASI:One routes code-related prompts to it. Specialist manifests declare narrower keywords matching their domain (`flow`, `data flow`, `taint` for the Flow Analyst, etc.) but mark themselves as internal-only via a `discoverable: false` flag the Coordinator respects when introspecting the registry. This produces the visible-on-the-marketplace Coordinator while keeping the internal mesh navigable to operators inspecting Agentverse directly.
+
+#### 7.2.5 Hackathon Scope Reduction
+
+If time pressure forces a reduction, the mesh collapses cleanly. The minimum viable agent set is Coordinator plus Symbol Analyst plus Indexer — three registered agents, satisfying §2.1's "at least three agents on Agentverse" goal, with the Coordinator as the ASI:One-routable entry point. Architecture Analyst, Flow Analyst, and Invariant Reporter can be folded into the Coordinator as in-process function calls without changing the external API surface, since the Coordinator already owns aggregation. Agents are split out only as their specialist logic stabilizes; the boundary between "Coordinator method" and "separate agent" is a deployment decision, not an architectural one.
 
 ### 7.3 OmegaClaw Skill
 
@@ -204,7 +234,7 @@ The build is divided into four roughly equal time slices for a forty-eight-hour 
 
 ## 14. Success Criteria
 
-The submission is successful if it demonstrates the following on demo day. A live or pre-recorded head-to-head shows at least 5x token reduction on the chosen task. Three Agentverse agents are registered and discoverable via ASI:One. The OmegaClaw skill is invokable and returns a Cartographer response. The MCP server is connected to a coding agent during the demo and visibly used. At least one invariant from Layer Four appears in a context bundle and is shown to influence the coding agent's output. The Visualization Frontend renders all four layers for the demo repository and reflects at least one live agent query in real time during the head-to-head, with the highlighted region matching the symbols the agent's response cited.
+The submission is successful if it demonstrates the following on demo day. A live or pre-recorded head-to-head shows at least 5x token reduction on the chosen task. At least three Agentverse agents are registered, with the Coordinator discoverable and routable via ASI:One and the specialist agents reachable through the internal mesh. The OmegaClaw skill is invokable and returns a Cartographer response. The MCP server is connected to a coding agent during the demo and visibly used. At least one invariant from Layer Four appears in a context bundle and is shown to influence the coding agent's output. The Visualization Frontend renders all four layers for the demo repository and reflects at least one live agent query in real time during the head-to-head, with the highlighted region matching the symbols the agent's response cited.
 
 ---
 
