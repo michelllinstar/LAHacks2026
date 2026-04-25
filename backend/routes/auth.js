@@ -1,16 +1,14 @@
+import express from 'express';
 import jwt from 'jsonwebtoken';
 import { serialize } from 'cookie';
 
+const router = express.Router();
 const SECRET = process.env.JWT_SECRET || 'dev-secret-token';
 const USERS = [
   { id: 'u1', email: 'admin@agentverse.app', password: 'password123', name: 'Agentverse Admin' }
 ];
 
-export default function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' });
-  }
-
+router.post('/', (req, res) => {
   const { email, password } = req.body;
   const user = USERS.find((account) => account.email === email && account.password === password);
 
@@ -31,4 +29,10 @@ export default function handler(req, res) {
   }));
 
   return res.status(200).json({ message: 'Authenticated' });
-}
+});
+
+router.all('*', (req, res) => {
+  res.status(405).json({ message: 'Method not allowed' });
+});
+
+export default router;

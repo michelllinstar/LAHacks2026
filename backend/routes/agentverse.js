@@ -1,10 +1,9 @@
-import { queryAgentverse } from '../../lib/agentverse';
+import express from 'express';
+import { queryAgentverse } from '../lib/agentverse.js';
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' });
-  }
+const router = express.Router();
 
+router.post('/', async (req, res) => {
   const { question, projectContext } = req.body;
   try {
     const response = await queryAgentverse(question, projectContext);
@@ -12,4 +11,10 @@ export default async function handler(req, res) {
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Agentverse query failed' });
   }
-}
+});
+
+router.all('*', (req, res) => {
+  res.status(405).json({ message: 'Method not allowed' });
+});
+
+export default router;

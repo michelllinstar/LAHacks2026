@@ -1,44 +1,71 @@
 # Agentverse UML Website Scaffold
 
-This repository contains a starter website project for an Agentverse / OmegaClaw specialist capability.
+This repository is now split into a dedicated frontend and backend to make the architecture explicit.
 
-## What this scaffold includes
+## Project structure
 
-- `Next.js` frontend with login, dashboard, and Cloudinary diagram preview support
-- `MongoDB` storage for project UML diagrams via `mongoose`
-- `Cloudinary` integration helper for storing and rendering UML diagram images
-- `Agentverse` API stub and skill invocation flow using `pages/api/agentverse.js`
-- Local auth stub via JWT cookies for quick prototyping
-- Repo connector UI to connect Git or local schema sources
+- `frontend/` — Next.js user interface and Cloudinary-rendered diagram preview pages
+- `backend/` — Python FastAPI service with MongoDB persistence and Agentverse skill invocation
+- `.env.local` — environment variables used by both front and backend
 
-## Files created
+## What changed
 
-- `pages/index.js`
-- `pages/login.js`
-- `pages/dashboard.js`
-- `pages/api/auth.js`
-- `pages/api/projects.js`
-- `pages/api/agentverse.js`
-- `lib/mongodb.js`
-- `lib/cloudinary.js`
-- `lib/agentverse.js`
-- `components/DiagramViewer.js`
-- `components/RepoConnector.js`
-- `components/AgentverseConsole.js`
-- `models/Project.js`
-- `styles/globals.css`
-- `.env.example`
+- Frontend pages and components moved to `frontend/`
+- Backend API logic, models, and integration helpers moved to `backend/`
+- `frontend/next.config.js` now proxies `/api/*` calls to `http://localhost:4000`
+- Root `package.json` scripts launch the separated frontend and backend
 
-## Setup
+## Run locally
 
-1. Copy `.env.example` to `.env.local`.
-2. Populate `MONGODB_URI`, Cloudinary values, and `AGENTVERSE` credentials.
-3. Run `npm install`.
-4. Start development with `npm run dev`.
+1. Copy `.env.example` to `.env.local`
+2. Fill in MongoDB, Cloudinary, and Agentverse credentials
+3. Install dependencies from the repository root:
+   - `npm install`
+4. Start the frontend:
+   - `npm run dev`
+4. Install backend Python dependencies:
+   - `python3 -m venv backend/.venv`
+   - `source backend/.venv/bin/activate`
+   - `pip install -r backend/requirements.txt`
+5. Start the frontend:
+   - `npm run dev`
+6. Start the backend in a second terminal:
+   - `npm run backend`
 
-## Next steps
+## Docker support
 
-- Implement actual repo parsing and UML generation via a code intelligence / AST pipeline
-- Register a specialist agent on Agentverse and wire `lib/agentverse.js` to the real API
-- Add Chat Protocol support in the API response flow
-- Connect the app to OmegaClaw as a discoverable skill for end-to-end demos
+The Python backend can also run in Docker:
+
+```bash
+cd backend
+docker build -t agentverse-uml-backend .
+docker run -p 4000:4000 --env-file ../.env.local agentverse-uml-backend
+```
+
+## Directory layout
+
+- `frontend/pages/index.js`
+- `frontend/pages/login.js`
+- `frontend/pages/dashboard.js`
+- `frontend/components/DiagramViewer.js`
+- `frontend/components/RepoConnector.js`
+- `frontend/components/AgentverseConsole.js`
+- `frontend/styles/globals.css`
+- `frontend/next.config.js`
+- `backend/main.py`
+- `backend/routes/auth.py`
+- `backend/routes/projects.py`
+- `backend/routes/agentverse.py`
+- `backend/database.py`
+- `backend/lib/agentverse.py`
+- `backend/requirements.txt`
+
+## Backend capability
+
+The backend now exposes:
+- `POST /api/auth`
+- `GET /api/projects`
+- `POST /api/projects`
+- `POST /api/agentverse`
+
+This aligns with the separated front/back architecture and keeps the API server distinct from the Next.js UI.
