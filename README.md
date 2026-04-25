@@ -5,7 +5,7 @@ This repository is now split into a dedicated frontend and backend to make the a
 ## Project structure
 
 - `frontend/` — Next.js user interface and Cloudinary-rendered diagram preview pages
-- `backend/` — Python FastAPI service with MongoDB persistence and Agentverse skill invocation
+- `backend/` — Python FastAPI service with SQLite persistence and Agentverse skill invocation
 - `.env.local` — environment variables used by both front and backend
 
 ## What changed
@@ -18,7 +18,7 @@ This repository is now split into a dedicated frontend and backend to make the a
 ## Run locally
 
 1. Copy `.env.example` to `.env.local`
-2. Fill in MongoDB, Cloudinary, and Agentverse credentials
+2. Fill in Cloudinary and Agentverse credentials (SQLite path defaults to `./cartographer.db`)
 3. Install dependencies from the repository root:
    - `npm install`
 4. Start the frontend:

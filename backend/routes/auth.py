@@ -15,7 +15,7 @@ USERS = [
     }
 ]
 
-@router.post('/')
+@router.post('/login')
 def login(payload: LoginPayload, response: Response):
     user = next((u for u in USERS if u['email'] == payload.email and u['password'] == payload.password), None)
     if not user:

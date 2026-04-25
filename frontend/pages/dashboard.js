@@ -28,7 +28,7 @@ export default function Dashboard() {
             ) : (
               diagrams.map((diagram) => (
                 <button
-                  key={diagram._id}
+                  key={diagram.id}
                   type="button"
                   onClick={() => setSelectedDiagram(diagram)}
                 >
