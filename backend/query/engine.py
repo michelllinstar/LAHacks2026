@@ -161,10 +161,53 @@ class QueryEngine:
                     f"filtered {filtered_low} low-confidence invariant(s) (< 0.4)"
                 )
 
+        # SPEC §5.3: attach flows that touch the ranked symbols. We collect
+        # raw flow docs first, then batch-resolve every ObjectId those flows
+        # reference into qualified names in a single round-trip, then convert
+        # to FlowPath wire shape. Capped at 25 to keep bundles compact.
+        flow_payloads: list[dict] = []
+        if relevant and ranked:
+            collected: list[dict] = []
+            seen_flow_ids: set = set()
+            try:
+                for sid in ranked:
+                    if len(collected) >= 25:
+                        break
+                    for flow in db_store.flows_through_symbol(self.repo_hash, sid):
+                        fid = flow.get("_id")
+                        if fid in seen_flow_ids:
+                            continue
+                        seen_flow_ids.add(fid)
+                        collected.append(flow)
+                        if len(collected) >= 25:
+                            break
+            except Exception:
+                collected = []
+
+            if collected:
+                needed: set = set()
+                for f in collected:
+                    for k in ("source_symbol_id", "sink_symbol_id"):
+                        v = f.get(k)
+                        if v is not None:
+                            needed.add(v)
+                    for v in f.get("path", []) or []:
+                        if v is not None:
+                            needed.add(v)
+                lookup: dict = {}
+                if needed:
+                    for doc in db_store.get_symbols_by_ids(self.repo_hash, list(needed)):
+                        lookup[doc["_id"]] = doc.get("qualified_name", "")
+                flow_payloads = [self._flow_to_payload(f, lookup) for f in collected]
+                notes.append(
+                    f"attached {len(flow_payloads)} flow(s) touching ranked symbols"
+                )
+
         return bundle.build_context_bundle(
             symbols=relevant,
             region=region,
             exemplars=self._derive_exemplars(relevant),
+            flows=flow_payloads,
             notes=notes,
         )
 

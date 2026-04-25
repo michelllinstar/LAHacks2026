@@ -50,6 +50,13 @@ def run_index(
     db_store.init_repo_db(repo_hash)
     db_store.set_repo_status(repo_hash, "indexing")
 
+    # Wipe prior-run rows so a re-index produces a clean slate. Layers 3 & 4
+    # already self-reset; Layer 1 (symbols/refs/files/embeddings) and Layer 2
+    # (flows) had no reset path, which let stale or duplicated rows
+    # accumulate across re-indexes.
+    db_store.reset_layer1(repo_hash)
+    db_store.reset_flows(repo_hash)
+
     _run_layer1(repo_hash, repo_path, emit, job_id)
     _run_layer2(repo_hash, emit, job_id)
     _run_layer3(repo_hash, emit, job_id)

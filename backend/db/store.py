@@ -828,6 +828,26 @@ def reset_clusters(repo_hash: str) -> None:
     )
 
 
+def reset_flows(repo_hash: str) -> None:
+    """Delete all Layer 2 flows for the repo. Without this, re-indexing
+    accumulates duplicates because the ``flows`` collection has no unique
+    constraint to absorb them."""
+    db = get_db()
+    db["flows"].delete_many({"repo_hash": repo_hash})
+
+
+def reset_layer1(repo_hash: str) -> None:
+    """Delete every Layer 1 row (files, symbols, refs, symbol_embeddings).
+    Clears the foundation so a re-index produces a clean slate; without this,
+    deleted-or-renamed symbols persist forever (the unique index dedupes
+    re-inserts but never expunges stale rows)."""
+    db = get_db()
+    db["files"].delete_many({"repo_hash": repo_hash})
+    db["symbols"].delete_many({"repo_hash": repo_hash})
+    db["refs"].delete_many({"repo_hash": repo_hash})
+    db["symbol_embeddings"].delete_many({"repo_hash": repo_hash})
+
+
 def count_clusters(repo_hash: str) -> int:
     """Total cluster count for the repo."""
     db = get_db()

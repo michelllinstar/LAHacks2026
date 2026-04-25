@@ -51,12 +51,20 @@ def _symbol_ids_for_files(repo_hash: str, file_paths: list[str]) -> list[str]:
 
 def _classify(question: str) -> str:
     q = (question or "").lower()
-    # Order matters: more-specific architecture/exemplar checks run first so
-    # prompts like "describe the architecture" don't get caught by the
-    # flow/trace branch. The literal word "flow" is uncommon in architecture
-    # prompts so keeping flow second is safe.
+    # Order is by keyword specificity, most specific first:
+    # 1. exemplar/template — unambiguous L3 exemplar intent.
+    # 2. invariant/constraint — unambiguous L4. Runs before architecture so
+    #    "invariants for the user cluster" routes to L4 instead of being
+    #    captured by the cluster keyword.
+    # 3. architecture/convention/cluster/region — L3. Beats flow so prompts
+    #    like "describe the data flow architecture" go to L3, not L2.
+    # 4. flow/taint/trace — L2 fallback for any remaining flow phrasing.
+    # 5. default — find_relevant_context.
+    # Callers can bypass this entirely by passing model_extra["query_type"].
     if "exemplar" in q or "template" in q:
         return "find_exemplars"
+    if "invariant" in q or "constraint" in q:
+        return "find_invariants"
     if (
         "architecture" in q
         or "convention" in q
@@ -67,8 +75,6 @@ def _classify(question: str) -> str:
         return "describe_architecture"
     if "flow" in q or "taint" in q or "trace" in q:
         return "trace_data_flow"
-    if "invariant" in q or "constraint" in q:
-        return "find_invariants"
     return "find_relevant_context"
 
 
