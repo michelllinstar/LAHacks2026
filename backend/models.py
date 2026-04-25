@@ -29,6 +29,7 @@ class GraphEdge(BaseModel):
     target: str
     kind: str
     weight: float = 1.0
+    metadata: dict[str, Any] = {}
 
 
 class GraphProjection(BaseModel):

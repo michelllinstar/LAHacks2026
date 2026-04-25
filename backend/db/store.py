@@ -138,7 +138,27 @@ def _ensure_repo_indexes(db: Database) -> None:
         [("repo_hash", ASCENDING)], name="symbol_embeddings_repo"
     )
 
-    db["flows"].create_index([("repo_hash", ASCENDING)], name="flows_repo")
+    try:
+        db["flows"].drop_index("flows_repo")
+    except Exception:
+        pass
+    db["flows"].create_index(
+        [("repo_hash", ASCENDING), ("source_symbol_id", ASCENDING)],
+        name="flows_repo_source",
+    )
+    db["flows"].create_index(
+        [("repo_hash", ASCENDING), ("sink_symbol_id", ASCENDING)],
+        name="flows_repo_sink",
+    )
+    db["flows"].create_index(
+        [("repo_hash", ASCENDING), ("path", ASCENDING)],
+        name="flows_repo_path",
+    )
+    db["flows"].create_index(
+        [("repo_hash", ASCENDING), ("sensitivity", ASCENDING)],
+        sparse=True,
+        name="flows_repo_sensitivity",
+    )
     db["clusters"].create_index([("repo_hash", ASCENDING)], name="clusters_repo")
     db["cluster_dependencies"].create_index(
         [("repo_hash", ASCENDING)], name="cluster_deps_repo"
@@ -525,6 +545,85 @@ def insert_flow(
         }
     )
     return res.inserted_id
+
+
+def bulk_insert_flows(repo_hash: str, rows: Sequence[dict]) -> list[ObjectId]:
+    """Insert many flow documents."""
+    if not rows:
+        return []
+    db = get_db()
+    docs = [
+        {
+            "repo_hash": repo_hash,
+            "source_symbol_id": r.get("source_symbol_id"),
+            "sink_symbol_id": r.get("sink_symbol_id"),
+            "path": list(r.get("path") or []),
+            "flow_kind": r["flow_kind"],
+            "sensitivity": r.get("sensitivity"),
+        }
+        for r in rows
+    ]
+    res = db["flows"].insert_many(docs)
+    return list(res.inserted_ids)
+
+
+def iter_flows(repo_hash: str) -> list[dict]:
+    """All flows for a repo."""
+    db = get_db()
+    return list(db["flows"].find({"repo_hash": repo_hash}))
+
+
+def flows_from_symbol(
+    repo_hash: str, symbol_id: ObjectId, max_depth: int = 3
+) -> list[dict]:
+    """Flows whose source is ``symbol_id`` and whose path length <= max_depth."""
+    db = get_db()
+    cursor = db["flows"].find(
+        {
+            "repo_hash": repo_hash,
+            "source_symbol_id": symbol_id,
+            "$expr": {"$lte": [{"$size": {"$ifNull": ["$path", []]}}, max_depth]},
+        }
+    )
+    return list(cursor)
+
+
+def flows_to_symbol(
+    repo_hash: str, symbol_id: ObjectId, max_depth: int = 3
+) -> list[dict]:
+    """Flows whose sink is ``symbol_id`` and whose path length <= max_depth."""
+    db = get_db()
+    cursor = db["flows"].find(
+        {
+            "repo_hash": repo_hash,
+            "sink_symbol_id": symbol_id,
+            "$expr": {"$lte": [{"$size": {"$ifNull": ["$path", []]}}, max_depth]},
+        }
+    )
+    return list(cursor)
+
+
+def flows_through_symbol(repo_hash: str, symbol_id: ObjectId) -> list[dict]:
+    """Flows where ``symbol_id`` appears anywhere in the path or as endpoint."""
+    db = get_db()
+    return list(
+        db["flows"].find(
+            {
+                "repo_hash": repo_hash,
+                "$or": [
+                    {"source_symbol_id": symbol_id},
+                    {"sink_symbol_id": symbol_id},
+                    {"path": symbol_id},
+                ],
+            }
+        )
+    )
+
+
+def count_flows(repo_hash: str) -> int:
+    """Total flow count for the repo."""
+    db = get_db()
+    return db["flows"].count_documents({"repo_hash": repo_hash})
 
 
 # ---------------------------------------------------------------------------

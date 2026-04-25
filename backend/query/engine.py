@@ -20,6 +20,7 @@ from backend.models import (
     ExemplarRequest,
     ExemplarResponse,
     FindContextRequest,
+    FlowPath,
     FlowRequest,
     InvariantRequest,
     Region,
@@ -76,7 +77,42 @@ class QueryEngine:
         )
 
     def trace_data_flow(self, req: FlowRequest) -> dict:
-        return {"flows": []}
+        """Forward or backward call-chain trace from a seed symbol."""
+        seed = db_store.get_symbol(self.repo_hash, qualified_name=req.symbol)
+        if seed is None:
+            return {"flows": []}
+        if req.direction == "forward":
+            flows = db_store.flows_from_symbol(
+                self.repo_hash, seed["_id"], max_depth=req.depth
+            )
+        else:
+            flows = db_store.flows_to_symbol(
+                self.repo_hash, seed["_id"], max_depth=req.depth
+            )
+        if not flows:
+            return {"flows": []}
+
+        # Batch-resolve every ObjectId touched across all flows so we only hit
+        # Mongo once per request instead of once per id.
+        needed_ids: set[ObjectId] = set()
+        for flow in flows:
+            src = flow.get("source_symbol_id")
+            sink = flow.get("sink_symbol_id")
+            if src is not None:
+                needed_ids.add(src)
+            if sink is not None:
+                needed_ids.add(sink)
+            for pid in flow.get("path") or []:
+                if pid is not None:
+                    needed_ids.add(pid)
+        lookup: dict[ObjectId, str] = {}
+        if needed_ids:
+            for doc in db_store.get_symbols_by_ids(self.repo_hash, list(needed_ids)):
+                lookup[doc["_id"]] = doc.get("qualified_name", "")
+
+        return {
+            "flows": [self._flow_to_payload(f, lookup) for f in flows],
+        }
 
     def find_invariants(self, req: InvariantRequest) -> list[dict]:
         return []
@@ -168,6 +204,26 @@ class QueryEngine:
                 )
             )
         return out
+
+    def _flow_to_payload(
+        self,
+        flow_doc: dict,
+        lookup: dict[ObjectId, str],
+    ) -> dict:
+        """Convert a Layer 2 flow doc into the FlowPath wire shape."""
+        src_id = flow_doc.get("source_symbol_id")
+        sink_id = flow_doc.get("sink_symbol_id")
+        path_ids = flow_doc.get("path") or []
+        payload = {
+            "source_symbol": lookup.get(src_id, "") if src_id is not None else "",
+            "sink_symbol": lookup.get(sink_id, "") if sink_id is not None else "",
+            "path": [lookup.get(pid, "") for pid in path_ids if pid is not None],
+            "flow_kind": flow_doc.get("flow_kind", "call_chain"),
+            "sensitivity": flow_doc.get("sensitivity"),
+        }
+        # Validate against the FlowPath model so callers get the canonical shape;
+        # we still return a plain dict for the {"flows": [...]} envelope.
+        return FlowPath(**payload).model_dump()
 
     def _derive_exemplars(self, symbols: list[RelevantSymbol]) -> list[Exemplar]:
         seen: set[str] = set()

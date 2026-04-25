@@ -51,7 +51,7 @@ def run_index(
     db_store.set_repo_status(repo_hash, "indexing")
 
     _run_layer1(repo_hash, repo_path, emit, job_id)
-    _run_stub_layer(repo_hash, "flow", emit, job_id, layer2_flows.build)
+    _run_layer2(repo_hash, emit, job_id)
     _run_stub_layer(repo_hash, "architecture", emit, job_id, layer3_clusters.build)
     _run_stub_layer(repo_hash, "invariant", emit, job_id, layer4_invariants.build)
 
@@ -216,6 +216,54 @@ def _run_layer1(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> No
     emit("index_progress", {"layer": layer, "state": "done", "count": inserted_count})
 
 
+def _run_layer2(repo_hash: str, emit: EmitFn, job_id: str) -> None:
+    """Run Layer 2 (call-chain flow construction) and emit progress events."""
+    layer = "flow"
+    started = _now_iso()
+    db_store.upsert_index_job(
+        job_id=f"{job_id}-{layer}",
+        repo_hash=repo_hash,
+        layer=layer,
+        state="running",
+        count=0,
+        started_at=started,
+    )
+    emit("index_progress", {"layer": layer, "state": "running", "count": 0})
+
+    try:
+        stats = layer2_flows.build(repo_hash=repo_hash, emit=emit)
+    except Exception as exc:
+        logger.exception("layer 2 build failed: %s", exc)
+        ended = _now_iso()
+        db_store.upsert_index_job(
+            job_id=f"{job_id}-{layer}",
+            repo_hash=repo_hash,
+            layer=layer,
+            state="error",
+            count=0,
+            started_at=started,
+            ended_at=ended,
+        )
+        emit(
+            "index_progress",
+            {"layer": layer, "state": "error", "count": 0, "error": str(exc)},
+        )
+        return
+
+    count = int(stats.get("flows", 0))
+    ended = _now_iso()
+    db_store.upsert_index_job(
+        job_id=f"{job_id}-{layer}",
+        repo_hash=repo_hash,
+        layer=layer,
+        state="done",
+        count=count,
+        started_at=started,
+        ended_at=ended,
+    )
+    emit("index_progress", {"layer": layer, "state": "done", "count": count})
+
+
 def _run_stub_layer(
     repo_hash: str,
     layer: str,
@@ -235,8 +283,23 @@ def _run_stub_layer(
     emit("index_progress", {"layer": layer, "state": "running", "count": 0})
     try:
         builder(repo_hash=repo_hash)
-    except Exception as exc:  # pragma: no cover - stubs do not raise
-        logger.warning("stub builder for layer %s raised: %s", layer, exc)
+    except Exception as exc:
+        logger.exception("layer %s stub builder failed: %s", layer, exc)
+        ended = _now_iso()
+        db_store.upsert_index_job(
+            job_id=f"{job_id}-{layer}",
+            repo_hash=repo_hash,
+            layer=layer,
+            state="error",
+            count=0,
+            started_at=started,
+            ended_at=ended,
+        )
+        emit(
+            "index_progress",
+            {"layer": layer, "state": "error", "count": 0, "error": str(exc)},
+        )
+        return
     # Tiny pause keeps the SSE stream perceptibly stepwise during the demo.
     time.sleep(0.01)
     ended = _now_iso()
