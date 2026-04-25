@@ -30,7 +30,7 @@ The system does not generate code. It is a retrieval and context-assembly layer;
 
 The system has six components: the Indexer, the Index Store, the Query Engine, the Protocol Adapters, the Visualization Frontend, and the Demo Harness.
 
-The Indexer ingests a repository and produces the four-layer index. It is invoked once per repository at registration time and incrementally on file changes thereafter. The Index Store persists the index in SQLite with FTS5 and embedding tables; storage is single-file to keep deployment simple. The Query Engine accepts structured queries and returns context bundles, combining lookups across all four layers. The Protocol Adapters expose the Query Engine over three transports: a uAgent registered on Agentverse, an OmegaClaw skill, and an MCP server. The Visualization Frontend is a Next.js web application that consumes graph snapshots and live indexing events from the backend, rendering the four layers as interactive views so a human operator can inspect what the agents discovered. The Demo Harness drives the head-to-head comparison against a baseline coding agent for the demo.
+The Indexer ingests a repository and produces the four-layer index. It is invoked once per repository at registration time and incrementally on file changes thereafter. The Index Store persists the index in MongoDB as a set of collections inside a single database (default name `cartographer`); a Mongo `$text` index over symbol names and signatures replaces the FTS5 lookup, and embeddings are stored as `BinData` documents in a dedicated collection. Every document carries a `repo_hash` field so a single database can serve multiple repositories. The Query Engine accepts structured queries and returns context bundles, combining lookups across all four layers. The Protocol Adapters expose the Query Engine over three transports: a uAgent registered on Agentverse, an OmegaClaw skill, and an MCP server. The Visualization Frontend is a Next.js web application that consumes graph snapshots and live indexing events from the backend, rendering the four layers as interactive views so a human operator can inspect what the agents discovered. The Demo Harness drives the head-to-head comparison against a baseline coding agent for the demo.
 
 ### 3.2 Data Flow
 
@@ -46,7 +46,7 @@ Layer One stores every named entity in the source — functions, classes, method
 
 The construction pipeline parses each source file with tree-sitter using language-specific grammars. A symbol extractor walks the resulting concrete syntax tree, emitting symbol records keyed by qualified name. A reference resolver runs a second pass, resolving identifiers in expression positions against the symbol table, with import paths resolved through the language's module system. Cross-file resolution for the hackathon scope handles only static imports; dynamic imports are out of scope.
 
-Storage uses three tables: `symbols` (qualified name, file path, line range, kind, signature), `references` (source symbol, target symbol, edge kind), and `symbol_embeddings` (qualified name, vector). Indexes on `qualified_name` and on `(file_path, line_range)` support the two dominant query patterns.
+Storage uses three MongoDB collections: `symbols` (`repo_hash`, qualified name, file path, line range, kind, signature) with a compound unique index on `(repo_hash, qualified_name, file_path, line_start)` and a `$text` index over `(qualified_name, signature)` to replace FTS5; `refs` (`repo_hash`, source symbol ObjectId, target symbol ObjectId, edge kind) with indexes on `(repo_hash, source_symbol_id)` and `(repo_hash, target_symbol_id)`; and `symbol_embeddings` (`repo_hash`, `symbol_id` ObjectId, `vector` `BinData`) with a unique index on `symbol_id`. Symbol IDs are MongoDB `ObjectId` values, stringified at the API boundary so the wire format remains stable.
 
 ### 4.2 Layer Two: Data-Flow Graph
 
@@ -54,7 +54,7 @@ Layer Two stores how specific values move through the program. A flow record cap
 
 The construction pipeline runs a forward-flow walker over Layer One's call graph. For each function, the walker produces an intra-procedural summary describing how each parameter is used and what each return value is composed of. Inter-procedural propagation chains these summaries across calls up to a configurable depth (default three). The analysis is sound but imprecise — it does not track aliasing through complex object mutation, and it conservatively assumes that any mutation of a passed object propagates to all references.
 
-Storage uses two tables: `flows` (source symbol, sink symbol, path JSON, flow kind, sensitivity tag) and `flow_paths` (flow id, position, intermediate symbol). Sensitivity tags are heuristic — symbols whose names match patterns like `password`, `token`, `ssn` are tagged at extraction time and the tag propagates along flows.
+Storage uses one MongoDB collection: `flows` (`repo_hash`, source symbol ObjectId, sink symbol ObjectId, `path` array of intermediate symbol ObjectIds, flow kind, sensitivity tag). The intermediate path is stored as an embedded array, eliminating the previous `flow_paths` join table. Sensitivity tags are heuristic — symbols whose names match patterns like `password`, `token`, `ssn` are tagged at extraction time and the tag propagates along flows.
 
 ### 4.3 Layer Three: Architectural-Pattern Layer
 
@@ -64,7 +64,7 @@ The construction pipeline clusters files using four signals: directory structure
 
 For each cluster, an LLM annotation pass receives a sample of files (up to five, chosen by structural-centrality weight) and produces a structured description through a constrained-generation prompt. The output schema requires the LLM to produce: the cluster's role in one sentence, its naming convention as a regex or glob, its allowed and forbidden dependencies (referenced by other cluster ids), and three to five characteristic code shape patterns observed in the sample.
 
-Storage uses three tables: `clusters` (cluster id, role description, naming convention, code shape JSON), `cluster_dependencies` (source cluster, target cluster, kind: allowed or forbidden), and `files` (file path, cluster id) which owns the file-to-cluster mapping. Symbols join to their cluster transitively through `symbols.file_path → files.file_path → files.cluster_id`.
+Storage uses three MongoDB collections: `clusters` (`repo_hash`, `_id` ObjectId, role description, naming convention, code shape), `cluster_dependencies` (`repo_hash`, source cluster ObjectId, target cluster ObjectId, kind: allowed or forbidden), and `files` (`repo_hash`, file path, cluster ObjectId, last_modified) with a compound unique index on `(repo_hash, file_path)`. Symbols join to their cluster transitively through `symbols.file_path → files.file_path → files.cluster_id`.
 
 ### 4.4 Layer Four: Implicit-Constraint Layer
 
@@ -74,7 +74,7 @@ The construction pipeline mines three sources. First, test files are parsed and 
 
 Each candidate invariant is passed through a validation step that checks it for syntactic well-formedness and removes obvious LLM hallucinations (invariants that reference symbols not in Layer One are rejected). Surviving invariants are stored with a confidence score derived from the source: assertions in tests yield high confidence; defensive checks yield medium confidence; comment-derived inferences yield low confidence.
 
-Storage uses one table: `invariants` (target symbol, invariant text, source kind, source location, confidence score, extraction timestamp).
+Storage uses one MongoDB collection: `invariants` (`repo_hash`, target symbol ObjectId, invariant text, source kind, source location, confidence score, extraction timestamp), indexed on `(repo_hash, target_symbol_id)`.
 
 ## 5. Query Engine
 
@@ -94,7 +94,7 @@ A `find_exemplars` query takes a task description and a target cluster and retur
 
 ### 5.2 Query Resolution
 
-For `find_relevant_context`, the engine first decomposes the query using a small LLM call into a structured form: task type (add new code, modify existing, understand), topic keywords, and constraints. It then performs a hybrid retrieval over Layer One: embedding similarity against `symbol_embeddings` and FTS5 lexical match against symbol names and signatures. The candidate set is filtered by Layer Three to identify the architectural region the task concerns. Files within that region are ranked using the weight combiner (Section 6). For each retained file, Layer Four invariants attached to its symbols are included in the response. The Layer Three convention manifest for the file's cluster is included once.
+For `find_relevant_context`, the engine first decomposes the query using a small LLM call into a structured form: task type (add new code, modify existing, understand), topic keywords, and constraints. It then performs a hybrid retrieval over Layer One: embedding similarity against the `symbol_embeddings` collection (cosine computed in app code) and a Mongo `$text` lexical match against symbol names and signatures. The candidate set is filtered by Layer Three to identify the architectural region the task concerns. Files within that region are ranked using the weight combiner (Section 6). For each retained file, Layer Four invariants attached to its symbols are included in the response. The Layer Three convention manifest for the file's cluster is included once.
 
 For other query types, resolution is direct: the engine queries the relevant tables and returns results. No LLM call is required for these, which keeps them low-latency.
 
@@ -128,9 +128,9 @@ Every agent runs as a long-lived Python process started from `backend/agents/`. 
 
 **Coordinator.** Receives natural-language queries from ASI:One, the OmegaClaw skill, and the FastAPI `/api/agentverse/` route. Decomposes the query into the Query Engine's structured form using a single small LLM call, decides which specialists to invoke (often more than one in parallel), aggregates their replies into a context bundle, and returns the bundle to the caller. Owns no index data of its own — it is purely a dispatcher and aggregator. Emits `region_highlighted` events on the SSE channel as specialist replies arrive so the Visualization Frontend can flash the touched symbols in real time.
 
-**Indexer.** Receives an `IndexRepo` message containing a repository URL or local path. Walks the file tree, runs tree-sitter, and writes Layer One symbols, Layer Two flows, Layer Three clusters, and Layer Four invariants to the SQLite index store. Emits `IndexProgress` messages as each layer completes; the Coordinator forwards these to the SSE channel. The Indexer is the only agent that writes to the index store; all other specialists are read-only. Long-running by design — an `IndexRepo` reply is sent once when indexing finishes, with intermediate progress streamed.
+**Indexer.** Receives an `IndexRepo` message containing a repository URL or local path. Walks the file tree, runs tree-sitter, and writes Layer One symbols, Layer Two flows, Layer Three clusters, and Layer Four invariants to the MongoDB index store. Emits `IndexProgress` messages as each layer completes; the Coordinator forwards these to the SSE channel. The Indexer is the only agent that writes to the index store; all other specialists are read-only. Long-running by design — an `IndexRepo` reply is sent once when indexing finishes, with intermediate progress streamed.
 
-**Symbol Analyst.** Handles the Layer One retrieval-and-ranking subtask of `find_relevant_context` and any direct symbol-lookup queries. Receives a `SymbolQuery` (task description plus optional seed symbol and optional cluster-id scope from the Architecture Analyst), runs the hybrid embedding-plus-FTS5 retrieval over Layer One described in §5.2, applies the ranking weight combiner from §6, and returns a `SymbolGraph` (ranked symbols with signatures, locations, and the five raw signal values). Holds no LLM — its work is pure retrieval and ranking, which keeps it under the §9.2 latency budget for direct queries.
+**Symbol Analyst.** Handles the Layer One retrieval-and-ranking subtask of `find_relevant_context` and any direct symbol-lookup queries. Receives a `SymbolQuery` (task description plus optional seed symbol and optional cluster-id scope from the Architecture Analyst), runs the hybrid embedding-plus-`$text` retrieval over Layer One described in §5.2, applies the ranking weight combiner from §6, and returns a `SymbolGraph` (ranked symbols with signatures, locations, and the five raw signal values). Holds no LLM — its work is pure retrieval and ranking, which keeps it under the §9.2 latency budget for direct queries.
 
 **Architecture Analyst.** Handles `describe_architecture` and `find_exemplars`. Receives an `ArchQuery` (path or cluster id), looks up the Layer Three cluster record, and returns an `ArchGraph` containing the role description, naming convention, allowed/forbidden dependencies, and characteristic code shapes. For `find_exemplars`, ranks cluster members by structural-centrality weight against the task description and returns the top three to five.
 
@@ -190,7 +190,7 @@ The frontend uses the same hardcoded-user JWT scheme inherited from the existing
 
 ### 9.1 Storage
 
-A single SQLite file per indexed repository, named `<repo-hash>.cart`, lives under `~/.cartographer/indexes/`. The file contains all four layers and the embedding tables. Embeddings use a 384-dimensional model (such as `all-MiniLM-L6-v2`) for hackathon purposes; a production deployment would use a code-specific embedding model.
+A single MongoDB database `cartographer` (overridable via `MONGODB_DB_NAME`) holds all four layers across all indexed repositories, with every document keyed by `repo_hash`. The connection string comes from `MONGODB_URI` (default `mongodb://localhost:27017`). Embeddings use a 384-dimensional model (`all-MiniLM-L6-v2`) stored as `BinData`; cosine similarity is computed in application code (no Atlas Vector Search dependency for the hackathon).
 
 ### 9.2 Performance Targets
 
@@ -224,7 +224,7 @@ Indexing time may exceed the demo window if a repository is chosen poorly. Mitig
 
 The build is divided into four roughly equal time slices for a forty-eight-hour hackathon.
 
-**Hours 0-12:** Layer One end-to-end on Python only. Tree-sitter integration, symbol extractor, reference resolver, SQLite schema, and basic FTS5 queries. The MCP server exposes `find_relevant_context` against Layer One only. The Visualization Frontend's Symbol View renders a static Layer One graph for the indexed repository, hydrated from a single REST call. This is the minimum viable product — it should already be useful at this point.
+**Hours 0-12:** Layer One end-to-end on Python only. Tree-sitter integration, symbol extractor, reference resolver, MongoDB collection bootstrap, and basic `$text` retrieval queries. The MCP server exposes `find_relevant_context` against Layer One only. The Visualization Frontend's Symbol View renders a static Layer One graph for the indexed repository, hydrated from a single REST call. This is the minimum viable product — it should already be useful at this point.
 
 **Hours 12-24:** Layer Three. Clustering, LLM annotation, convention manifests. Add TypeScript support to Layer One. Wire the ranking weight combiner. The MCP server gains `describe_architecture` and `find_exemplars`. The frontend gains the Architecture View and the convention side panel; the SSE channel is wired so indexing progress streams live.
 
@@ -240,4 +240,4 @@ The submission is successful if it demonstrates the following on demo day. A liv
 
 ## Summary
 
-This specification defines Codebase Cartographer as a four-layer semantic index over source repositories, exposed through three protocols to satisfy the Agentverse, OmegaClaw, and Cognition tracks simultaneously. The architecture decomposes into an Indexer, an Index Store in SQLite, a Query Engine, three Protocol Adapters, a Visualization Frontend, and a Demo Harness. The four layers — symbol graph, data-flow graph, architectural-pattern layer, and implicit-constraint layer — each have defined storage schemas, construction pipelines, and query semantics. The Visualization Frontend turns the index into an interactive map and, during demos, mirrors the Agentverse agents' query activity in real time. The implementation plan fits into a forty-eight-hour window with Layer One as the minimum viable product, Layer Three as the architectural-awareness contribution, and Layer Four as the novelty headline. Success is measured by a head-to-head token-consumption comparison against a baseline coding agent on a real open-source repository, with the frontend providing the visual narrative that distinguishes the Cartographer-enabled run from the baseline.
+This specification defines Codebase Cartographer as a four-layer semantic index over source repositories, exposed through three protocols to satisfy the Agentverse, OmegaClaw, and Cognition tracks simultaneously. The architecture decomposes into an Indexer, an Index Store in MongoDB, a Query Engine, three Protocol Adapters, a Visualization Frontend, and a Demo Harness. The four layers — symbol graph, data-flow graph, architectural-pattern layer, and implicit-constraint layer — each have defined storage schemas, construction pipelines, and query semantics. The Visualization Frontend turns the index into an interactive map and, during demos, mirrors the Agentverse agents' query activity in real time. The implementation plan fits into a forty-eight-hour window with Layer One as the minimum viable product, Layer Three as the architectural-awareness contribution, and Layer Four as the novelty headline. Success is measured by a head-to-head token-consumption comparison against a baseline coding agent on a real open-source repository, with the frontend providing the visual narrative that distinguishes the Cartographer-enabled run from the baseline.

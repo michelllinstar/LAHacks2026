@@ -33,7 +33,17 @@ app.include_router(stream.router, prefix="/api/stream")
 
 @app.on_event("startup")
 def _on_startup() -> None:
-    init_control_db()
+    try:
+        init_control_db()
+    except Exception as exc:  # pragma: no cover
+        # Defer connection failure to first use so the service still imports
+        # cleanly when MongoDB is unreachable at startup.
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "MongoDB unreachable at startup (%s); will retry on first request",
+            exc,
+        )
 
 
 @app.get("/health")

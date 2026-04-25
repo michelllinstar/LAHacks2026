@@ -1,30 +1,22 @@
-"""Idempotent migration runner for Cartographer.
+"""Idempotent MongoDB index bootstrap for Cartographer.
 
-Running this module as a script initialises the control DB and (optionally) a
-per-repo index DB::
+Running this module creates (or refreshes) the indexes used by the four-layer
+index plus the control plane::
 
-    python -m backend.db.migrations                # control DB only
-    python -m backend.db.migrations <repo_hash>    # control + repo DB
+    python -m backend.db.migrations
 """
 
 from __future__ import annotations
 
 import sys
 
-from backend.db.store import (
-    control_db_path,
-    init_control_db,
-    init_repo_db,
-    repo_db_path,
-)
+from backend.db.store import _db_name, _mongo_uri, init_control_db, init_repo_db
 
 
-def run(repo_hash: str | None = None) -> None:
+def run(_repo_hash: str | None = None) -> None:
     init_control_db()
-    print(f"control DB ready at {control_db_path()}")
-    if repo_hash:
-        init_repo_db(repo_hash)
-        print(f"repo DB ready at {repo_db_path(repo_hash)}")
+    init_repo_db("_bootstrap")  # collections are shared; arg is unused now
+    print(f"MongoDB ready at {_mongo_uri()} (db={_db_name()})")
 
 
 if __name__ == "__main__":

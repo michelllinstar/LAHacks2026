@@ -5,7 +5,7 @@ Agentverse UML Studio — a hackathon project (LA Hacks 2026) that lets users co
 ## Tech stack
 
 - **Frontend:** Next.js 14 (Pages Router), React 18, axios, SWR
-- **Backend:** Python FastAPI + Uvicorn, SQLite (stdlib `sqlite3`), PyJWT, Cloudinary SDK
+- **Backend:** Python FastAPI + Uvicorn, MongoDB (via `pymongo`), PyJWT, Cloudinary SDK
 - **Infra:** Docker (backend), `.env.local` shared by both tiers
 
 ## Top-level layout
@@ -55,7 +55,7 @@ FastAPI app with three routers mounted under `/api`. Loads env from the **repo-r
 ```
 backend/
 ├── main.py                 # FastAPI app, CORS for localhost:3000, mounts /api/{auth,projects,agentverse}
-├── database.py             # sqlite3 connection + schema init (projects, diagrams)
+├── database.py             # MongoDB connection helpers (re-exports backend.db.store)
 ├── models.py               # Pydantic: LoginPayload, ProjectPayload, AgentverseQueryPayload
 ├── __init__.py             # (empty)
 ├── requirements.txt        # fastapi, uvicorn, PyJWT, cloudinary, requests, python-dotenv
@@ -80,7 +80,8 @@ backend/
 ## Environment variables (`.env.example`)
 
 ```
-SQLITE_DB_PATH           # Path to SQLite file (defaults to ./cartographer.db at repo root)
+MONGODB_URI              # Mongo connection string (defaults to mongodb://localhost:27017)
+MONGODB_DB_NAME          # Database name (defaults to "cartographer")
 JWT_SECRET               # HS256 signing key for session cookies
 CLOUDINARY_CLOUD_NAME    # Cloudinary account
 CLOUDINARY_API_KEY

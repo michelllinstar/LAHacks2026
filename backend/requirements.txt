@@ -12,3 +12,4 @@ uagents
 mcp
 anthropic
 sse-starlette
+pymongo

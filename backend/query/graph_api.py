@@ -8,42 +8,34 @@ from backend.models import GraphEdge, GraphNode, GraphProjection
 
 def symbol_projection(repo_hash: str) -> GraphProjection:
     """Layer 1 projection: every symbol + every ref."""
-    conn = db_store.get_repo_db(repo_hash)
-    try:
-        nodes: list[GraphNode] = []
-        for row in conn.execute(
-            "SELECT id, qualified_name, file_path, line_start, line_end, kind, signature FROM symbols"
-        ):
-            nodes.append(
-                GraphNode(
-                    id=str(row["id"]),
-                    kind="symbol",
-                    label=row["qualified_name"],
-                    layer=1,
-                    metadata={
-                        "file_path": row["file_path"],
-                        "line_start": row["line_start"],
-                        "line_end": row["line_end"],
-                        "signature": row["signature"] or "",
-                        "symbol_kind": row["kind"],
-                    },
-                )
+    nodes: list[GraphNode] = []
+    for doc in db_store.iter_symbols(repo_hash):
+        nodes.append(
+            GraphNode(
+                id=str(doc["_id"]),
+                kind="symbol",
+                label=doc.get("qualified_name", ""),
+                layer=1,
+                metadata={
+                    "file_path": doc.get("file_path"),
+                    "line_start": doc.get("line_start"),
+                    "line_end": doc.get("line_end"),
+                    "signature": doc.get("signature") or "",
+                    "symbol_kind": doc.get("kind"),
+                },
             )
-        edges: list[GraphEdge] = []
-        for row in conn.execute(
-            "SELECT id, source_symbol_id, target_symbol_id, edge_kind FROM refs"
-        ):
-            edges.append(
-                GraphEdge(
-                    source=str(row["source_symbol_id"]),
-                    target=str(row["target_symbol_id"]),
-                    kind=row["edge_kind"],
-                    weight=1.0,
-                )
+        )
+    edges: list[GraphEdge] = []
+    for doc in db_store.iter_refs(repo_hash):
+        edges.append(
+            GraphEdge(
+                source=str(doc["source_symbol_id"]),
+                target=str(doc["target_symbol_id"]),
+                kind=doc.get("edge_kind", ""),
+                weight=1.0,
             )
-        return GraphProjection(nodes=nodes, edges=edges)
-    finally:
-        conn.close()
+        )
+    return GraphProjection(nodes=nodes, edges=edges)
 
 
 def empty_projection() -> GraphProjection:

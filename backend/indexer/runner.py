@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
+from bson import ObjectId
+
 from backend.db import store as db_store
 from backend.lib import events as event_bus
 
@@ -41,11 +43,7 @@ def run_index(
     emit: Optional[EmitFn] = None,
     job_id: Optional[str] = None,
 ) -> None:
-    """Run all four layers (Layer 1 actual; 2/3/4 stubs) for a repo.
-
-    This is the entry point used both by the FastAPI ``BackgroundTasks`` path
-    and by the ``Indexer`` uAgent in :mod:`backend.agents.indexer_agent`.
-    """
+    """Run all four layers (Layer 1 actual; 2/3/4 stubs) for a repo."""
     emit = emit or _default_emit(repo_hash)
     job_id = job_id or uuid.uuid4().hex
 
@@ -125,79 +123,69 @@ def _run_layer1(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> No
         all_symbols.extend(symbols)
         all_refs.extend(refs)
 
-    # Persist to per-repo DB.
-    conn = db_store.get_repo_db(repo_hash)
     inserted_count = 0
-    try:
-        for file_path, mtime in files_seen:
-            db_store.upsert_file(conn, file_path=file_path, last_modified=mtime)
 
-        qname_to_id: dict[str, int] = {}
-        embed_blobs = embeddings.embed_symbols(all_symbols)
-        for row, blob in zip(all_symbols, embed_blobs):
-            sid = db_store.insert_symbol(
-                conn,
-                qualified_name=row.qualified_name,
-                file_path=row.file_path,
-                line_start=row.line_start,
-                line_end=row.line_end,
-                kind=row.kind,
-                signature=row.signature,
-            )
-            if sid:
-                qname_to_id[row.qualified_name] = sid
-                if blob:
-                    db_store.upsert_symbol_embedding(conn, sid, blob)
-                try:
-                    db_store.fts_index_symbol(conn, sid, row.qualified_name, row.signature)
-                except Exception:
-                    # FTS row may already exist on a re-index; ignore.
-                    pass
-                inserted_count += 1
-                emit(
-                    "node_added",
-                    {
-                        "layer": layer,
-                        "node": {
-                            "id": str(sid),
-                            "kind": "symbol",
-                            "label": row.qualified_name,
-                            "layer": 1,
-                            "metadata": {
-                                "file_path": row.file_path,
-                                "line_start": row.line_start,
-                                "line_end": row.line_end,
-                                "signature": row.signature,
-                                "symbol_kind": row.kind,
-                            },
-                        },
-                    },
-                )
+    for file_path, mtime in files_seen:
+        db_store.upsert_file(repo_hash, file_path=file_path, last_modified=mtime)
 
-        # Resolve refs in a second pass.
-        for ref in all_refs:
-            src_id = qname_to_id.get(ref.source_qname)
-            tgt_id = qname_to_id.get(ref.target_qname)
-            if not src_id or not tgt_id:
-                continue
-            edge_id = db_store.insert_ref(conn, src_id, tgt_id, ref.edge_kind)
-            emit(
-                "edge_added",
-                {
-                    "layer": layer,
-                    "edge": {
-                        "source": str(src_id),
-                        "target": str(tgt_id),
-                        "kind": ref.edge_kind,
-                        "weight": 1.0,
-                        "id": str(edge_id),
+    qname_to_id: dict[str, ObjectId] = {}
+    embed_blobs = embeddings.embed_symbols(all_symbols)
+    for row, blob in zip(all_symbols, embed_blobs):
+        sid = db_store.insert_symbol(
+            repo_hash,
+            qualified_name=row.qualified_name,
+            file_path=row.file_path,
+            line_start=row.line_start,
+            line_end=row.line_end,
+            kind=row.kind,
+            signature=row.signature,
+        )
+        if not sid:
+            continue
+        qname_to_id[row.qualified_name] = sid
+        if blob:
+            db_store.upsert_symbol_embedding(repo_hash, sid, blob)
+        inserted_count += 1
+        emit(
+            "node_added",
+            {
+                "layer": layer,
+                "node": {
+                    "id": str(sid),
+                    "kind": "symbol",
+                    "label": row.qualified_name,
+                    "layer": 1,
+                    "metadata": {
+                        "file_path": row.file_path,
+                        "line_start": row.line_start,
+                        "line_end": row.line_end,
+                        "signature": row.signature,
+                        "symbol_kind": row.kind,
                     },
                 },
-            )
+            },
+        )
 
-        conn.commit()
-    finally:
-        conn.close()
+    # Resolve refs in a second pass.
+    for ref in all_refs:
+        src_id = qname_to_id.get(ref.source_qname)
+        tgt_id = qname_to_id.get(ref.target_qname)
+        if not src_id or not tgt_id:
+            continue
+        edge_id = db_store.insert_ref(repo_hash, src_id, tgt_id, ref.edge_kind)
+        emit(
+            "edge_added",
+            {
+                "layer": layer,
+                "edge": {
+                    "source": str(src_id),
+                    "target": str(tgt_id),
+                    "kind": ref.edge_kind,
+                    "weight": 1.0,
+                    "id": str(edge_id),
+                },
+            },
+        )
 
     ended = _now_iso()
     db_store.upsert_index_job(

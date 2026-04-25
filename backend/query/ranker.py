@@ -1,4 +1,4 @@
-"""Five-signal candidate ranker over Layer 1 data.
+"""Five-signal candidate ranker over Layer 1 data (MongoDB-backed).
 
 Returns per-symbol signal values plus a combined weighted score. Coefficients
 live in ``backend/query/weights.json`` and depend on ``task_type``.
@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 import math
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from bson import ObjectId
+
+from backend.db import store as db_store
 
 _WEIGHTS_PATH = Path(__file__).resolve().parent / "weights.json"
 
@@ -44,7 +46,7 @@ def _is_test_path(path: str) -> bool:
     return base.startswith("test_") or base.endswith("_test.py")
 
 
-def _normalize(values: dict[int, float]) -> dict[int, float]:
+def _normalize(values: dict) -> dict:
     if not values:
         return {}
     lo = min(values.values())
@@ -74,90 +76,89 @@ def _cosine(a: bytes, b: bytes) -> float:
 # ---------------------------------------------------------------------------
 
 
-def structural_centrality(conn: sqlite3.Connection) -> dict[int, float]:
+def structural_centrality(repo_hash: str) -> dict[ObjectId, float]:
     """Approximate PageRank over ``refs``; falls back to out-degree if missing."""
-    rows = list(conn.execute("SELECT id FROM symbols"))
-    if not rows:
+    symbols = db_store.iter_symbols(repo_hash)
+    if not symbols:
         return {}
-    ids = [int(r["id"]) for r in rows]
-    edges = list(conn.execute("SELECT source_symbol_id, target_symbol_id FROM refs"))
+    ids = [doc["_id"] for doc in symbols]
+    edges = db_store.iter_refs(repo_hash)
     try:
         import networkx as nx  # type: ignore
 
         graph = nx.DiGraph()
         graph.add_nodes_from(ids)
         for e in edges:
-            graph.add_edge(int(e["source_symbol_id"]), int(e["target_symbol_id"]))
+            graph.add_edge(e["source_symbol_id"], e["target_symbol_id"])
         pr = nx.pagerank(graph, alpha=0.85)
-        return {int(k): float(v) for k, v in pr.items()}
+        return {k: float(v) for k, v in pr.items()}
     except Exception:
-        # Fallback: out-degree.
-        deg: dict[int, float] = {sid: 0.0 for sid in ids}
+        deg: dict = {sid: 0.0 for sid in ids}
         for e in edges:
-            sid = int(e["source_symbol_id"])
+            sid = e["source_symbol_id"]
             deg[sid] = deg.get(sid, 0.0) + 1.0
         return deg
 
 
-def change_recency(conn: sqlite3.Connection) -> dict[int, float]:
-    """Per-symbol recency signal derived from ``files.last_modified``."""
+def change_recency(repo_hash: str) -> dict[ObjectId, float]:
     now = datetime.now(timezone.utc).timestamp()
     by_path: dict[str, float] = {}
-    for row in conn.execute("SELECT file_path, last_modified FROM files"):
-        ts = row["last_modified"]
+    for doc in db_store.iter_files(repo_hash):
+        ts = doc.get("last_modified")
         if not ts:
             continue
         try:
             dt = datetime.fromisoformat(ts)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            by_path[row["file_path"]] = dt.timestamp()
+            by_path[doc["file_path"]] = dt.timestamp()
         except ValueError:
             continue
     if not by_path:
         return {}
     oldest = min(by_path.values())
     span = max(now - oldest, 1.0)
-    out: dict[int, float] = {}
-    for row in conn.execute("SELECT id, file_path FROM symbols"):
-        ts = by_path.get(row["file_path"])
+    out: dict = {}
+    for sym in db_store.iter_symbols(repo_hash):
+        ts = by_path.get(sym.get("file_path"))
         if ts is None:
             continue
-        # Recency: 1.0 = brand new, 0.0 = repo-oldest file.
-        out[int(row["id"])] = 1.0 - ((now - ts) / span)
+        out[sym["_id"]] = 1.0 - ((now - ts) / span)
     return out
 
 
-def co_change_correlation(_conn: sqlite3.Connection) -> dict[int, float]:
+def co_change_correlation(_repo_hash: str) -> dict:
     """No git log mining in MVP; returns empty."""
     return {}
 
 
 def embedding_similarity(
-    conn: sqlite3.Connection, query_vector: Optional[bytes]
-) -> dict[int, float]:
-    if not query_vector:
+    repo_hash: str,
+    candidate_ids: list[ObjectId],
+    query_vector: Optional[bytes],
+) -> dict[ObjectId, float]:
+    if not query_vector or not candidate_ids:
         return {}
-    out: dict[int, float] = {}
-    for row in conn.execute("SELECT symbol_id, vector FROM symbol_embeddings"):
-        out[int(row["symbol_id"])] = _cosine(query_vector, bytes(row["vector"] or b""))
+    out: dict = {}
+    for doc in db_store.find_symbol_embeddings(repo_hash, candidate_ids):
+        vec = doc.get("vector") or b""
+        if not isinstance(vec, (bytes, bytearray)):
+            vec = bytes(vec)
+        out[doc["symbol_id"]] = _cosine(query_vector, bytes(vec))
     return out
 
 
-def test_coverage_proxy(conn: sqlite3.Connection) -> dict[int, float]:
+def test_coverage_proxy(repo_hash: str) -> dict[ObjectId, float]:
     """Count refs whose source symbol lives in a test file."""
-    counts: dict[int, float] = {}
-    rows = conn.execute(
-        """
-        SELECT r.target_symbol_id AS target_id, s.file_path AS src_path
-        FROM refs r
-        JOIN symbols s ON s.id = r.source_symbol_id
-        """
-    )
-    for row in rows:
-        if not _is_test_path(row["src_path"] or ""):
+    sym_by_id = {doc["_id"]: doc for doc in db_store.iter_symbols(repo_hash)}
+    counts: dict = {}
+    for ref in db_store.iter_refs(repo_hash):
+        src = sym_by_id.get(ref.get("source_symbol_id"))
+        if not src or not _is_test_path(src.get("file_path") or ""):
             continue
-        tid = int(row["target_id"])
+        tid = ref.get("target_symbol_id")
+        if tid is None:
+            continue
         counts[tid] = counts.get(tid, 0.0) + 1.0
     return counts
 
@@ -168,32 +169,28 @@ def test_coverage_proxy(conn: sqlite3.Connection) -> dict[int, float]:
 
 
 def combine(
-    conn: sqlite3.Connection,
-    candidate_ids: list[int],
+    repo_hash: str,
+    candidate_ids: list[ObjectId],
     query_vector: Optional[bytes],
     task_type: str = "modify existing",
-) -> dict[int, dict[str, float]]:
-    """Return ``{symbol_id: {signal_name: value, ..., "score": combined}}``.
-
-    Only ``candidate_ids`` get a row in the output, but signals are computed
-    over the whole index where that is cheaper than per-candidate queries.
-    """
+) -> dict[ObjectId, dict[str, float]]:
+    """Return ``{symbol_id: {signal_name: value, ..., "score": combined}}``."""
     weights_table = _load_weights()
     weights = weights_table.get(task_type) or weights_table.get("modify existing", {})
 
-    sc_raw = structural_centrality(conn)
-    cr_raw = change_recency(conn)
-    cc_raw = co_change_correlation(conn)
-    sim_raw = embedding_similarity(conn, query_vector)
-    tc_raw = test_coverage_proxy(conn)
+    sc_raw = structural_centrality(repo_hash)
+    cr_raw = change_recency(repo_hash)
+    cc_raw = co_change_correlation(repo_hash)
+    sim_raw = embedding_similarity(repo_hash, candidate_ids, query_vector)
+    tc_raw = test_coverage_proxy(repo_hash)
 
     sc = _normalize(sc_raw)
     cr = _normalize(cr_raw)
     cc = _normalize(cc_raw)
-    sim = sim_raw  # already in [-1, 1]; clamp below
+    sim = sim_raw
     tc = _normalize(tc_raw)
 
-    out: dict[int, dict[str, float]] = {}
+    out: dict = {}
     for sid in candidate_ids:
         signals = {
             "structural_centrality": float(sc.get(sid, 0.0)),

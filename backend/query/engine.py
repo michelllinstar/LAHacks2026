@@ -6,9 +6,9 @@ endpoints return well-formed but empty responses.
 
 from __future__ import annotations
 
-import re
-import sqlite3
 from typing import Iterable, Optional
+
+from bson import ObjectId
 
 from backend.db import store as db_store
 from backend.indexer import embeddings
@@ -28,13 +28,8 @@ from backend.models import (
 
 from . import bundle, decomposer, ranker
 
-_TOP_K_FTS = 50
+_TOP_K_RETRIEVE = 200
 _TOP_K_RESULT = 12
-
-
-def _fts_escape(token: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9_]", " ", token).strip()
-    return cleaned
 
 
 class QueryEngine:
@@ -52,35 +47,30 @@ class QueryEngine:
         task_type = decomp["task_type"]
         keywords = decomp["keywords"]
 
-        conn = db_store.get_repo_db(self.repo_hash)
-        try:
-            candidate_ids = self._hybrid_retrieve(conn, req.task, keywords, req.seed_symbol)
-            if not candidate_ids:
-                return bundle.build_context_bundle(
-                    symbols=[],
-                    notes=["no matching symbols indexed for this repository yet"],
-                )
-            query_vec = embeddings.embed_query(req.task)
-            signals = ranker.combine(conn, candidate_ids, query_vec, task_type=task_type)
-            ranked = sorted(
-                candidate_ids,
-                key=lambda sid: signals.get(sid, {}).get("score", 0.0),
-                reverse=True,
-            )[:_TOP_K_RESULT]
-            relevant = self._hydrate_symbols(conn, ranked, signals)
-            notes: list[str] = []
-            if not query_vec:
-                notes.append("embedding model unavailable; ranking used FTS + structure only")
+        candidate_ids = self._hybrid_retrieve(req.task, keywords, req.seed_symbol)
+        if not candidate_ids:
             return bundle.build_context_bundle(
-                symbols=relevant,
-                exemplars=self._derive_exemplars(relevant),
-                notes=notes,
+                symbols=[],
+                notes=["no matching symbols indexed for this repository yet"],
             )
-        finally:
-            conn.close()
+        query_vec = embeddings.embed_query(req.task)
+        signals = ranker.combine(self.repo_hash, candidate_ids, query_vec, task_type=task_type)
+        ranked = sorted(
+            candidate_ids,
+            key=lambda sid: signals.get(sid, {}).get("score", 0.0),
+            reverse=True,
+        )[:_TOP_K_RESULT]
+        relevant = self._hydrate_symbols(ranked, signals)
+        notes: list[str] = []
+        if not query_vec:
+            notes.append("embedding model unavailable; ranking used text + structure only")
+        return bundle.build_context_bundle(
+            symbols=relevant,
+            exemplars=self._derive_exemplars(relevant),
+            notes=notes,
+        )
 
     def trace_data_flow(self, req: FlowRequest) -> dict:
-        # Layer 2 not built in MVP.
         return {"flows": []}
 
     def find_invariants(self, req: InvariantRequest) -> list[dict]:
@@ -93,8 +83,6 @@ class QueryEngine:
         )
 
     def find_exemplars(self, req: ExemplarRequest) -> ExemplarResponse:
-        # Without Layer 3 we approximate by ranking all symbols against the task
-        # and surfacing distinct file paths.
         ctx = self.find_relevant_context(
             FindContextRequest(task=req.task, repo_hash=req.repo_hash)
         )
@@ -120,66 +108,43 @@ class QueryEngine:
 
     def _hybrid_retrieve(
         self,
-        conn: sqlite3.Connection,
         task: str,
         keywords: list[str],
         seed_symbol: Optional[str],
-    ) -> list[int]:
-        ids: set[int] = set()
-        # FTS5 lexical match.
-        terms = [_fts_escape(k) for k in keywords if _fts_escape(k)]
-        if terms:
-            match_query = " OR ".join(f'"{t}"*' for t in terms)
-            try:
-                rows = conn.execute(
-                    "SELECT rowid FROM symbols_fts WHERE symbols_fts MATCH ? LIMIT ?",
-                    (match_query, _TOP_K_FTS),
-                )
-                ids.update(int(r["rowid"]) for r in rows)
-            except sqlite3.OperationalError:
-                pass
+    ) -> list[ObjectId]:
+        ids: set[ObjectId] = set()
+
+        # Mongo $text search (replaces FTS5).
+        text_query = " ".join([k for k in keywords if k]) or task
+        if text_query.strip():
+            for doc in db_store.text_search_symbols(
+                self.repo_hash, text_query, limit=_TOP_K_RETRIEVE
+            ):
+                ids.add(doc["_id"])
 
         if seed_symbol:
-            row = conn.execute(
-                "SELECT id FROM symbols WHERE qualified_name = ? LIMIT 1",
-                (seed_symbol,),
-            ).fetchone()
-            if row:
-                ids.add(int(row["id"]))
+            seed = db_store.get_symbol(self.repo_hash, qualified_name=seed_symbol)
+            if seed:
+                ids.add(seed["_id"])
 
-        # If FTS yielded nothing, fall back to a substring match on qualified_name.
-        if not ids and keywords:
-            like = f"%{keywords[0]}%"
-            rows = conn.execute(
-                "SELECT id FROM symbols WHERE qualified_name LIKE ? LIMIT ?",
-                (like, _TOP_K_FTS),
-            )
-            ids.update(int(r["id"]) for r in rows)
-
-        # Final fallback: take the top symbols by id so callers always see
+        # Final fallback: take the first N symbols so callers always see
         # *something* during the demo.
         if not ids:
-            rows = conn.execute("SELECT id FROM symbols LIMIT ?", (_TOP_K_FTS,))
-            ids.update(int(r["id"]) for r in rows)
+            for doc in db_store.iter_symbols(self.repo_hash)[:_TOP_K_RETRIEVE]:
+                ids.add(doc["_id"])
 
         return list(ids)
 
     def _hydrate_symbols(
         self,
-        conn: sqlite3.Connection,
-        symbol_ids: Iterable[int],
-        signals: dict[int, dict[str, float]],
+        symbol_ids: Iterable[ObjectId],
+        signals: dict,
     ) -> list[RelevantSymbol]:
         ids = list(symbol_ids)
         if not ids:
             return []
-        placeholders = ",".join("?" for _ in ids)
-        rows = conn.execute(
-            f"SELECT id, qualified_name, file_path, line_start, line_end, kind, signature "
-            f"FROM symbols WHERE id IN ({placeholders})",
-            ids,
-        )
-        by_id = {int(r["id"]): r for r in rows}
+        docs = db_store.get_symbols_by_ids(self.repo_hash, ids)
+        by_id = {doc["_id"]: doc for doc in docs}
         out: list[RelevantSymbol] = []
         for sid in ids:
             row = by_id.get(sid)
@@ -187,12 +152,12 @@ class QueryEngine:
                 continue
             out.append(
                 RelevantSymbol(
-                    qualified_name=row["qualified_name"],
-                    file_path=row["file_path"],
-                    line_start=int(row["line_start"]),
-                    line_end=int(row["line_end"]),
-                    signature=row["signature"] or "",
-                    kind=row["kind"],
+                    qualified_name=row.get("qualified_name", ""),
+                    file_path=row.get("file_path", ""),
+                    line_start=int(row.get("line_start", 0)),
+                    line_end=int(row.get("line_end", 0)),
+                    signature=row.get("signature") or "",
+                    kind=row.get("kind", ""),
                     invariants=[],
                     signals=signals.get(sid, {}),
                 )
