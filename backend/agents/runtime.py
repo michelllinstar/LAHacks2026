@@ -10,6 +10,7 @@ from . import (
     coordinator,
     flow_analyst,
     indexer_agent,
+    invariant_reporter,
     symbol_analyst,
 )
 
@@ -31,6 +32,7 @@ def run() -> None:
     bureau.add(indexer_agent.build_agent())
     bureau.add(flow_analyst.build_agent())
     bureau.add(architecture_analyst.build_agent())
+    bureau.add(invariant_reporter.build_agent())
     bureau.run()
 
 

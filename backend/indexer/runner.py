@@ -53,7 +53,7 @@ def run_index(
     _run_layer1(repo_hash, repo_path, emit, job_id)
     _run_layer2(repo_hash, emit, job_id)
     _run_layer3(repo_hash, emit, job_id)
-    _run_stub_layer(repo_hash, "invariant", emit, job_id, layer4_invariants.build)
+    _run_layer4(repo_hash, repo_path, emit, job_id)
 
     db_store.set_repo_status(repo_hash, "ready")
 
@@ -299,6 +299,58 @@ def _run_layer3(repo_hash: str, emit: EmitFn, job_id: str) -> None:
         return
 
     count = int(stats.get("clusters", 0))
+    ended = _now_iso()
+    db_store.upsert_index_job(
+        job_id=f"{job_id}-{layer}",
+        repo_hash=repo_hash,
+        layer=layer,
+        state="done",
+        count=count,
+        started_at=started,
+        ended_at=ended,
+    )
+    emit("index_progress", {"layer": layer, "state": "done", "count": count})
+
+
+def _run_layer4(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> None:
+    """Run Layer 4 (implicit-constraint mining) and emit progress events."""
+    layer = "invariant"
+    started = _now_iso()
+    db_store.upsert_index_job(
+        job_id=f"{job_id}-{layer}",
+        repo_hash=repo_hash,
+        layer=layer,
+        state="running",
+        count=0,
+        started_at=started,
+    )
+    emit("index_progress", {"layer": layer, "state": "running", "count": 0})
+
+    try:
+        stats = layer4_invariants.build(
+            repo_hash=repo_hash,
+            repo_path=repo_path,
+            emit=emit,
+        )
+    except Exception as exc:
+        logger.exception("layer 4 build failed: %s", exc)
+        ended = _now_iso()
+        db_store.upsert_index_job(
+            job_id=f"{job_id}-{layer}",
+            repo_hash=repo_hash,
+            layer=layer,
+            state="error",
+            count=0,
+            started_at=started,
+            ended_at=ended,
+        )
+        emit(
+            "index_progress",
+            {"layer": layer, "state": "error", "count": 0, "error": str(exc)},
+        )
+        return
+
+    count = int(stats.get("invariants", 0))
     ended = _now_iso()
     db_store.upsert_index_job(
         job_id=f"{job_id}-{layer}",

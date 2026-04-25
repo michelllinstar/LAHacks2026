@@ -17,10 +17,20 @@ from backend.lib import events as event_bus
 from backend.models import FindContextRequest
 from backend.query.engine import QueryEngine
 
-from . import architecture_analyst, flow_analyst
+from . import architecture_analyst, flow_analyst, invariant_reporter
 from .protocols import UserQuery, UserResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _count_by_source(invariants: list[dict]) -> dict[str, int]:
+    """Group an invariant list by source_kind so the Activity Log can render
+    per-kind counts (test/defensive/comment) without re-scanning the bundle."""
+    counts: dict[str, int] = {}
+    for inv in invariants or []:
+        kind = inv.get("source_kind") or "unknown"
+        counts[kind] = counts.get(kind, 0) + 1
+    return counts
 
 
 def _symbol_ids_for_files(repo_hash: str, file_paths: list[str]) -> list[str]:
@@ -106,6 +116,34 @@ def _extract_arch_payload(query: UserQuery) -> dict:
             payload["path"] = extra.get("path")
         if "cluster_id" not in payload and extra.get("cluster_id") is not None:
             payload["cluster_id"] = extra.get("cluster_id")
+    return payload
+
+
+def _extract_invariant_payload(query: UserQuery) -> dict:
+    """Pull an InvariantQuery-shaped dict off a UserQuery.
+
+    Looks for ``invariant`` (nested dict), ``symbol``, ``cluster_id``, and
+    ``min_confidence`` in ``model_extra``. Falls back to lifting a bare
+    qualified name out of the question text so prompts like
+    ``"what invariants apply to auth.login?"`` still work.
+    """
+    extra = getattr(query, "model_extra", None) or {}
+    payload: dict = {}
+    if isinstance(extra, dict):
+        explicit = extra.get("invariant")
+        if isinstance(explicit, dict):
+            payload = dict(explicit)
+        if "symbol" not in payload and extra.get("symbol"):
+            payload["symbol"] = extra.get("symbol")
+        if "cluster_id" not in payload and extra.get("cluster_id") is not None:
+            payload["cluster_id"] = extra.get("cluster_id")
+        if "min_confidence" not in payload and extra.get("min_confidence") is not None:
+            payload["min_confidence"] = extra.get("min_confidence")
+    if not payload.get("symbol") and not payload.get("cluster_id"):
+        for token in (query.question or "").split():
+            if "." in token and token.replace(".", "").replace("_", "").isalnum():
+                payload["symbol"] = token
+                break
     return payload
 
 
@@ -277,6 +315,49 @@ def handle_user_query(query: UserQuery) -> UserResponse:
                 )
         return UserResponse(
             bundle={"query_type": "find_exemplars", "result": result}
+        )
+
+    if query_type == "find_invariants":
+        # SPEC §7.2.5: Invariant Reporter runs in-process here. The handler
+        # is the same entry point used by ``invariant_reporter.build_agent``.
+        payload = _extract_invariant_payload(query)
+        result = invariant_reporter.handle_invariant_query(query.repo_hash, payload)
+        invariants = result.get("invariants", [])
+        # Highlight the constrained symbols in the visualization.
+        target_qnames = list(
+            {inv.get("target_symbol") for inv in invariants if inv.get("target_symbol")}
+        )
+        highlight_ids: list[str] = []
+        if target_qnames:
+            wanted = set(target_qnames)
+            for sym in db_store.iter_symbols(query.repo_hash):
+                if sym.get("qualified_name") in wanted:
+                    highlight_ids.append(str(sym["_id"]))
+        event_bus.publish(
+            query.repo_hash,
+            "agent_activity",
+            {
+                "query_id": query_id,
+                "query_type": "find_invariants",
+                "invariant_count": len(invariants),
+                "target_symbol": payload.get("symbol"),
+                "cluster_id": payload.get("cluster_id"),
+                "target_qnames": target_qnames,
+                "by_source": _count_by_source(invariants),
+            },
+        )
+        if highlight_ids:
+            event_bus.publish(
+                query.repo_hash,
+                "region_highlighted",
+                {
+                    "node_ids": highlight_ids,
+                    "color": "#fab1a0",
+                    "ttl_ms": 4000,
+                },
+            )
+        return UserResponse(
+            bundle={"query_type": "find_invariants", "result": result}
         )
 
     # All other types currently degrade to empty responses for the MVP.

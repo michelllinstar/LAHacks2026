@@ -113,6 +113,54 @@ class QueryEngine:
         relevant = self._hydrate_symbols(ranked, signals)
         if not query_vec:
             notes.append("embedding model unavailable; ranking used text + structure only")
+
+        # Layer 4: attach high-confidence invariants to the ranked symbols.
+        # SPEC §4.4: comment-derived invariants get 0.35 confidence and are
+        # advisory hints, not assertions; threshold 0.4 keeps tests (0.85) +
+        # defensive checks (0.6) and drops the LLM-derived noise. We pull at
+        # threshold 0.0 once and partition client-side so we can tell the
+        # caller how many low-confidence invariants were filtered out.
+        if relevant:
+            try:
+                inv_all = db_store.invariants_for_symbols(
+                    self.repo_hash, list(ranked), min_confidence=0.0
+                )
+            except Exception:
+                inv_all = {}
+
+            id_docs = db_store.get_symbols_by_ids(self.repo_hash, list(ranked))
+            id_to_qname = {doc["_id"]: doc.get("qualified_name", "") for doc in id_docs}
+            relevant_by_qname: dict[str, RelevantSymbol] = {
+                rs.qualified_name: rs for rs in relevant
+            }
+            attached_count = 0
+            filtered_low = 0
+            for sid in ranked:
+                qname = id_to_qname.get(sid, "")
+                rs = relevant_by_qname.get(qname)
+                if rs is None:
+                    continue
+                bucket = inv_all.get(sid, []) or []
+                hi = [inv for inv in bucket if float(inv.get("confidence", 0.0)) >= 0.4]
+                # Compact wire payload: text + source_kind + confidence only.
+                rs.invariants = [
+                    {
+                        "text": inv.get("text", ""),
+                        "source_kind": inv.get("source_kind", ""),
+                        "confidence": float(inv.get("confidence", 0.0)),
+                    }
+                    for inv in hi
+                ]
+                attached_count += len(hi)
+                filtered_low += len(bucket) - len(hi)
+
+            if attached_count:
+                notes.append(f"attached {attached_count} invariant(s) to ranked symbols")
+            if filtered_low:
+                notes.append(
+                    f"filtered {filtered_low} low-confidence invariant(s) (< 0.4)"
+                )
+
         return bundle.build_context_bundle(
             symbols=relevant,
             region=region,
@@ -159,7 +207,53 @@ class QueryEngine:
         }
 
     def find_invariants(self, req: InvariantRequest) -> list[dict]:
-        return []
+        """Layer 4 invariants for a symbol or cluster, with confidence filtering."""
+        min_conf = float(req.min_confidence or 0.0)
+        raw: list[dict] = []
+        if req.symbol:
+            seed = db_store.get_symbol(self.repo_hash, qualified_name=req.symbol)
+            if seed is not None:
+                raw = db_store.fetch_invariants_for_symbol(
+                    self.repo_hash, seed["_id"], min_confidence=min_conf
+                )
+        elif req.cluster_id:
+            try:
+                cluster_oid = ObjectId(req.cluster_id)
+            except Exception:
+                return []
+            raw = db_store.invariants_for_cluster(
+                self.repo_hash, cluster_oid, min_confidence=min_conf
+            )
+        else:
+            return []
+        # Resolve target_symbol_id → qualified_name for the wire shape.
+        target_ids = list(
+            {
+                inv.get("target_symbol_id")
+                for inv in raw
+                if inv.get("target_symbol_id") is not None
+            }
+        )
+        qname_lookup: dict = {}
+        if target_ids:
+            for doc in db_store.get_symbols_by_ids(self.repo_hash, target_ids):
+                qname_lookup[doc["_id"]] = doc.get("qualified_name", "")
+        return [self._invariant_to_payload(inv, qname_lookup) for inv in raw]
+
+    def _invariant_to_payload(
+        self,
+        inv: dict,
+        qname_lookup: dict[ObjectId, str],
+    ) -> dict:
+        """Convert an invariant doc into the Invariant wire shape (matches
+        backend/models.py:Invariant)."""
+        return {
+            "target_symbol": qname_lookup.get(inv.get("target_symbol_id"), ""),
+            "text": inv.get("text", ""),
+            "source_kind": inv.get("source_kind", ""),
+            "source_location": inv.get("source_location", ""),
+            "confidence": float(inv.get("confidence", 0.0)),
+        }
 
     def describe_architecture(self, req: ArchRequest) -> ArchResponse:
         """Resolve a path or cluster_id to its Layer 3 manifest."""

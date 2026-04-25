@@ -19,7 +19,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 from bson import Binary, ObjectId
 from dotenv import load_dotenv
-from pymongo import ASCENDING, MongoClient, TEXT, UpdateOne
+from pymongo import ASCENDING, DESCENDING, MongoClient, TEXT, UpdateOne
 from pymongo.collection import Collection
 from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError, OperationFailure
@@ -186,6 +186,14 @@ def _ensure_repo_indexes(db: Database) -> None:
     db["invariants"].create_index(
         [("repo_hash", ASCENDING), ("target_symbol_id", ASCENDING)],
         name="invariants_repo_target",
+    )
+    db["invariants"].create_index(
+        [("repo_hash", ASCENDING), ("source_kind", ASCENDING)],
+        name="invariants_repo_source_kind",
+    )
+    db["invariants"].create_index(
+        [("repo_hash", ASCENDING), ("confidence", DESCENDING)],
+        name="invariants_repo_confidence",
     )
 
 
@@ -885,3 +893,119 @@ def fetch_invariants_for_symbol(
         )
         .sort("confidence", -1)
     )
+
+
+def bulk_insert_invariants(
+    repo_hash: str, rows: Sequence[dict]
+) -> list[ObjectId]:
+    """Insert many invariant docs; returns inserted ids aligned with ``rows``."""
+    if not rows:
+        return []
+    db = get_db()
+    now = _now_iso()
+    docs = [
+        {
+            "repo_hash": repo_hash,
+            "target_symbol_id": r.get("target_symbol_id"),
+            "text": r["text"],
+            "source_kind": r["source_kind"],
+            "source_location": r["source_location"],
+            "confidence": float(r["confidence"]),
+            "extracted_at": r.get("extracted_at") or now,
+        }
+        for r in rows
+    ]
+    res = db["invariants"].insert_many(docs, ordered=False)
+    return list(res.inserted_ids)
+
+
+def iter_invariants(repo_hash: str) -> list[dict]:
+    """All invariants for a repo, sorted by descending confidence."""
+    db = get_db()
+    return list(
+        db["invariants"].find({"repo_hash": repo_hash}).sort("confidence", -1)
+    )
+
+
+def invariants_for_symbols(
+    repo_hash: str,
+    symbol_ids: Sequence[ObjectId],
+    min_confidence: float = 0.0,
+) -> dict[ObjectId, list[dict]]:
+    """Batch lookup grouped by ``target_symbol_id``."""
+    if not symbol_ids:
+        return {}
+    db = get_db()
+    cursor = (
+        db["invariants"]
+        .find(
+            {
+                "repo_hash": repo_hash,
+                "target_symbol_id": {"$in": list(symbol_ids)},
+                "confidence": {"$gte": min_confidence},
+            }
+        )
+        .sort("confidence", -1)
+    )
+    grouped: dict[ObjectId, list[dict]] = {}
+    for doc in cursor:
+        grouped.setdefault(doc["target_symbol_id"], []).append(doc)
+    return grouped
+
+
+def invariants_for_file(
+    repo_hash: str, file_path: str, min_confidence: float = 0.0
+) -> list[dict]:
+    """All invariants whose target symbol's ``file_path`` matches."""
+    db = get_db()
+    sym_ids = [
+        d["_id"]
+        for d in db["symbols"].find(
+            {"repo_hash": repo_hash, "file_path": file_path}, {"_id": 1}
+        )
+    ]
+    if not sym_ids:
+        return []
+    grouped = invariants_for_symbols(repo_hash, sym_ids, min_confidence)
+    flat: list[dict] = []
+    for docs in grouped.values():
+        flat.extend(docs)
+    flat.sort(key=lambda d: d.get("confidence", 0.0), reverse=True)
+    return flat
+
+
+def invariants_for_cluster(
+    repo_hash: str, cluster_id: ObjectId, min_confidence: float = 0.0
+) -> list[dict]:
+    """All invariants whose target symbol belongs to a file in this cluster."""
+    file_paths = cluster_member_files(repo_hash, cluster_id)
+    if not file_paths:
+        return []
+    db = get_db()
+    sym_ids = [
+        d["_id"]
+        for d in db["symbols"].find(
+            {"repo_hash": repo_hash, "file_path": {"$in": file_paths}},
+            {"_id": 1},
+        )
+    ]
+    if not sym_ids:
+        return []
+    grouped = invariants_for_symbols(repo_hash, sym_ids, min_confidence)
+    flat: list[dict] = []
+    for docs in grouped.values():
+        flat.extend(docs)
+    flat.sort(key=lambda d: d.get("confidence", 0.0), reverse=True)
+    return flat
+
+
+def reset_invariants(repo_hash: str) -> None:
+    """Delete all invariants for this repo."""
+    db = get_db()
+    db["invariants"].delete_many({"repo_hash": repo_hash})
+
+
+def count_invariants(repo_hash: str) -> int:
+    """Total invariant count for the repo."""
+    db = get_db()
+    return db["invariants"].count_documents({"repo_hash": repo_hash})

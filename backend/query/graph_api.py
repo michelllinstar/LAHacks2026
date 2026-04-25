@@ -170,6 +170,87 @@ def architecture_projection(repo_hash: str) -> GraphProjection:
     return GraphProjection(nodes=nodes, edges=edges)
 
 
+def invariant_projection(repo_hash: str) -> GraphProjection:
+    """Layer 4 projection: invariants as nodes, attached to their target
+    symbols via 'constrains' edges (SPEC §8.3)."""
+    invariants = db_store.iter_invariants(repo_hash)
+    if not invariants:
+        return empty_projection()
+
+    target_ids: set = set()
+    for inv in invariants:
+        tid = inv.get("target_symbol_id")
+        if tid is not None:
+            target_ids.add(tid)
+
+    sym_docs = (
+        db_store.get_symbols_by_ids(repo_hash, list(target_ids)) if target_ids else []
+    )
+    by_id = {doc["_id"]: doc for doc in sym_docs}
+
+    # Only emit symbol nodes for targets that actually have at least one
+    # invariant — anything else would clutter the layer view.
+    constrained_targets: set = {
+        inv.get("target_symbol_id")
+        for inv in invariants
+        if inv.get("target_symbol_id") is not None and inv.get("target_symbol_id") in by_id
+    }
+
+    nodes: list[GraphNode] = []
+    for sid in constrained_targets:
+        doc = by_id[sid]
+        nodes.append(
+            GraphNode(
+                id=str(sid),
+                kind="symbol",
+                label=doc.get("qualified_name", ""),
+                layer=1,
+                metadata={
+                    "file_path": doc.get("file_path"),
+                    "signature": doc.get("signature") or "",
+                },
+            )
+        )
+
+    edges: list[GraphEdge] = []
+    for inv in invariants:
+        tid = inv.get("target_symbol_id")
+        if tid is None or tid not in by_id:
+            continue
+        inv_id = inv.get("_id")
+        if inv_id is None:
+            continue
+        text = inv.get("text", "") or ""
+        source_kind = inv.get("source_kind", "")
+        confidence = float(inv.get("confidence", 0.0))
+        nodes.append(
+            GraphNode(
+                id=str(inv_id),
+                kind="invariant",
+                label=text[:80],
+                layer=4,
+                metadata={
+                    "source_kind": source_kind,
+                    "confidence": confidence,
+                    "source_location": inv.get("source_location", ""),
+                    "target_symbol_id": str(tid),
+                    "target_symbol": by_id[tid].get("qualified_name", ""),
+                },
+            )
+        )
+        edges.append(
+            GraphEdge(
+                source=str(inv_id),
+                target=str(tid),
+                kind="constrains",
+                weight=confidence,
+                metadata={"source_kind": source_kind},
+            )
+        )
+
+    return GraphProjection(nodes=nodes, edges=edges)
+
+
 def empty_projection() -> GraphProjection:
     return GraphProjection(nodes=[], edges=[])
 
@@ -181,4 +262,6 @@ def projection_for(repo_hash: str, layer: str) -> GraphProjection:
         return flow_projection(repo_hash)
     if layer == "architecture":
         return architecture_projection(repo_hash)
+    if layer == "invariant":
+        return invariant_projection(repo_hash)
     return empty_projection()
