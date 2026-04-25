@@ -6,7 +6,7 @@ endpoints return well-formed but empty responses.
 
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from bson import ObjectId
 
@@ -46,9 +46,10 @@ class QueryEngine:
     def find_relevant_context(self, req: FindContextRequest) -> ContextBundle:
         # SPEC §5.2 prescribes a sequential pipeline: Architecture Analyst
         # picks a region → Symbol Analyst retrieves and ranks within it →
-        # Invariant Reporter attaches Layer 4 hints. Per §7.2.5 hackathon
-        # scope reduction, only the Symbol Analyst path is implemented; the
-        # other two stages return stub data until Layers 3 and 4 are built.
+        # Invariant Reporter attaches Layer 4 hints. Layer 3 region scoping is
+        # now implemented as a soft filter: if a dominant cluster is detected
+        # among the candidates, the candidate set is restricted to that
+        # cluster and its convention manifest is attached to the bundle.
         decomp = decomposer.decompose(req.task)
         task_type = decomp["task_type"]
         keywords = decomp["keywords"]
@@ -59,19 +60,62 @@ class QueryEngine:
                 symbols=[],
                 notes=["no matching symbols indexed for this repository yet"],
             )
+
+        # ------------------------------------------------------------------
+        # Layer 3 region-scoping pass. Hydrate candidate file_paths, find the
+        # dominant cluster, and (if it covers >= 60% of candidates) restrict
+        # the candidate set to symbols inside that cluster.
+        # ------------------------------------------------------------------
+        notes: list[str] = []
+        region: Optional[Region] = None
+        cand_docs = db_store.get_symbols_by_ids(self.repo_hash, candidate_ids)
+        sym_to_file: dict[ObjectId, str] = {
+            doc["_id"]: doc.get("file_path", "") for doc in cand_docs
+        }
+        cluster_for_path: dict[str, Optional[ObjectId]] = {}
+        cluster_docs: dict[ObjectId, dict] = {}
+        cluster_counts: dict[ObjectId, int] = {}
+        for sid in candidate_ids:
+            fp = sym_to_file.get(sid, "")
+            if not fp:
+                continue
+            if fp not in cluster_for_path:
+                cdoc = db_store.get_cluster_for_file(self.repo_hash, fp)
+                if cdoc is None:
+                    cluster_for_path[fp] = None
+                else:
+                    cid = cdoc["_id"]
+                    cluster_for_path[fp] = cid
+                    cluster_docs[cid] = cdoc
+            cid = cluster_for_path.get(fp)
+            if cid is not None:
+                cluster_counts[cid] = cluster_counts.get(cid, 0) + 1
+
+        scoped_ids = candidate_ids
+        if cluster_counts:
+            top_cid, top_count = max(cluster_counts.items(), key=lambda kv: kv[1])
+            if top_count / max(1, len(candidate_ids)) >= 0.60:
+                scoped_ids = [
+                    sid
+                    for sid in candidate_ids
+                    if cluster_for_path.get(sym_to_file.get(sid, "")) == top_cid
+                ]
+                region = self._cluster_to_region(cluster_docs[top_cid])
+                notes.append("region scoping applied")
+
         query_vec = embeddings.embed_query(req.task)
-        signals = ranker.combine(self.repo_hash, candidate_ids, query_vec, task_type=task_type)
+        signals = ranker.combine(self.repo_hash, scoped_ids, query_vec, task_type=task_type)
         ranked = sorted(
-            candidate_ids,
+            scoped_ids,
             key=lambda sid: signals.get(sid, {}).get("score", 0.0),
             reverse=True,
         )[:_TOP_K_RESULT]
         relevant = self._hydrate_symbols(ranked, signals)
-        notes: list[str] = []
         if not query_vec:
             notes.append("embedding model unavailable; ranking used text + structure only")
         return bundle.build_context_bundle(
             symbols=relevant,
+            region=region,
             exemplars=self._derive_exemplars(relevant),
             notes=notes,
         )
@@ -118,30 +162,109 @@ class QueryEngine:
         return []
 
     def describe_architecture(self, req: ArchRequest) -> ArchResponse:
-        return ArchResponse(
-            cluster=Region(role="", conventions={}, dependencies={}),
-            member_files=[],
-        )
+        """Resolve a path or cluster_id to its Layer 3 manifest."""
+        cluster_doc: Optional[dict] = None
+        if req.cluster_id is not None:
+            try:
+                oid = ObjectId(str(req.cluster_id))
+            except Exception:
+                return ArchResponse(
+                    cluster=Region(role="", conventions={}, dependencies={}),
+                    member_files=[],
+                )
+            cluster_doc = db_store.fetch_cluster(self.repo_hash, oid)
+        elif req.path:
+            try:
+                cluster_doc = db_store.get_cluster_for_file(self.repo_hash, req.path)
+            except Exception:
+                cluster_doc = None
+        if cluster_doc is None:
+            return ArchResponse(
+                cluster=Region(role="", conventions={}, dependencies={}),
+                member_files=[],
+            )
+        region = self._cluster_to_region(cluster_doc)
+        members = db_store.cluster_member_files(self.repo_hash, cluster_doc["_id"])
+        return ArchResponse(cluster=region, member_files=members)
 
     def find_exemplars(self, req: ExemplarRequest) -> ExemplarResponse:
-        ctx = self.find_relevant_context(
-            FindContextRequest(task=req.task, repo_hash=req.repo_hash)
-        )
-        seen: set[str] = set()
-        files: list[Exemplar] = []
-        for sym in ctx.relevant_symbols:
-            if sym.file_path in seen:
-                continue
-            seen.add(sym.file_path)
-            files.append(
-                Exemplar(
-                    file_path=sym.file_path,
-                    reason=f"contains {sym.qualified_name} ({sym.kind})",
-                )
+        """Top files within a cluster ranked by structural centrality + task fit."""
+        try:
+            cluster_oid = ObjectId(str(req.cluster_id))
+        except Exception:
+            return ExemplarResponse(files=[])
+        member_files = db_store.cluster_member_files(self.repo_hash, cluster_oid)
+        if not member_files:
+            return ExemplarResponse(files=[])
+        # Re-use ranker signals scoped to symbols within these files.
+        member_symbols = db_store.cluster_member_symbols(self.repo_hash, cluster_oid)
+        if not member_symbols:
+            return ExemplarResponse(
+                files=[
+                    Exemplar(file_path=fp, reason="cluster member")
+                    for fp in member_files[:5]
+                ]
             )
-            if len(files) >= 5:
-                break
-        return ExemplarResponse(files=files)
+        candidate_ids = [doc["_id"] for doc in member_symbols]
+        query_vec = embeddings.embed_query(req.task) if req.task else None
+        signals = ranker.combine(
+            self.repo_hash, candidate_ids, query_vec, task_type="modify existing"
+        )
+        # Aggregate signals up to file level (max score per file).
+        by_file: dict[str, float] = {}
+        sym_to_file = {doc["_id"]: doc.get("file_path", "") for doc in member_symbols}
+        for sid in candidate_ids:
+            fp = sym_to_file.get(sid, "")
+            score = signals.get(sid, {}).get("score", 0.0)
+            if not fp:
+                continue
+            by_file[fp] = max(by_file.get(fp, 0.0), score)
+        ranked = sorted(by_file.items(), key=lambda kv: kv[1], reverse=True)[:5]
+        return ExemplarResponse(
+            files=[
+                Exemplar(
+                    file_path=fp,
+                    reason=f"top-ranked exemplar in cluster (score {score:.3f})",
+                )
+                for fp, score in ranked
+            ]
+        )
+
+    def _cluster_to_region(self, cluster_doc: dict) -> Region:
+        """Convert a Mongo cluster doc into the Region wire shape.
+
+        Pulls cluster_dependencies for this repo, filters to edges sourced at
+        this cluster, and groups them by ``kind`` into the Region's
+        ``dependencies`` dict.
+        """
+        cid = cluster_doc.get("_id")
+        deps: dict[str, list] = {"allowed": [], "forbidden": []}
+        try:
+            for edge in db_store.iter_cluster_dependencies(self.repo_hash):
+                if edge.get("source_cluster_id") != cid:
+                    continue
+                kind = edge.get("kind")
+                target = edge.get("target_cluster_id")
+                if target is None:
+                    continue
+                target_str = str(target)
+                if kind == "allowed":
+                    deps["allowed"].append(target_str)
+                elif kind == "forbidden":
+                    deps["forbidden"].append(target_str)
+        except Exception:
+            deps = {"allowed": [], "forbidden": []}
+
+        conventions: dict[str, Any] = {
+            "naming": cluster_doc.get("naming_convention"),
+            "code_shape": cluster_doc.get("code_shape"),
+        }
+        return Region(
+            cluster_id=str(cid) if cid is not None else None,
+            role=cluster_doc.get("role_description", "") or "",
+            conventions=conventions,
+            dependencies=deps,
+        )
 
     # ------------------------------------------------------------------
     # Helpers

@@ -32,7 +32,7 @@ class SymbolQuery(Model):
     repo_hash: str
     task: str
     seed_symbol: Optional[str] = None
-    cluster_id: Optional[int] = None
+    cluster_id: Optional[str] = None
 
 
 class SymbolGraph(Model):
@@ -42,7 +42,7 @@ class SymbolGraph(Model):
 class ArchQuery(Model):
     repo_hash: str
     path: Optional[str] = None
-    cluster_id: Optional[int] = None
+    cluster_id: Optional[str] = None
 
 
 class ArchGraph(Model):
@@ -64,7 +64,7 @@ class FlowGraph(Model):
 class InvariantQuery(Model):
     repo_hash: str
     symbol: Optional[str] = None
-    cluster_id: Optional[int] = None
+    cluster_id: Optional[str] = None
     min_confidence: float = 0.0
 
 

@@ -80,10 +80,13 @@ class IndexStatus(BaseModel):
 
 
 class Region(BaseModel):
-    cluster_id: Optional[int] = None
+    # cluster_id is the stringified ObjectId of the underlying Layer 3
+    # cluster document. Wire format is always a string so the frontend can
+    # treat it opaquely; backend converts via str(ObjectId) on read.
+    cluster_id: Optional[str] = None
     role: str = ""
     conventions: dict[str, Any] = {}
-    dependencies: dict[str, list[int]] = {}
+    dependencies: dict[str, list[str]] = {}
 
 
 class RelevantSymbol(BaseModel):
@@ -146,14 +149,14 @@ class FlowRequest(BaseModel):
 
 class InvariantRequest(BaseModel):
     symbol: Optional[str] = None
-    cluster_id: Optional[int] = None
+    cluster_id: Optional[str] = None
     min_confidence: float = 0.0
     repo_hash: str
 
 
 class ArchRequest(BaseModel):
     path: Optional[str] = None
-    cluster_id: Optional[int] = None
+    cluster_id: Optional[str] = None
     repo_hash: str
 
 
@@ -164,7 +167,7 @@ class ArchResponse(BaseModel):
 
 class ExemplarRequest(BaseModel):
     task: str
-    cluster_id: int
+    cluster_id: str
     repo_hash: str
 
 

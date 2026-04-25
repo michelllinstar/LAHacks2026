@@ -106,6 +106,70 @@ def flow_projection(repo_hash: str) -> GraphProjection:
     return GraphProjection(nodes=nodes, edges=edges)
 
 
+def architecture_projection(repo_hash: str) -> GraphProjection:
+    """Layer 3 projection: clusters as nodes; allowed/forbidden deps as edges."""
+    clusters = db_store.iter_clusters(repo_hash)
+    if not clusters:
+        return empty_projection()
+
+    # Single ``iter_files`` call so member counts stay O(1) per cluster
+    # instead of N+1 round trips.
+    member_counts: dict = {}
+    for fdoc in db_store.iter_files(repo_hash):
+        cid = fdoc.get("cluster_id")
+        if cid is None:
+            continue
+        member_counts[cid] = member_counts.get(cid, 0) + 1
+
+    nodes: list[GraphNode] = []
+    for cluster in clusters:
+        cid = cluster["_id"]
+        role = cluster.get("role_description", "") or ""
+        label = role[:80]
+        nodes.append(
+            GraphNode(
+                id=str(cid),
+                kind="cluster",
+                label=label,
+                layer=3,
+                metadata={
+                    "naming_convention": cluster.get("naming_convention"),
+                    "code_shape": cluster.get("code_shape"),
+                    "member_count": member_counts.get(cid, 0),
+                    "role_description": role,
+                },
+            )
+        )
+
+    edges: list[GraphEdge] = []
+    for dep in db_store.iter_cluster_dependencies(repo_hash):
+        src = dep.get("source_cluster_id")
+        tgt = dep.get("target_cluster_id")
+        if src is None or tgt is None:
+            continue
+        raw_kind = dep.get("kind", "")
+        if raw_kind == "allowed":
+            edge_kind = "allows"
+            weight = 1.0
+        elif raw_kind == "forbidden":
+            edge_kind = "forbids"
+            weight = 2.0
+        else:
+            edge_kind = raw_kind or "depends"
+            weight = 1.0
+        edges.append(
+            GraphEdge(
+                source=str(src),
+                target=str(tgt),
+                kind=edge_kind,
+                weight=weight,
+                metadata={"kind": raw_kind},
+            )
+        )
+
+    return GraphProjection(nodes=nodes, edges=edges)
+
+
 def empty_projection() -> GraphProjection:
     return GraphProjection(nodes=[], edges=[])
 
@@ -115,4 +179,6 @@ def projection_for(repo_hash: str, layer: str) -> GraphProjection:
         return symbol_projection(repo_hash)
     if layer == "flow":
         return flow_projection(repo_hash)
+    if layer == "architecture":
+        return architecture_projection(repo_hash)
     return empty_projection()

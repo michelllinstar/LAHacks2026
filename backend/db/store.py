@@ -19,10 +19,10 @@ from typing import Any, Iterable, Optional, Sequence
 
 from bson import Binary, ObjectId
 from dotenv import load_dotenv
-from pymongo import ASCENDING, MongoClient, TEXT
+from pymongo import ASCENDING, MongoClient, TEXT, UpdateOne
 from pymongo.collection import Collection
 from pymongo.database import Database
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, OperationFailure
 
 # Load env from the repo-root .env.local so CLI/agent processes get the same
 # configuration the FastAPI app uses.
@@ -159,9 +159,29 @@ def _ensure_repo_indexes(db: Database) -> None:
         sparse=True,
         name="flows_repo_sensitivity",
     )
-    db["clusters"].create_index([("repo_hash", ASCENDING)], name="clusters_repo")
+    # Drop legacy single-field index name if it exists from a prior schema.
+    try:
+        db["cluster_dependencies"].drop_index("cluster_deps_repo")
+    except OperationFailure:
+        pass
+    except Exception:
+        pass
+    db["clusters"].create_index(
+        [("repo_hash", ASCENDING)],
+        name="clusters_repo",
+    )
     db["cluster_dependencies"].create_index(
-        [("repo_hash", ASCENDING)], name="cluster_deps_repo"
+        [("repo_hash", ASCENDING), ("source_cluster_id", ASCENDING)],
+        name="cluster_deps_repo_source",
+    )
+    db["cluster_dependencies"].create_index(
+        [("repo_hash", ASCENDING), ("target_cluster_id", ASCENDING)],
+        name="cluster_deps_repo_target",
+    )
+    db["files"].create_index(
+        [("repo_hash", ASCENDING), ("cluster_id", ASCENDING)],
+        sparse=True,
+        name="files_repo_cluster",
     )
     db["invariants"].create_index(
         [("repo_hash", ASCENDING), ("target_symbol_id", ASCENDING)],
@@ -637,6 +657,7 @@ def insert_cluster(
     naming_convention: Optional[str],
     code_shape: Any,
 ) -> ObjectId:
+    """Insert one cluster doc; still supported, new code prefers ``bulk_insert_clusters``."""
     db = get_db()
     res = db["clusters"].insert_one(
         {
@@ -655,6 +676,7 @@ def insert_cluster_dependency(
     target_cluster_id: ObjectId,
     kind: str,
 ) -> None:
+    """Insert a single cluster dependency edge; still supported alongside bulk variants."""
     db = get_db()
     db["cluster_dependencies"].insert_one(
         {
@@ -667,11 +689,13 @@ def insert_cluster_dependency(
 
 
 def fetch_cluster(repo_hash: str, cluster_id: ObjectId) -> Optional[dict]:
+    """Fetch one cluster by id; still supported alongside ``iter_clusters``."""
     db = get_db()
     return db["clusters"].find_one({"repo_hash": repo_hash, "_id": cluster_id})
 
 
 def fetch_cluster_member_files(repo_hash: str, cluster_id: ObjectId) -> list[str]:
+    """Files assigned to a cluster; still supported, prefer ``cluster_member_files``."""
     db = get_db()
     return [
         doc["file_path"]
@@ -679,6 +703,133 @@ def fetch_cluster_member_files(repo_hash: str, cluster_id: ObjectId) -> list[str
         .find({"repo_hash": repo_hash, "cluster_id": cluster_id})
         .sort("file_path", 1)
     ]
+
+
+def bulk_insert_clusters(repo_hash: str, rows: Sequence[dict]) -> list[ObjectId]:
+    """Insert many cluster docs; returns inserted ids aligned with ``rows``.
+
+    ``member_files`` on a row is dropped here — assign cluster_id on each file
+    via ``update_file_cluster``/``bulk_update_file_clusters`` after insertion.
+    """
+    if not rows:
+        return []
+    db = get_db()
+    docs = [
+        {
+            "repo_hash": repo_hash,
+            "role_description": r["role_description"],
+            "naming_convention": r.get("naming_convention"),
+            "code_shape": r.get("code_shape"),
+        }
+        for r in rows
+    ]
+    res = db["clusters"].insert_many(docs, ordered=False)
+    return list(res.inserted_ids)
+
+
+def iter_clusters(repo_hash: str) -> list[dict]:
+    """All clusters for a repo."""
+    db = get_db()
+    return list(db["clusters"].find({"repo_hash": repo_hash}))
+
+
+def iter_cluster_dependencies(repo_hash: str) -> list[dict]:
+    """All cluster_dependencies edges for a repo."""
+    db = get_db()
+    return list(db["cluster_dependencies"].find({"repo_hash": repo_hash}))
+
+
+def update_file_cluster(
+    repo_hash: str, file_path: str, cluster_id: Optional[ObjectId]
+) -> None:
+    """Set or clear ``cluster_id`` on a single file row."""
+    db = get_db()
+    if cluster_id is None:
+        db["files"].update_one(
+            {"repo_hash": repo_hash, "file_path": file_path},
+            {"$unset": {"cluster_id": ""}},
+        )
+    else:
+        db["files"].update_one(
+            {"repo_hash": repo_hash, "file_path": file_path},
+            {"$set": {"cluster_id": cluster_id}},
+        )
+
+
+def bulk_update_file_clusters(
+    repo_hash: str, assignments: Sequence[tuple[str, Optional[ObjectId]]]
+) -> None:
+    """Bulk version of ``update_file_cluster`` over (file_path, cluster_id) pairs."""
+    if not assignments:
+        return
+    db = get_db()
+    ops: list[UpdateOne] = []
+    for file_path, cluster_id in assignments:
+        flt = {"repo_hash": repo_hash, "file_path": file_path}
+        if cluster_id is None:
+            ops.append(UpdateOne(flt, {"$unset": {"cluster_id": ""}}))
+        else:
+            ops.append(UpdateOne(flt, {"$set": {"cluster_id": cluster_id}}))
+    if ops:
+        db["files"].bulk_write(ops, ordered=False)
+
+
+def get_cluster_for_file(repo_hash: str, file_path: str) -> Optional[dict]:
+    """Resolve a file's cluster doc via ``files.cluster_id`` -> ``clusters._id``."""
+    db = get_db()
+    file_doc = db["files"].find_one(
+        {"repo_hash": repo_hash, "file_path": file_path},
+        {"cluster_id": 1},
+    )
+    if not file_doc:
+        return None
+    cid = file_doc.get("cluster_id")
+    if cid is None:
+        return None
+    return db["clusters"].find_one({"repo_hash": repo_hash, "_id": cid})
+
+
+def cluster_member_files(repo_hash: str, cluster_id: ObjectId) -> list[str]:
+    """Alias for :func:`fetch_cluster_member_files`."""
+    return fetch_cluster_member_files(repo_hash, cluster_id)
+
+
+def cluster_member_symbols(
+    repo_hash: str, cluster_id: ObjectId
+) -> list[dict]:
+    """Symbols whose ``file_path`` resolves to this cluster."""
+    file_paths = cluster_member_files(repo_hash, cluster_id)
+    if not file_paths:
+        return []
+    db = get_db()
+    return list(
+        db["symbols"].find(
+            {"repo_hash": repo_hash, "file_path": {"$in": file_paths}}
+        )
+    )
+
+
+def reset_clusters(repo_hash: str) -> None:
+    """Delete clusters/cluster_dependencies and clear ``cluster_id`` on files."""
+    db = get_db()
+    db["clusters"].delete_many({"repo_hash": repo_hash})
+    db["cluster_dependencies"].delete_many({"repo_hash": repo_hash})
+    db["files"].update_many(
+        {"repo_hash": repo_hash, "cluster_id": {"$exists": True}},
+        {"$unset": {"cluster_id": ""}},
+    )
+
+
+def count_clusters(repo_hash: str) -> int:
+    """Total cluster count for the repo."""
+    db = get_db()
+    return db["clusters"].count_documents({"repo_hash": repo_hash})
+
+
+def count_cluster_dependencies(repo_hash: str) -> int:
+    """Total cluster dependency edges for the repo."""
+    db = get_db()
+    return db["cluster_dependencies"].count_documents({"repo_hash": repo_hash})
 
 
 # ---------------------------------------------------------------------------

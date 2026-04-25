@@ -5,7 +5,13 @@ from __future__ import annotations
 import logging
 import os
 
-from . import coordinator, flow_analyst, indexer_agent, symbol_analyst
+from . import (
+    architecture_analyst,
+    coordinator,
+    flow_analyst,
+    indexer_agent,
+    symbol_analyst,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +30,7 @@ def run() -> None:
     bureau.add(symbol_analyst.build_agent())
     bureau.add(indexer_agent.build_agent())
     bureau.add(flow_analyst.build_agent())
+    bureau.add(architecture_analyst.build_agent())
     bureau.run()
 
 
