@@ -22,6 +22,7 @@ function classifyLayerBand(name: string, filePath: string | null | undefined): L
 import { InvariantView } from './InvariantView';
 import { ContextsView } from './ContextsView';
 import { PackagesView } from './PackagesView';
+import { RootFlowView } from './RootFlowView';
 import { DiagramToolbar } from './DiagramToolbar';
 import { ViewLevelToolbar, type ViewLevel } from './ViewLevelToolbar';
 import { AgentQuery } from './AgentActivityLog';
@@ -889,6 +890,13 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   keyframe re-runs and the user perceives the swap as a brief
                   zoom-in rather than an instant page swap. */}
               <div key={`${activeView}-${viewLevel}`} className="flex-1 overflow-hidden uml-view-fade relative">
+              {isGraphView && (viewLevel === 'tiers' || viewLevel === 'layers') && (
+                /* Root flowchart — synthetic tier/layer view that always
+                   renders, even on repos whose architecture projection is
+                   sparse or empty. Layer counts come from the live symbol
+                   projection so the user sees real numbers. */
+                <RootFlowView repositoryId={projectId} level={viewLevel} />
+              )}
               {isGraphView && viewLevel === 'contexts' && (
                 <ContextsView repositoryId={projectId} onContextFocus={advanceFocus} />
               )}
@@ -902,7 +910,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   onPackageFocus={advanceFocus}
                 />
               )}
-              {isGraphView && viewLevel !== 'contexts' && viewLevel !== 'packages' && (
+              {isGraphView && viewLevel !== 'tiers' && viewLevel !== 'layers' && viewLevel !== 'contexts' && viewLevel !== 'packages' && (
                 <UnifiedGraphView
                   repositoryId={projectId}
                   showLegend={showLegend}
