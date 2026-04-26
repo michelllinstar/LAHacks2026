@@ -138,9 +138,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[#1e1e1e] flex">
+    <div className="min-h-screen bg-[#1e1e1e] flex aurora-bg">
       {/* Left Side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-[#2d2d2d] to-[#1a1a1a] p-12 flex-col items-center justify-center relative overflow-hidden">
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-[#2d2d2d] to-[#1a1a1a] p-12 flex-col items-center justify-center relative overflow-hidden anim-fade-up">
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0" style={{
@@ -150,7 +150,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
         <div className="relative z-10 max-w-md text-center">
           <div className="flex items-center justify-center gap-5 mb-5">
-            <div className="p-3 bg-gradient-to-br from-[#34D399] to-[#F59E0B] rounded-xl">
+            <div className="p-3 rounded-xl border border-white/10 bg-white/[0.03] hover-glow">
               <Code2 className="h-8 w-8 text-white" />
             </div>
             <div className="text-left">
@@ -164,10 +164,10 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               <h2 className="text-2xl font-bold text-white mb-5">
                 Transform Code into
                 <span
-                  className="bg-clip-text text-transparent"
+                  className="bg-clip-text text-transparent anim-gradient-text"
                   style={{
                     backgroundImage:
-                      'radial-gradient(ellipse at center, #5EEAD4 0%, #2DD4BF 50%, #FBBF24 100%)',
+                      'linear-gradient(110deg, #ffffff 0%, #B7553A 50%, #ffffff 100%)',
                   }}
                 > Visual Architecture</span>
               </h2>
@@ -180,7 +180,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               <div className="space-y-3 text-left">
                 {['AI-Powered Analysis', 'Version Control Integration', 'Real-time Collaboration', 'Cloudinary CDN'].map((feature) => (
                   <div key={feature} className="flex items-center gap-3 text-gray-300 text-base">
-                    <div className="w-1.5 h-1.5 bg-[#5EEAD4] rounded-full" />
+                    <div className="w-1.5 h-1.5 bg-[#B7553A] rounded-full" />
                     <span>{feature}</span>
                   </div>
                 ))}
@@ -195,16 +195,16 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       </div>
 
       {/* Right Side - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-5">
-        <div className="w-full max-w-md">
-          <div className="lg:hidden mb-5 flex items-center justify-center gap-5">
-            <div className="p-2 bg-gradient-to-br from-[#34D399] to-[#F59E0B] rounded-lg">
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="w-full max-w-lg anim-fade-up-delay-1">
+          <div className="lg:hidden mb-6 flex items-center justify-center gap-5">
+            <div className="p-2 rounded-lg border border-white/10 bg-white/[0.03] anim-breathe">
               <Code2 className="h-6 w-6 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-white">MarkCodePolo</h1>
           </div>
 
-          <div className="bg-[#2d2d2d] rounded-xl p-5 border border-gray-800">
+          <div className="glass-panel rounded-2xl p-8">
             {isSignup && signupStep === 'verify' ? (
               <button
                 type="button"
@@ -232,7 +232,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
             {!(isSignup && signupStep === 'verify') && (<>
             {/* Social Login */}
-            <div className="space-y-5 mb-5 flex flex-col items-center">
+            <div className="space-y-5 mb-5 flex flex-col items-stretch w-full">
               <button
                 onClick={() => handleOAuthLogin('github')}
                 disabled={isLoading}
@@ -241,7 +241,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                   e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`);
                   e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`);
                 }}
-                className="relative overflow-hidden inline-flex px-6 py-6 text-white text-base rounded-lg transition-all items-center justify-center gap-3 border border-white/15 hover:border-white/25 disabled:opacity-50 disabled:cursor-not-allowed group"
+                className="relative overflow-hidden flex w-full px-8 py-5 text-white text-lg font-medium rounded-xl transition-all items-center justify-center gap-3 border border-white/15 hover:border-white/25 disabled:opacity-50 disabled:cursor-not-allowed group"
                 style={{
                   background:
                     'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
@@ -258,7 +258,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                       'radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.16), transparent 60%)',
                   }}
                 />
-                <GitBranch className="h-5 w-5 relative" />
+                <GitBranch className="h-6 w-6 relative" />
                 <span className="relative">Continue with GitHub</span>
               </button>
               <button
@@ -269,7 +269,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                   e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`);
                   e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`);
                 }}
-                className="relative overflow-hidden inline-flex px-6 py-6 text-white text-base rounded-lg transition-all items-center justify-center gap-3 border border-white/15 hover:border-white/25 disabled:opacity-50 disabled:cursor-not-allowed group"
+                className="relative overflow-hidden flex w-full px-8 py-5 text-white text-lg font-medium rounded-xl transition-all items-center justify-center gap-3 border border-white/15 hover:border-white/25 disabled:opacity-50 disabled:cursor-not-allowed group"
                 style={{
                   background:
                     'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
@@ -286,7 +286,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                       'radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.16), transparent 60%)',
                   }}
                 />
-                <svg className="h-5 w-5 relative" viewBox="0 0 24 24" role="img" aria-label="Google">
+                <svg className="h-6 w-6 relative" viewBox="0 0 24 24" role="img" aria-label="Google">
                   <path
                     fill="#4285F4"
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -323,16 +323,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 <label className="block text-base font-medium text-gray-300 mb-2">
                   Email
                 </label>
-                <div
-                  className="flex items-center gap-3 rounded-lg px-4 py-3 border border-white/15 focus-within:border-[#2DD4BF]/60 focus-within:ring-2 focus-within:ring-[#2DD4BF]/40 transition-colors"
-                  style={{
-                    background:
-                      'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
-                    backdropFilter: 'blur(14px)',
-                    WebkitBackdropFilter: 'blur(14px)',
-                    boxShadow: '0 4px 18px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.10)',
-                  }}
-                >
+                <div className="glass-input flex items-center gap-3 rounded-xl px-5 py-4">
                   <Mail className="h-5 w-5 text-gray-500 flex-shrink-0" />
                   <input
                     type="email"
@@ -349,16 +340,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 <label className="block text-base font-medium text-gray-300 mb-2">
                   Password
                 </label>
-                <div
-                  className="flex items-center gap-3 rounded-lg px-4 py-3 border border-white/15 focus-within:border-[#2DD4BF]/60 focus-within:ring-2 focus-within:ring-[#2DD4BF]/40 transition-colors"
-                  style={{
-                    background:
-                      'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
-                    backdropFilter: 'blur(14px)',
-                    WebkitBackdropFilter: 'blur(14px)',
-                    boxShadow: '0 4px 18px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.10)',
-                  }}
-                >
+                <div className="glass-input flex items-center gap-3 rounded-xl px-5 py-4">
                   <Lock className="h-5 w-5 text-gray-500 flex-shrink-0" />
                   <input
                     type="password"
@@ -380,16 +362,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                   <label className="block text-base font-medium text-gray-300 mb-2">
                     Confirm Password
                   </label>
-                  <div
-                  className="flex items-center gap-3 rounded-lg px-4 py-3 border border-white/15 focus-within:border-[#2DD4BF]/60 focus-within:ring-2 focus-within:ring-[#2DD4BF]/40 transition-colors"
-                  style={{
-                    background:
-                      'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%)',
-                    backdropFilter: 'blur(14px)',
-                    WebkitBackdropFilter: 'blur(14px)',
-                    boxShadow: '0 4px 18px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.10)',
-                  }}
-                >
+                  <div className="glass-input flex items-center gap-3 rounded-xl px-5 py-4">
                     <Lock className="h-5 w-5 text-gray-500 flex-shrink-0" />
                     <input
                       type="password"
@@ -425,7 +398,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 text-base bg-gradient-to-r from-[#34D399] to-[#F59E0B] hover:from-[#2DD4BF] hover:to-[#FBBF24] text-white font-semibold rounded-lg transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                className="hover-glow w-full py-3 text-base bg-white/[0.04] border border-white/10 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLoading
                   ? (isSignup ? 'Sending code...' : 'Signing in...')
@@ -479,7 +452,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 <button
                   type="submit"
                   disabled={isLoading || codeInput.length !== 6}
-                  className="w-full py-3 text-base bg-gradient-to-r from-[#34D399] to-[#F59E0B] hover:from-[#2DD4BF] hover:to-[#FBBF24] text-white font-semibold rounded-lg transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                  className="hover-glow w-full py-3 text-base bg-white/[0.04] border border-white/10 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isLoading ? 'Verifying...' : 'Verify & Create Account'}
                 </button>

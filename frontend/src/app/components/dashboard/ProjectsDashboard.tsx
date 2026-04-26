@@ -285,11 +285,10 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
               }}
               className="relative overflow-hidden px-7 py-4 rounded-lg text-white font-medium transition-all flex items-center gap-2 border border-white/20 group"
               style={{
-                background:
-                  'linear-gradient(135deg, rgba(45,212,191,0.35) 0%, rgba(251,191,36,0.25) 100%)',
+                background: 'rgba(255,255,255,0.04)',
                 backdropFilter: 'blur(14px)',
                 WebkitBackdropFilter: 'blur(14px)',
-                boxShadow: '0 4px 20px rgba(45,212,191,0.25), inset 0 1px 0 rgba(255,255,255,0.18)',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.08)',
               }}
             >
               <span
@@ -404,8 +403,8 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
 
                 {/* Soft accent glow */}
                 <div
-                  className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full opacity-40 group-hover:opacity-60 transition-opacity"
-                  style={{ background: 'radial-gradient(circle, rgba(45,212,191,0.35) 0%, transparent 70%)' }}
+                  className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full opacity-0 group-hover:opacity-70 transition-opacity duration-500"
+                  style={{ background: 'radial-gradient(circle, rgba(183,85,58,0.30) 0%, transparent 70%)' }}
                 />
 
                 <div className="relative p-5">
@@ -513,8 +512,8 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
 
                 {/* Soft accent glow */}
                 <div
-                  className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full opacity-40 group-hover:opacity-60 transition-opacity"
-                  style={{ background: 'radial-gradient(circle, rgba(45,212,191,0.35) 0%, transparent 70%)' }}
+                  className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full opacity-0 group-hover:opacity-70 transition-opacity duration-500"
+                  style={{ background: 'radial-gradient(circle, rgba(183,85,58,0.30) 0%, transparent 70%)' }}
                 />
 
                 <div className="relative flex items-center gap-5">
