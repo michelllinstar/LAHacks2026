@@ -9,6 +9,7 @@ import { CartographerWorkspace } from './components/cartographer/CartographerWor
 import { ShareModal } from './components/workspace/ShareModal';
 import { ProfilePage } from './components/profile/ProfilePage';
 import { Toaster, toast } from 'sonner';
+import { useCartographerStore } from '../lib/store';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -43,37 +44,17 @@ export default function App() {
     repoUrl?: string;
     files?: FileList;
   }) => {
-    const newProject = {
-      id: Date.now().toString(),
-      name: project.name,
-      type: project.type,
-    };
-    setCurrentProject(newProject);
-
-    // If files were uploaded, process them
-    if (project.files && project.files.length > 0) {
-      console.log(`Project "${project.name}" created with ${project.files.length} files`);
-      // Store file information for the workspace to use
-      localStorage.setItem(`project-${newProject.id}-files`, JSON.stringify({
-        count: project.files.length,
-        name: project.name,
-      }));
-
-      toast.success(`${project.domain === 'work' ? 'Work' : 'Personal'} project created!`, {
-        description: `${project.name} with ${project.files.length} files is ready for analysis`,
-      });
-    } else if (project.type === 'github') {
-      toast.success(`${project.domain === 'work' ? 'Work' : 'Personal'} project created!`, {
-        description: `${project.name} connected successfully`,
-      });
-    }
+    toast.success(`${project.domain === 'work' ? 'Work' : 'Personal'} project created!`, {
+      description: `${project.name} indexing started`,
+    });
   };
 
   const handleOpenProject = (projectId: string) => {
+    const repo = useCartographerStore.getState().repos.find((r) => r.hash === projectId);
     setCurrentProject({
       id: projectId,
-      name: 'E-Commerce Platform',
-      type: 'github',
+      name: repo?.name ?? 'Repository',
+      type: repo?.git_url ? 'github' : 'local',
     });
   };
 
@@ -114,6 +95,11 @@ export default function App() {
                   <CreateProjectModal
                     onClose={() => setShowCreateModal(false)}
                     onCreate={handleCreateProject}
+                    onCreated={(repo) => {
+                      const store = useCartographerStore.getState();
+                      store.setRepos([...store.repos, repo]);
+                      setShowCreateModal(false);
+                    }}
                   />
                 )}
               </>

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, Settings, Share2, Database, Files, Search, GitBranch, Info, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { UnifiedGraphView, GraphNode, GraphMode } from './UnifiedGraphView';
@@ -10,6 +10,10 @@ import { GraphInfoModal } from './GraphInfoModal';
 import { GraphToolbar } from './GraphToolbar';
 import { InvariantToolbar } from './InvariantToolbar';
 import { LayerTabs } from './LayerTabs';
+import { getGraph, getIndexStatus } from '../../../lib/api';
+import { useRepoStream } from '../../../lib/sse';
+import { useCartographerStore } from '../../../lib/store';
+import type { GraphProjection, IndexStatus, LayerName, SseEvent } from '../../../lib/types';
 
 interface CartographerWorkspaceProps {
   projectId: string;
@@ -24,7 +28,7 @@ type ActivityBarItem = 'explorer' | 'search' | 'source-control' | 'info';
 export function CartographerWorkspace({ projectId, projectName, onBack, onShare }: CartographerWorkspaceProps) {
   const navigate = useNavigate();
   const [activeLayer, setActiveLayer] = useState<LayerView>('graph');
-  const [activeModes, setActiveModes] = useState<Set<GraphMode>>(new Set(['symbol']));
+  const [activeModes, setActiveModes] = useState<Set<GraphMode>>(new Set<GraphMode>(['symbol']));
   const [selectedRepository, setSelectedRepository] = useState(projectName);
   const [activeActivity, setActiveActivity] = useState<ActivityBarItem>('explorer');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -37,6 +41,114 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   const [zoomLevel, setZoomLevel] = useState(100);
   const [highlightedQuery, setHighlightedQuery] = useState<AgentQuery | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
+
+  // ---------------------------------------------------------------------
+  // Live data wiring — projectId is the repo hash after dashboard wiring.
+  // ---------------------------------------------------------------------
+  const setGraph = useCartographerStore((s) => s.setGraph);
+  const setIndex = useCartographerStore((s) => s.setIndex);
+  const pushHighlight = useCartographerStore((s) => s.pushHighlight);
+  const pushActivity = useCartographerStore((s) => s.pushActivity);
+  const indexStatus = useCartographerStore((s) => s.byRepo[projectId]?.index);
+
+  // Initial parallel fetch: index status + all four layer projections.
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    const layers: LayerName[] = ['symbol', 'flow', 'architecture', 'invariant'];
+    (async () => {
+      try {
+        const [status, ...graphs] = await Promise.all([
+          getIndexStatus(projectId),
+          ...layers.map((l) => getGraph(projectId, l).catch(() => null as GraphProjection | null)),
+        ]);
+        if (cancelled) return;
+        setIndex(projectId, status);
+        graphs.forEach((g, i) => {
+          if (g) setGraph(projectId, layers[i], g);
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[CartographerWorkspace] initial load failed', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, setGraph, setIndex]);
+
+  // Refetch a single layer (used on node/edge_added when payload doesn't
+  // carry the full delta).
+  const refetchLayer = useCallback(
+    async (layer: LayerName) => {
+      try {
+        const g = await getGraph(projectId, layer);
+        setGraph(projectId, layer, g);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[CartographerWorkspace] refetch layer failed', layer, err);
+      }
+    },
+    [projectId, setGraph],
+  );
+
+  // SSE event dispatcher.
+  const handleEvent = useCallback(
+    (event: SseEvent) => {
+      const payload = event.payload as Record<string, unknown>;
+      switch (event.type) {
+        case 'index_progress': {
+          // Backend may send a full snapshot or just a progress hint; either
+          // way, re-fetch the canonical status to stay authoritative.
+          if (payload && typeof payload === 'object' && 'layers' in payload) {
+            setIndex(projectId, payload as unknown as IndexStatus);
+          } else {
+            getIndexStatus(projectId)
+              .then((s) => setIndex(projectId, s))
+              .catch(() => {});
+          }
+          break;
+        }
+        case 'node_added':
+        case 'node_updated':
+        case 'edge_added': {
+          const layer = (payload.layer as LayerName | undefined) ?? null;
+          if (layer) {
+            refetchLayer(layer);
+          } else {
+            // Unknown layer → refresh all four cheaply.
+            (['symbol', 'flow', 'architecture', 'invariant'] as LayerName[]).forEach(refetchLayer);
+          }
+          break;
+        }
+        case 'region_highlighted': {
+          const nodeIds = (payload.node_ids as string[] | undefined) ?? [];
+          const color = (payload.color as string | undefined) ?? 'yellow';
+          const fadeMs = (payload.fade_ms as number | undefined) ?? 5000;
+          pushHighlight(projectId, {
+            node_ids: nodeIds,
+            color,
+            expires_at: Date.now() + fadeMs,
+          });
+          break;
+        }
+        case 'agent_activity': {
+          pushActivity({
+            id: (payload.id as string | undefined) ?? (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`),
+            query_type: (payload.query_type as string | undefined) ?? 'unknown',
+            task: (payload.task as string | undefined) ?? '',
+            cluster_id: (payload.cluster_id as string | null | undefined) ?? null,
+            symbol_ids: (payload.symbol_ids as string[] | undefined) ?? [],
+            ts: Date.now(),
+          });
+          break;
+        }
+      }
+    },
+    [projectId, refetchLayer, setIndex, pushHighlight, pushActivity],
+  );
+
+  useRepoStream(projectId, handleEvent);
 
   const handleHighlight = (query: AgentQuery) => {
     setHighlightedQuery(query);
@@ -364,8 +476,17 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
         <div className="flex-1" />
 
         <div className="flex items-center gap-4 text-white/90">
-          <span>Index Status: Ready</span>
-          <span>Last Updated: 2 minutes ago</span>
+          <span>
+            Index Status: {indexStatus
+              ? (Object.values(indexStatus.layers).every((l) => l.state === 'done')
+                  ? 'Ready'
+                  : Object.values(indexStatus.layers).some((l) => l.state === 'running')
+                    ? 'Indexing…'
+                    : Object.values(indexStatus.layers).some((l) => l.state === 'error')
+                      ? 'Error'
+                      : 'Pending')
+              : 'Loading…'}
+          </span>
           <button
             onClick={() => setAgentLogCollapsed(!agentLogCollapsed)}
             className="hover:bg-white/10 px-2 py-0.5 rounded transition-colors"

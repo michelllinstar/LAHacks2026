@@ -1,5 +1,7 @@
 'use client';
+import { useMemo } from 'react';
 import { Bot, Clock, Zap, Eye, X } from 'lucide-react';
+import { useCartographerStore } from '../../../lib/store';
 
 export interface AgentQuery {
   id: string;
@@ -11,6 +13,18 @@ export interface AgentQuery {
   tokensSaved: number;
 }
 
+// Rough token-savings heuristic: each symbol the engine answered with stands
+// in for ~700 tokens of raw source the agent would have otherwise pulled.
+const TOKENS_PER_SYMBOL = 700;
+
+const QUERY_TYPE_LABEL: Record<string, string> = {
+  find_relevant_context: 'Coordinator',
+  trace_data_flow: 'Flow Analyst',
+  find_invariants: 'Invariant Reporter',
+  describe_architecture: 'Architecture Analyst',
+  find_exemplars: 'Exemplar Finder',
+};
+
 interface AgentActivityLogProps {
   onCollapse?: () => void;
   onHighlight?: (query: AgentQuery) => void;
@@ -18,45 +32,22 @@ interface AgentActivityLogProps {
 }
 
 export function AgentActivityLog({ onCollapse, onHighlight, highlightedQueryId }: AgentActivityLogProps) {
-  // Mock agent activity
-  const queries: AgentQuery[] = [
-    {
-      id: '1',
-      timestamp: new Date(Date.now() - 5000),
-      agent: 'Coordinator',
-      query: 'Find rate limiting middleware conventions',
-      cluster: 'Controllers',
-      symbolsReturned: 12,
-      tokensSaved: 8400,
-    },
-    {
-      id: '2',
-      timestamp: new Date(Date.now() - 45000),
-      agent: 'Symbol Analyst',
-      query: 'Lookup AuthController dependencies',
-      cluster: 'Controllers',
-      symbolsReturned: 8,
-      tokensSaved: 5200,
-    },
-    {
-      id: '3',
-      timestamp: new Date(Date.now() - 120000),
-      agent: 'Flow Analyst',
-      query: 'Trace user credentials flow',
-      cluster: 'Services',
-      symbolsReturned: 15,
-      tokensSaved: 12000,
-    },
-    {
-      id: '4',
-      timestamp: new Date(Date.now() - 180000),
-      agent: 'Invariant Reporter',
-      query: 'Get payment validation constraints',
-      cluster: 'Services',
-      symbolsReturned: 6,
-      tokensSaved: 3800,
-    },
-  ];
+  // Live activity feed driven by SSE `agent_activity` events (see
+  // CartographerWorkspace handleEvent dispatcher).
+  const activity = useCartographerStore((s) => s.activity);
+  const queries: AgentQuery[] = useMemo(
+    () =>
+      activity.map((a) => ({
+        id: a.id,
+        timestamp: new Date(a.ts),
+        agent: QUERY_TYPE_LABEL[a.query_type] ?? a.query_type,
+        query: a.task || a.query_type,
+        cluster: a.cluster_id ?? '—',
+        symbolsReturned: a.symbol_ids.length,
+        tokensSaved: a.symbol_ids.length * TOKENS_PER_SYMBOL,
+      })),
+    [activity],
+  );
 
   const formatTimeAgo = (date: Date) => {
     const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -89,6 +80,12 @@ export function AgentActivityLog({ onCollapse, onHighlight, highlightedQueryId }
 
       {/* Activity List */}
       <div className="flex-1 overflow-auto">
+        {queries.length === 0 && (
+          <div className="p-6 text-center text-xs text-gray-500">
+            No agent queries yet. Live activity will appear here as the
+            Query Engine handles requests.
+          </div>
+        )}
         <div className="divide-y divide-[#1e1e1e]">
           {queries.map((query) => (
             <div key={query.id} className="p-3 hover:bg-[#2a2d2e] cursor-pointer transition-colors group">

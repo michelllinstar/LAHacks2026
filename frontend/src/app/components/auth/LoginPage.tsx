@@ -1,6 +1,9 @@
 'use client';
 import { useState } from 'react';
 import { Code2, Mail, Lock, GitBranch, Globe } from 'lucide-react';
+import { AxiosError } from 'axios';
+import { toast } from 'sonner';
+import { login } from '../../../lib/api';
 
 interface LoginPageProps {
   onLogin: () => void;
@@ -12,23 +15,34 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSignup) {
+      toast.info('Signup is invite-only — please sign in');
+      return;
+    }
     setIsLoading(true);
-    // Mock login - in production, would call auth API
-    setTimeout(() => {
+    try {
+      await login(email, password);
       onLogin();
+    } catch (err: unknown) {
+      if (err instanceof AxiosError) {
+        if (err.response?.status === 401) {
+          toast.error('Invalid email or password');
+        } else {
+          const detail = (err.response?.data as { detail?: string } | undefined)?.detail;
+          toast.error(detail || err.message || 'Login failed');
+        }
+      } else {
+        toast.error('Login failed');
+      }
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   const handleOAuthLogin = (provider: 'github' | 'google') => {
-    setIsLoading(true);
-    // Mock OAuth flow - in production, would redirect to OAuth provider
-    setTimeout(() => {
-      onLogin();
-      setIsLoading(false);
-    }, 1000);
+    toast.info('OAuth not configured yet — sign in with email/password');
   };
 
   return (

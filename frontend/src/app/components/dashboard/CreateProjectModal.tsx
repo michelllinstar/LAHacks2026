@@ -1,6 +1,9 @@
 'use client';
 import { useState, useRef } from 'react';
 import { X, GitBranch, HardDrive, FolderPlus, ArrowRight, Upload, Folder, FileCode, User, Briefcase } from 'lucide-react';
+import { toast } from 'sonner';
+import { createRepo, triggerIndex } from '../../../lib/api';
+import type { RepoSummary } from '../../../lib/types';
 
 type DomainType = 'personal' | 'work';
 
@@ -14,19 +17,22 @@ interface CreateProjectModalProps {
     repoUrl?: string;
     files?: FileList;
   }) => void;
+  onCreated?: (repo: RepoSummary) => void;
 }
 
 interface FolderStructure {
   [folderName: string]: File[];
 }
 
-export function CreateProjectModal({ onClose, onCreate }: CreateProjectModalProps) {
+export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProjectModalProps) {
   const [step, setStep] = useState<'type' | 'details'>('type');
   const [projectType, setProjectType] = useState<'github' | 'local' | null>(null);
   const [domain, setDomain] = useState<DomainType>('personal');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
+  const [localPath, setLocalPath] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<FileList | null>(null);
   const [folderStructure, setFolderStructure] = useState<FolderStructure>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -104,11 +110,31 @@ export function CreateProjectModal({ onClose, onCreate }: CreateProjectModalProp
     );
   };
 
-  const handleCreate = () => {
-    if (projectType && name) {
-      if (projectType === 'local' && !uploadedFiles) {
-        // Require files for local projects
-        return;
+  const handleCreate = async () => {
+    if (!projectType || !name) return;
+
+    // File-upload path is unsupported by the backend.
+    if (projectType === 'local' && uploadedFiles && !localPath) {
+      toast.info('File upload not yet supported — use a git URL or local path');
+      return;
+    }
+
+    if (projectType === 'github' && !repoUrl) return;
+    if (projectType === 'local' && !localPath) return;
+
+    setSubmitting(true);
+    try {
+      const body = {
+        name,
+        git_url: projectType === 'github' ? repoUrl : undefined,
+        local_path: projectType === 'local' ? localPath : undefined,
+      };
+      const repo = await createRepo(body);
+      try {
+        await triggerIndex(repo.hash);
+      } catch (idxErr: unknown) {
+        const msg = idxErr instanceof Error ? idxErr.message : 'Unknown error';
+        toast.error(`Repo created but indexing failed to start: ${msg}`);
       }
 
       onCreate({
@@ -119,7 +145,13 @@ export function CreateProjectModal({ onClose, onCreate }: CreateProjectModalProp
         repoUrl: projectType === 'github' ? repoUrl : undefined,
         files: uploadedFiles || undefined,
       });
+      onCreated?.(repo);
       onClose();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to create repository: ${msg}`);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -308,6 +340,22 @@ export function CreateProjectModal({ onClose, onCreate }: CreateProjectModalProp
 
               {projectType === 'local' && (
                 <div className="space-y-5">
+                  <div>
+                    <label className="block text-base font-medium text-gray-300 mb-5">
+                      Local Path *
+                    </label>
+                    <input
+                      type="text"
+                      value={localPath}
+                      onChange={(e) => setLocalPath(e.target.value)}
+                      placeholder="/absolute/path/to/repo"
+                      className="w-full px-5 py-3 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 mt-5">
+                      Absolute path to a directory readable by the Cartographer backend
+                    </p>
+                  </div>
+
                   {/* Hidden file inputs */}
                   <input
                     ref={fileInputRef}
@@ -435,9 +483,10 @@ export function CreateProjectModal({ onClose, onCreate }: CreateProjectModalProp
             <button
               onClick={handleCreate}
               disabled={
+                submitting ||
                 !name ||
                 (projectType === 'github' && !repoUrl) ||
-                (projectType === 'local' && !uploadedFiles)
+                (projectType === 'local' && !localPath)
               }
               className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-all flex items-center gap-5"
             >

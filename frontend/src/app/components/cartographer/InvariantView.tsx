@@ -1,6 +1,7 @@
 'use client';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Shield, AlertCircle, CheckCircle, FileCode } from 'lucide-react';
+import { useCartographerStore } from '../../../lib/store';
 
 interface InvariantViewProps {
   repositoryId: string;
@@ -20,41 +21,30 @@ export function InvariantView({ repositoryId }: InvariantViewProps) {
   const [selectedInvariant, setSelectedInvariant] = useState<Invariant | null>(null);
   const [filterConfidence, setFilterConfidence] = useState<'all' | 'high' | 'medium'>('all');
 
-  // Mock invariant data
-  const invariants: Invariant[] = [
-    {
-      id: '1',
-      targetSymbol: 'validateEmail',
-      invariantText: 'Input must be a non-empty string',
-      sourceKind: 'defensive-check',
-      sourceLocation: 'src/utils/validation.ts:15',
-      confidence: 0.9,
-    },
-    {
-      id: '2',
-      targetSymbol: 'UserService.createUser',
-      invariantText: 'Email must be unique in database',
-      sourceKind: 'test',
-      sourceLocation: 'tests/user.test.ts:42',
-      confidence: 0.95,
-    },
-    {
-      id: '3',
-      targetSymbol: 'PaymentProcessor.charge',
-      invariantText: 'Amount must be positive and less than $10,000',
-      sourceKind: 'defensive-check',
-      sourceLocation: 'src/services/payment.ts:67',
-      confidence: 0.85,
-    },
-    {
-      id: '4',
-      targetSymbol: 'AuthController.login',
-      invariantText: 'Rate limit: max 5 attempts per minute',
-      sourceKind: 'comment',
-      sourceLocation: 'src/controllers/auth.ts:23',
-      confidence: 0.7,
-    },
-  ];
+  // Live invariants are projected as graph nodes on the `invariant` layer:
+  // each node's metadata carries target_symbol, text, source_kind,
+  // source_location, confidence (see backend/services/projector.py).
+  const projection = useCartographerStore(
+    (s) => s.byRepo[repositoryId]?.graphs.invariant,
+  );
+
+  const invariants: Invariant[] = useMemo(() => {
+    if (!projection) return [];
+    return projection.nodes.map((n) => {
+      const md = n.metadata ?? {};
+      const rawKind = String(md.source_kind ?? 'defensive').toLowerCase();
+      const sourceKind: Invariant['sourceKind'] =
+        rawKind === 'test' ? 'test' : rawKind === 'comment' ? 'comment' : 'defensive-check';
+      return {
+        id: n.id,
+        targetSymbol: String(md.target_symbol ?? n.label),
+        invariantText: String(md.text ?? n.label),
+        sourceKind,
+        sourceLocation: String(md.source_location ?? ''),
+        confidence: typeof md.confidence === 'number' ? (md.confidence as number) : 0.5,
+      };
+    });
+  }, [projection]);
 
   const getConfidenceColor = (confidence: number) => {
     if (confidence >= 0.9) return 'text-green-400';

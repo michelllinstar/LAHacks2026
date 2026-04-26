@@ -1,6 +1,10 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, X, Minimize2, Maximize2, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
+import { findRelevantContext } from '../../../lib/api';
+import { useCartographerStore } from '../../../lib/store';
+import type { ContextBundle } from '../../../lib/types';
 
 interface Message {
   id: string;
@@ -28,6 +32,8 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const activeRepoHash = useCartographerStore((s) => s.activeRepoHash);
+  const pushActivity = useCartographerStore((s) => s.pushActivity);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -48,127 +54,73 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const query = input;
     setInput('');
-    setIsTyping(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    if (!activeRepoHash) {
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: generateResponse(input),
+        content: 'Open a project first to ask Cartographer about it.',
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, assistantMessage]);
+      return;
+    }
+
+    setIsTyping(true);
+
+    try {
+      const bundle = await findRelevantContext({ task: query, repo_hash: activeRepoHash });
+      const content = formatBundle(bundle);
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+
+      pushActivity({
+        id: crypto.randomUUID(),
+        query_type: 'find_relevant_context',
+        task: query,
+        cluster_id: bundle.region.cluster_id,
+        symbol_ids: bundle.relevant_symbols.map((s) => s.qualified_name),
+        ts: Date.now(),
+      });
+    } catch (err) {
+      toast.error('Cartographer query failed');
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'Sorry, the query failed.',
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
-  const generateResponse = (query: string): string => {
-    const lowerQuery = query.toLowerCase();
+  const formatBundle = (bundle: ContextBundle): string => {
+    const role = bundle.region?.role || 'unknown region';
+    const intro = `This task lives in a region whose role is **${role}**.`;
 
-    if (lowerQuery.includes('class') || lowerQuery.includes('classes')) {
-      return `Based on the UML diagram, your project has several key classes:
+    const topSymbols = bundle.relevant_symbols.slice(0, 5);
+    const symbolsBlock = topSymbols.length
+      ? '\n\n**Top relevant symbols:**\n' +
+        topSymbols
+          .map((s) => `- \`${s.qualified_name}\` — ${s.file_path}:${s.line_start}`)
+          .join('\n')
+      : '\n\n_No relevant symbols were ranked for this query._';
 
-**Core Classes:**
-- **UserService**: Handles user operations (authentication, profiles)
-- **AuthController**: Manages authentication flow
-- **DatabaseManager**: Database connection and queries
-- **PaymentProcessor**: Payment handling and validation
+    const notesBlock = bundle.notes && bundle.notes.length
+      ? '\n\n' + bundle.notes.map((n) => `_${n}_`).join('\n')
+      : '';
 
-**Relationships:**
-- UserService extends BaseService
-- AuthController depends on UserService
-- PaymentProcessor uses DatabaseManager for persistence
-
-Would you like me to explain any specific class in detail?`;
-    }
-
-    if (lowerQuery.includes('flow') || lowerQuery.includes('architecture')) {
-      return `The architecture follows a layered pattern:
-
-**1. Controllers Layer**
-   - Handles HTTP requests
-   - AuthController, UserController
-
-**2. Service Layer**
-   - Business logic
-   - UserService, PaymentService
-
-**3. Data Layer**
-   - Database operations
-   - DatabaseManager, Repository classes
-
-**Data Flow:**
-Request → Controller → Service → Database → Response
-
-The flow ensures separation of concerns and makes testing easier. Would you like details about a specific layer?`;
-    }
-
-    if (lowerQuery.includes('relationship') || lowerQuery.includes('connect')) {
-      return `The class relationships are:
-
-**Inheritance:**
-- UserService inherits from BaseService
-- AdminService extends UserService
-
-**Composition:**
-- AuthController contains UserService
-- PaymentProcessor uses DatabaseManager
-
-**Dependencies:**
-- Controllers depend on Services
-- Services depend on Database layer
-
-These relationships help maintain clean architecture and code reusability. Want to explore a specific relationship?`;
-    }
-
-    if (lowerQuery.includes('improve') || lowerQuery.includes('suggest')) {
-      return `Here are some architectural suggestions:
-
-**✅ Strengths:**
-- Clear separation of concerns
-- Good use of inheritance
-- Layered architecture
-
-**💡 Improvements:**
-1. Consider adding interfaces for better abstraction
-2. Implement dependency injection for easier testing
-3. Add a caching layer between service and database
-4. Consider using the Repository pattern
-
-Would you like me to explain any of these suggestions in detail?`;
-    }
-
-    if (lowerQuery.includes('test') || lowerQuery.includes('testing')) {
-      return `For testing this architecture:
-
-**Unit Tests:**
-- Mock DatabaseManager in service tests
-- Test each service method independently
-
-**Integration Tests:**
-- Test controller → service flow
-- Use test database for data layer
-
-**Key Testing Points:**
-- AuthController login flow
-- UserService CRUD operations
-- PaymentProcessor validation
-
-The current architecture makes testing straightforward due to clear dependencies. Need help with specific test scenarios?`;
-    }
-
-    return `I understand you're asking about "${query}".
-
-Based on the UML diagram, I can help you with:
-- **Class details** - Explain specific classes and their methods
-- **Relationships** - How classes interact with each other
-- **Data flow** - How data moves through the system
-- **Architecture** - Overall structure and patterns
-- **Improvements** - Suggestions for refactoring
-
-Could you be more specific about which aspect you'd like to explore?`;
+    return `${intro}${symbolsBlock}${notesBlock}`;
   };
 
   return isMinimized ? (

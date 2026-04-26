@@ -1,6 +1,68 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Network, GitBranch, Boxes, Box, Database, Code, Users, Minimize2, Maximize2, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
+import { useCartographerStore } from '../../../lib/store';
+import type { GraphProjection, LayerName } from '../../../lib/types';
+
+// Pick which projection feeds the unified view based on which graph modes
+// are active. Symbol mode is the default base layer; flow/architecture
+// override when their own modes are toggled on.
+function pickLayer(modes: Set<GraphMode>): LayerName {
+  if (modes.has('flow')) return 'flow';
+  if (modes.has('architecture')) return 'architecture';
+  return 'symbol';
+}
+
+// Map a backend GraphNodeWire kind onto the local GraphNode.type discriminator.
+function mapKind(kind: string): GraphNode['type'] {
+  const k = kind.toLowerCase();
+  if (k.includes('class')) return 'class';
+  if (k.includes('interface')) return 'interface';
+  if (k.includes('module') || k.includes('file') || k.includes('package')) return 'module';
+  return 'function';
+}
+
+// Deterministic radial layout — wire nodes have no positions, so we lay
+// them out in concentric rings keyed off their order in the projection.
+// This is intentionally cheap; a future enhancement is force-directed.
+function projectionToNodes(graph: GraphProjection | undefined): GraphNode[] {
+  if (!graph) return [];
+  const adjacency = new Map<string, string[]>();
+  for (const n of graph.nodes) adjacency.set(n.id, []);
+  for (const e of graph.edges) {
+    const list = adjacency.get(e.source);
+    if (list) list.push(e.target);
+  }
+  const idToName = new Map<string, string>();
+  for (const n of graph.nodes) idToName.set(n.id, n.label);
+
+  const count = graph.nodes.length;
+  const cx = 600;
+  const cy = 350;
+  return graph.nodes.map((n, i) => {
+    // Lay out on concentric rings of ~12 nodes.
+    const ringSize = 12;
+    const ring = Math.floor(i / ringSize);
+    const idxOnRing = i % ringSize;
+    const radius = 200 + ring * 280;
+    const ringCount = Math.min(ringSize, count - ring * ringSize);
+    const angle = (idxOnRing / ringCount) * Math.PI * 2;
+    const cluster = (n.metadata?.cluster_id as string | undefined) ?? (n.metadata?.cluster as string | undefined) ?? 'Unclustered';
+    const methods = (n.metadata?.methods as string[] | undefined) ?? [];
+    const properties = (n.metadata?.properties as string[] | undefined) ?? [];
+    return {
+      id: n.id,
+      name: n.label,
+      type: mapKind(n.kind),
+      cluster,
+      methods,
+      properties,
+      dependencies: (adjacency.get(n.id) ?? []).map((tid) => idToName.get(tid) ?? tid),
+      x: cx + Math.cos(angle) * radius - 120,
+      y: cy + Math.sin(angle) * radius - 100,
+    };
+  });
+}
 
 interface UnifiedGraphViewProps {
   repositoryId: string;
@@ -45,75 +107,38 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
   const [lastTouchDistance, setLastTouchDistance] = useState<number | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Mock graph nodes positioned as mind map
-  const [nodes, setNodes] = useState<GraphNode[]>([
-    {
-      id: '1',
-      name: 'UserService',
-      type: 'class',
-      cluster: 'Services',
-      methods: ['createUser()', 'updateUser()', 'deleteUser()', 'findById()'],
-      properties: ['userRepository', 'emailValidator', 'logger'],
-      dependencies: ['DatabaseManager'],
-      x: 500,
-      y: 250,
-    },
-    {
-      id: '2',
-      name: 'AuthController',
-      type: 'class',
-      cluster: 'Controllers',
-      methods: ['login()', 'logout()', 'register()', 'resetPassword()'],
-      properties: ['authService', 'tokenManager'],
-      dependencies: ['UserService'],
-      x: 200,
-      y: 150,
-    },
-    {
-      id: '3',
-      name: 'PaymentProcessor',
-      type: 'class',
-      cluster: 'Services',
-      methods: ['processPayment()', 'refund()', 'validateCard()'],
-      properties: ['paymentGateway', 'transactionLogger'],
-      dependencies: ['DatabaseManager'],
-      x: 800,
-      y: 250,
-    },
-    {
-      id: '4',
-      name: 'DatabaseManager',
-      type: 'class',
-      cluster: 'Database',
-      methods: ['connect()', 'disconnect()', 'query()', 'transaction()'],
-      properties: ['connection', 'config'],
-      dependencies: [],
-      x: 500,
-      y: 450,
-    },
-    {
-      id: '5',
-      name: 'validateEmail',
-      type: 'function',
-      cluster: 'Utils',
-      methods: [],
-      properties: [],
-      dependencies: [],
-      x: 250,
-      y: 400,
-    },
-    {
-      id: '6',
-      name: 'ApiRouter',
-      type: 'module',
-      cluster: 'Routes',
-      methods: ['setupRoutes()', 'registerMiddleware()'],
-      properties: ['routes', 'middleware'],
-      dependencies: ['AuthController', 'UserService'],
-      x: 650,
-      y: 50,
-    },
-  ]);
+  // Live graph data sourced from the Cartographer store. The store is
+  // populated by CartographerWorkspace's initial fetch + SSE handler.
+  const layer = pickLayer(activeModes);
+  const projection = useCartographerStore(
+    (s) => s.byRepo[repositoryId]?.graphs[layer],
+  );
+
+  // Derived nodes from the projection, then a local override layer for
+  // user-driven drags so positions don't snap back when the projection
+  // re-renders (e.g. after an SSE refetch).
+  const baseNodes = useMemo(() => projectionToNodes(projection), [projection]);
+  const [positionOverrides, setPositionOverrides] = useState<Record<string, { x: number; y: number }>>({});
+
+  const nodes: GraphNode[] = useMemo(
+    () =>
+      baseNodes.map((n) =>
+        positionOverrides[n.id]
+          ? { ...n, x: positionOverrides[n.id].x, y: positionOverrides[n.id].y }
+          : n,
+      ),
+    [baseNodes, positionOverrides],
+  );
+
+  // Setter shim so existing code that calls `setNodes(prev => ...)` still
+  // works. Translates updates into position overrides since projection is
+  // store-owned and shouldn't be mutated locally.
+  const setNodes = (updater: GraphNode[] | ((prev: GraphNode[]) => GraphNode[])) => {
+    const next = typeof updater === 'function' ? (updater as (p: GraphNode[]) => GraphNode[])(nodes) : updater;
+    const overrides: Record<string, { x: number; y: number }> = {};
+    for (const n of next) overrides[n.id] = { x: n.x, y: n.y };
+    setPositionOverrides(overrides);
+  };
 
   // Keyboard zoom controls
   useEffect(() => {

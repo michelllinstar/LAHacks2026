@@ -1,7 +1,11 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Grid, List, Clock, Users, Star, MoreVertical, Folder, GitBranch, HardDrive, Briefcase, User } from 'lucide-react';
+import { toast } from 'sonner';
+import { listRepos } from '../../../lib/api';
+import { useCartographerStore } from '../../../lib/store';
+import type { RepoSummary } from '../../../lib/types';
 
 type DomainType = 'personal' | 'work';
 
@@ -28,19 +32,61 @@ interface ProjectsDashboardProps {
   };
 }
 
+function repoToProject(repo: RepoSummary): Project {
+  const description = repo.local_path || repo.git_url || '';
+  return {
+    id: repo.hash,
+    name: repo.name,
+    description,
+    type: repo.git_url ? 'github' : 'local',
+    domain: 'personal',
+    lastModified: new Date(),
+    diagramCount: 0,
+    collaborators: 1,
+    starred: false,
+  };
+}
+
 export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: ProjectsDashboardProps) {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDomain, setActiveDomain] = useState<DomainType>('personal');
+  const [loading, setLoading] = useState(true);
 
-  const handleProjectClick = (projectId: string) => {
-    onOpenProject(projectId);
-    navigate(`/workspace/${projectId}`);
+  const repos = useCartographerStore((s) => s.repos);
+  const setRepos = useCartographerStore((s) => s.setRepos);
+  const setActiveRepoHash = useCartographerStore((s) => s.setActiveRepoHash);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    listRepos()
+      .then((data) => {
+        if (!cancelled) setRepos(data);
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        toast.error(`Failed to load repositories: ${msg}`);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setRepos]);
+
+  const handleProjectClick = (hash: string) => {
+    setActiveRepoHash(hash);
+    onOpenProject(hash);
+    navigate(`/workspace/${hash}`);
   };
 
-  // Mock projects data - Cartographer indexed repositories
-  const [projects] = useState<Project[]>([
+  const projects: Project[] = repos.map(repoToProject);
+
+  // Mock projects data - kept as a no-op fallback (unused; backed by real repos above)
+  const _mockProjects: Project[] = ([
     {
       id: '1',
       name: 'E-Commerce Platform',
@@ -96,7 +142,8 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
       collaborators: 1,
       starred: false,
     },
-  ]);
+  ] as Project[]);
+  void _mockProjects;
 
   const filteredProjects = projects.filter(p =>
     (p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -220,8 +267,13 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
           </div>
         </div>
 
+        {/* Loading state */}
+        {loading && (
+          <div className="text-center py-8 text-gray-400">Loading repositories...</div>
+        )}
+
         {/* Projects Grid/List */}
-        {viewMode === 'grid' ? (
+        {!loading && (viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredProjects.map((project) => (
               <div
@@ -325,10 +377,10 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
               </div>
             ))}
           </div>
-        )}
+        ))}
 
         {/* Empty State */}
-        {filteredProjects.length === 0 && (
+        {!loading && filteredProjects.length === 0 && (
           <div className="text-center py-16">
             <Folder className="h-16 w-16 text-gray-600 mx-auto mb-5" />
             <h3 className="text-2xl font-semibold text-white mb-5">No projects found</h3>
