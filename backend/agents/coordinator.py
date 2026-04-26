@@ -401,24 +401,120 @@ def handle_user_query(query: UserQuery) -> UserResponse:
     # All other types currently degrade to empty responses for the MVP.
     return UserResponse(bundle={"query_type": query_type, "result": None})
 
-
+# Agent description used by Agentverse for ASI:One keyword routing (SPEC §7.2.4).
+# The keywords make this agent discoverable when a user asks about code/codebase.
+_AGENT_DESCRIPTION = (
+    "Codebase Cartographer Coordinator. Answers questions about any indexed "
+    "source repository: relevant symbols for a task, data-flow traces, "
+    "architectural conventions, and implicit invariants. Keywords: code, "
+    "codebase, repository, architecture, convention, invariant, flow, symbol."
+)
+ 
+ 
 def build_agent(seed: Optional[str] = None, port: int = 8001):
-    from uagents import Agent, Context  # type: ignore
+    import json
+    from datetime import datetime, timezone
+    from uuid import uuid4
+    from uagents import Agent, Context, Protocol  # type: ignore
+    from uagents_core.contrib.protocols.chat import (  # type: ignore
+        ChatAcknowledgement,
+        ChatMessage,
+        EndSessionContent,
+        TextContent,
+        chat_protocol_spec,
+    )
 
     agent = Agent(
-        name="cartographer_coordinator",
+        name="carto-coordinator",
         seed=seed or os.getenv("COORDINATOR_SEED", "cartographer-coordinator-seed"),
         port=port,
         mailbox=True,
     )
 
+    protocol = Protocol(spec=chat_protocol_spec)
+
+    @protocol.on_message(ChatMessage)
+    async def _on_chat(ctx: Context, sender: str, msg: ChatMessage) -> None:
+        await ctx.send(
+            sender,
+            ChatAcknowledgement(timestamp=datetime.now(), acknowledged_msg_id=msg.msg_id),
+        )
+        try:
+            raw = "".join(
+                item.text for item in msg.content if isinstance(item, TextContent)
+            )
+            try:
+                payload = json.loads(raw)
+                repo_hash = payload.get("repo_hash", "")
+                question = payload.get("question", raw)
+            except (json.JSONDecodeError, AttributeError):
+                repo_hash = ""
+                question = raw
+
+            if not repo_hash:
+                response_text = (
+                    "Please provide a repo_hash. "
+                    'Send JSON: {"repo_hash": "<hash>", "question": "<question>"}'
+                )
+            else:
+                result = handle_user_query(
+                    UserQuery(repo_hash=repo_hash, question=question)
+                )
+                response_text = json.dumps(result.bundle)
+        except Exception as exc:
+            logger.exception("Coordinator Chat Protocol error: %s", exc)
+            response_text = f"Error: {exc}"
+
+        await ctx.send(
+            sender,
+            ChatMessage(
+                timestamp=datetime.now(timezone.utc),
+                msg_id=uuid4(),
+                content=[
+                    TextContent(type="text", text=response_text),
+                    EndSessionContent(type="end-session"),
+                ],
+            ),
+        )
+
+    @protocol.on_message(ChatAcknowledgement)
+    async def _on_ack(ctx: Context, sender: str, msg: ChatAcknowledgement) -> None:
+        pass
+
+    agent.include(protocol, publish_manifest=True)
+
     @agent.on_message(model=UserQuery, replies=UserResponse)
     async def _on_query(ctx: Context, sender: str, msg: UserQuery) -> None:
         try:
             reply = handle_user_query(msg)
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc:
             logger.exception("Coordinator error: %s", exc)
             reply = UserResponse(bundle={"error": str(exc)})
         await ctx.send(sender, reply)
 
     return agent
+ 
+
+
+# def build_agent(seed: Optional[str] = None, port: int = 8001):
+#     from uagents import Agent, Context  # type: ignore
+
+#     agent = Agent(
+#         name="cartographer_coordinator",
+#         seed=seed or os.getenv("COORDINATOR_SEED", "cartographer-coordinator-seed"),
+#         port=port,
+#         mailbox=True,
+#         readme_path="README.md",
+#         publish_agent_details=True
+#     )
+
+#     @agent.on_message(model=UserQuery, replies=UserResponse)
+#     async def _on_query(ctx: Context, sender: str, msg: UserQuery) -> None:
+#         try:
+#             reply = handle_user_query(msg)
+#         except Exception as exc:  # pragma: no cover
+#             logger.exception("Coordinator error: %s", exc)
+#             reply = UserResponse(bundle={"error": str(exc)})
+#         await ctx.send(sender, reply)
+
+#     return agent
