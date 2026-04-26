@@ -133,7 +133,9 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
     const name = extDraftName.trim();
     const url = extDraftUrl.trim();
     if (!name || !url) {
-      toast.error('Name and endpoint URL are required.');
+      toast.error('Missing required fields', {
+        description: 'Name and endpoint URL are both required.',
+      });
       return;
     }
     try {
@@ -150,7 +152,7 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
       toast.success(`Registered "${name}"`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast.error(`Failed to register: ${msg}`);
+      toast.error('Couldn\u2019t register agent', { description: msg });
     }
   };
 
@@ -162,13 +164,15 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
       toast.success(`Deleted "${agent.name}"`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast.error(`Failed to delete: ${msg}`);
+      toast.error('Couldn\u2019t delete agent', { description: msg });
     }
   };
 
   const runExternal = async (agent: ExternalAgent) => {
     if (!activeRepoHash) {
-      toast.error('Open a project first.');
+      toast.error('No project selected', {
+        description: 'Open a project before running this action.',
+      });
       return;
     }
     const prompt = window.prompt(`Prompt for ${agent.name}:`);
@@ -192,7 +196,7 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast.error(`${agent.name} failed: ${msg}`);
+      toast.error(`${agent.name} failed`, { description: msg });
     } finally {
       setExtRunningId(null);
     }
@@ -217,7 +221,9 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
     const name = draftName.trim();
     const prompt = draftPrompt.trim();
     if (!name || !prompt) {
-      toast.error('Name and prompt are required.');
+      toast.error('Missing required fields', {
+        description: 'Name and prompt are both required.',
+      });
       return;
     }
     const next: CustomAgent[] = [
@@ -249,7 +255,9 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
 
   const runAgent = async (agent: CustomAgent) => {
     if (!activeRepoHash) {
-      toast.error('Open a project first.');
+      toast.error('No project selected', {
+        description: 'Open a project before running this action.',
+      });
       return;
     }
     setDispatchingId(agent.id);
@@ -266,7 +274,7 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
       toast.success(`${agent.name} dispatched`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast.error(`${agent.name} failed to dispatch: ${msg}`);
+      toast.error(`${agent.name} failed to dispatch`, { description: msg });
     } finally {
       setDispatchingId(null);
     }

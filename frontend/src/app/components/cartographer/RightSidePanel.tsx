@@ -1,19 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { X, Cpu, Workflow, Network, ShieldCheck, Layers } from 'lucide-react';
-import { toast } from 'sonner';
+import { X } from 'lucide-react';
 import type { GraphNode } from './UnifiedGraphView';
 import { AgentActivityLog, AgentQuery } from './AgentActivityLog';
 
-type PanelKey = 'node' | 'agents' | 'activity';
-
-const AGENT_ROSTER: Array<{ id: string; label: string; icon: typeof Cpu; hint: string }> = [
-  { id: 'coordinator', label: 'Coordinator', icon: Cpu, hint: 'Routes context queries' },
-  { id: 'symbol', label: 'Symbol Analyst', icon: Layers, hint: 'Layer 1 symbol lookups' },
-  { id: 'flow', label: 'Flow Analyst', icon: Workflow, hint: 'Call / data flow tracing' },
-  { id: 'arch', label: 'Architecture Analyst', icon: Network, hint: 'Cluster boundaries' },
-  { id: 'invariant', label: 'Invariant Reporter', icon: ShieldCheck, hint: 'Constraint mining' },
-];
+type PanelKey = 'node' | 'activity';
 
 interface RightSidePanelProps {
   selectedNode: GraphNode | null;
@@ -30,20 +21,14 @@ export function RightSidePanel({
 }: RightSidePanelProps) {
   const [open, setOpen] = useState<Record<PanelKey, boolean>>({
     node: false,
-    agents: true,
     activity: true,
   });
-  // Sizes are unitless; the visible panels are normalized at render so the
-  // sum always fills the column. Defaults map to the requested 30/30/40.
   const [size, setSize] = useState<Record<PanelKey, number>>({
-    node: 30,
-    agents: 30,
-    activity: 40,
+    node: 40,
+    activity: 60,
   });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-open the node panel whenever a node is selected so clicking a
-  // node always reveals its details, even after the user collapsed it.
   useEffect(() => {
     if (selectedNode) setOpen((p) => ({ ...p, node: true }));
   }, [selectedNode]);
@@ -70,23 +55,15 @@ export function RightSidePanel({
     window.addEventListener('mouseup', onUp);
   };
 
-  const orderedKeys: PanelKey[] = ['node', 'agents', 'activity'];
+  const orderedKeys: PanelKey[] = ['node', 'activity'];
   const visibleKeys = orderedKeys.filter((k) => open[k]);
   const totalSize = visibleKeys.reduce((s, k) => s + size[k], 0) || 1;
   const flexFor = (k: PanelKey) => (open[k] ? size[k] / totalSize : 0);
 
-  // Index helpers so we know which panel sits below a given panel for the
-  // resize handle. Returns null when the given panel is the last visible.
   const nextVisible = (k: PanelKey): PanelKey | null => {
     const idx = visibleKeys.indexOf(k);
     if (idx < 0 || idx === visibleKeys.length - 1) return null;
     return visibleKeys[idx + 1];
-  };
-
-  const handleRunAgent = (label: string) => {
-    toast.info(`${label} dispatched`, {
-      description: 'Watch the activity feed for results',
-    });
   };
 
   const SectionHeader = ({ title, panel }: { title: string; panel: PanelKey }) => (
@@ -116,8 +93,7 @@ export function RightSidePanel({
 
   return (
     <div ref={containerRef} className="h-full flex flex-col bg-[#252526]">
-      {/* Re-open chips for any collapsed panels */}
-      {visibleKeys.length < 3 && (
+      {visibleKeys.length < orderedKeys.length && (
         <div className="px-2 py-1.5 border-b border-[#1e1e1e] flex items-center gap-1.5 flex-wrap flex-shrink-0">
           {!open.node && (
             <button
@@ -125,14 +101,6 @@ export function RightSidePanel({
               className="text-[11px] text-gray-300 hover:text-white px-2 py-1 rounded bg-[#1e1e1e] hover:bg-[#3e3e42] border border-[#3e3e42]"
             >
               + Node Info
-            </button>
-          )}
-          {!open.agents && (
-            <button
-              onClick={() => toggle('agents')}
-              className="text-[11px] text-gray-300 hover:text-white px-2 py-1 rounded bg-[#1e1e1e] hover:bg-[#3e3e42] border border-[#3e3e42]"
-            >
-              + Agents
             </button>
           )}
           {!open.activity && (
@@ -146,7 +114,6 @@ export function RightSidePanel({
         </div>
       )}
 
-      {/* Node Info */}
       {open.node && (
         <div
           className="flex flex-col min-h-0 overflow-hidden"
@@ -202,36 +169,6 @@ export function RightSidePanel({
       )}
       <ResizeHandle above="node" />
 
-      {/* Available Tools */}
-      {open.agents && (
-        <div
-          className="flex flex-col min-h-0 overflow-hidden"
-          style={{ flex: `${flexFor('agents')} 0 0` }}
-        >
-          <SectionHeader title="Available Tools" panel="agents" />
-          <div className="flex-1 overflow-auto p-2 space-y-1">
-            {AGENT_ROSTER.map((a) => {
-              const Icon = a.icon;
-              return (
-                <button
-                  key={a.id}
-                  onClick={() => handleRunAgent(a.label)}
-                  className="w-full flex items-start gap-2 p-2 rounded text-left hover:bg-[#2d2d2d] transition-colors border border-[#3e3e42] bg-[#1e1e1e]"
-                >
-                  <Icon className="h-4 w-4 text-[#2DD4BF] flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-white">{a.label}</div>
-                    <div className="text-[10px] text-gray-400 truncate">{a.hint}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      <ResizeHandle above="agents" />
-
-      {/* Agent Activity — uses AgentActivityLog's own header (it already has X) */}
       {open.activity && (
         <div
           className="flex flex-col min-h-0 overflow-hidden"

@@ -152,20 +152,20 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
     if (!projectType || !name) {
       const msg = !name ? 'Project name is required.' : 'Please select a project type.';
       setValidationError(msg);
-      toast.error(msg);
+      toast.error('Missing required fields', { description: msg });
       return;
     }
 
     if (projectType === 'github' && !repoUrl) {
       const msg = 'Repository URL is required.';
       setValidationError(msg);
-      toast.error(msg);
+      toast.error('Missing required fields', { description: msg });
       return;
     }
     if (projectType === 'local' && !uploadedFiles) {
       const msg = 'Choose a folder to upload.';
       setValidationError(msg);
-      toast.error(msg);
+      toast.error('Missing required fields', { description: msg });
       return;
     }
 
@@ -188,7 +188,9 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
           return !parts.some((seg) => skipDirs.has(seg));
         });
         if (filtered.length === 0) {
-          toast.error('Folder is empty after skipping dependency / build directories.');
+          toast.error('Nothing to upload', {
+            description: 'All files were skipped as dependency or build artifacts.',
+          });
           setSubmitting(false);
           return;
         }
@@ -216,7 +218,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
       onClose();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast.error(`Failed to create repository: ${msg}`);
+      toast.error('Couldn\u2019t create repository', { description: msg });
     } finally {
       setSubmitting(false);
     }
@@ -224,10 +226,10 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
 
   return (
     <div
-      className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4 aurora-bg"
+      className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="glass-panel rounded-3xl w-full max-w-3xl max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden anim-fade-up">
+      <div className="glass-panel rounded-3xl w-full max-w-3xl max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden anim-fade-up aurora-bg">
         {/* Header */}
         <div className="flex items-center justify-between px-10 py-8 border-b border-gray-800">
           <h2 className="text-2xl font-bold text-white">Create New Project</h2>
@@ -243,21 +245,23 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
         <div className="flex-1 overflow-y-auto px-10 py-8">
           {step === 'type' ? (
             <div>
-              <p className="text-gray-400 mb-6">Choose how you want to connect your codebase</p>
+              <p className="text-base text-gray-400 mb-6">Choose how you want to connect your codebase</p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-2xl mx-auto items-stretch">
                 {/* GitHub Option */}
                 <button
                   onClick={() => handleTypeSelect('github')}
-                  className="glass-card px-12 py-16 rounded-2xl text-center group flex flex-col items-center min-h-[360px] hover:border-[#2DD4BF]/40"
+                  className="glass-card px-10 py-12 rounded-2xl text-center group flex flex-col items-center gap-4 hover:border-[#2DD4BF]/40"
                 >
-                  <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center mb-6 group-hover:bg-[#252526] group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
-                    <GitBranch className="h-7 w-7 text-gray-400 group-hover:text-[#5EEAD4]" />
+                  <div className="flex flex-col items-center">
+                    <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center mb-6 group-hover:bg-[#252526] group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
+                      <GitBranch className="h-7 w-7 text-gray-400 group-hover:text-[#5EEAD4]" />
+                    </div>
+                    <h3 className="text-2xl font-semibold text-white mb-4 text-center">Version Control</h3>
+                    <p className="text-base text-gray-400 text-center max-w-xs">
+                      Connect your GitHub repository for automatic syncing and version tracking
+                    </p>
                   </div>
-                  <h3 className="text-2xl font-semibold text-white mb-4 text-center">Version Control</h3>
-                  <p className="text-base text-gray-400 mb-6 text-center max-w-xs">
-                    Connect your GitHub repository for automatic syncing and version tracking
-                  </p>
                   <GlassBubble tone="blue">
                     <span>Get Started</span>
                     <ArrowRight className="h-4 w-4" />
@@ -267,15 +271,17 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                 {/* Local Option */}
                 <button
                   onClick={() => handleTypeSelect('local')}
-                  className="glass-card px-12 py-16 rounded-2xl text-center group flex flex-col items-center min-h-[360px] hover:border-purple-400/40"
+                  className="glass-card px-10 py-12 rounded-2xl text-center group flex flex-col items-center gap-4 hover:border-purple-400/40"
                 >
-                  <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center mb-6 group-hover:bg-[#252526] group-hover:scale-110 group-hover:-rotate-3 transition-all duration-300">
-                    <HardDrive className="h-7 w-7 text-gray-400 group-hover:text-purple-400" />
+                  <div className="flex flex-col items-center">
+                    <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center mb-6 group-hover:bg-[#252526] group-hover:scale-110 group-hover:-rotate-3 transition-all duration-300">
+                      <HardDrive className="h-7 w-7 text-gray-400 group-hover:text-purple-400" />
+                    </div>
+                    <h3 className="text-2xl font-semibold text-white mb-4 text-center">Local Files</h3>
+                    <p className="text-base text-gray-400 text-center max-w-xs">
+                      Upload code files directly from your computer for quick analysis
+                    </p>
                   </div>
-                  <h3 className="text-2xl font-semibold text-white mb-4 text-center">Local Files</h3>
-                  <p className="text-base text-gray-400 mb-6 text-center max-w-xs">
-                    Upload code files directly from your computer for quick analysis
-                  </p>
                   <GlassBubble tone="purple">
                     <span>Get Started</span>
                     <ArrowRight className="h-4 w-4" />
@@ -351,14 +357,24 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                   <button
                     type="button"
                     onClick={() => setDomain('personal')}
-                    className={`flex-1 p-4 rounded-lg border-2 transition-all ${
+                    className="flex-1 p-4 rounded-lg border transition-all"
+                    style={
                       domain === 'personal'
-                        ? 'border-[#2DD4BF] bg-blue-500/10'
-                        : 'border-gray-700 bg-[#1e1e1e] hover:border-gray-600'
-                    }`}
+                        ? {
+                            borderColor: 'rgba(249,115,22,0.55)',
+                            background:
+                              'linear-gradient(135deg, rgba(249,115,22,0.18), rgba(249,115,22,0.06))',
+                            boxShadow:
+                              '0 0 18px rgba(249,115,22,0.45), 0 0 36px rgba(249,115,22,0.25), inset 0 1px 0 rgba(255,255,255,0.12)',
+                          }
+                        : {
+                            borderColor: '#374151',
+                            background: '#1e1e1e',
+                          }
+                    }
                   >
                     <div className="flex items-center justify-center gap-5 mb-5">
-                      <User className={`h-5 w-5 ${domain === 'personal' ? 'text-[#5EEAD4]' : 'text-gray-400'}`} />
+                      <User className={`h-5 w-5 ${domain === 'personal' ? 'text-[#FB923C]' : 'text-gray-400'}`} />
                     </div>
                     <div className={`text-base font-medium ${domain === 'personal' ? 'text-white' : 'text-gray-400'}`}>
                       Personal
@@ -371,14 +387,24 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                   <button
                     type="button"
                     onClick={() => setDomain('work')}
-                    className={`flex-1 p-4 rounded-lg border-2 transition-all ${
+                    className="flex-1 p-4 rounded-lg border transition-all"
+                    style={
                       domain === 'work'
-                        ? 'border-purple-500 bg-purple-500/10'
-                        : 'border-gray-700 bg-[#1e1e1e] hover:border-gray-600'
-                    }`}
+                        ? {
+                            borderColor: 'rgba(249,115,22,0.55)',
+                            background:
+                              'linear-gradient(135deg, rgba(249,115,22,0.18), rgba(249,115,22,0.06))',
+                            boxShadow:
+                              '0 0 18px rgba(249,115,22,0.45), 0 0 36px rgba(249,115,22,0.25), inset 0 1px 0 rgba(255,255,255,0.12)',
+                          }
+                        : {
+                            borderColor: '#374151',
+                            background: '#1e1e1e',
+                          }
+                    }
                   >
                     <div className="flex items-center justify-center gap-5 mb-5">
-                      <Briefcase className={`h-5 w-5 ${domain === 'work' ? 'text-purple-400' : 'text-gray-400'}`} />
+                      <Briefcase className={`h-5 w-5 ${domain === 'work' ? 'text-[#FB923C]' : 'text-gray-400'}`} />
                     </div>
                     <div className={`text-base font-medium ${domain === 'work' ? 'text-white' : 'text-gray-400'}`}>
                       Work
@@ -410,13 +436,20 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
 
               {projectType === 'local' && (
                 <div className="space-y-5">
-                  {/* Hidden folder picker — triggered by the buttons below. */}
+                  {/* Hidden pickers — triggered by the buttons below. */}
                   <input
                     ref={folderInputRef}
                     type="file"
                     onChange={handleFolderPick}
                     className="hidden"
-                    {...({ webkitdirectory: '', directory: '', mozdirectory: '' } as any)}
+                    {...({ webkitdirectory: '', directory: '', mozdirectory: '' } as Record<string, string>)}
+                  />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={handleFileUpload}
+                    className="hidden"
                   />
 
                   {uploadedFiles && uploadedFiles.length > 0 ? (
@@ -424,30 +457,53 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                       <div className="flex items-center gap-3">
                         <Folder className="h-5 w-5 text-green-400" />
                         <div>
-                          <div className="text-white font-medium">{uploadedFiles.length} files queued</div>
+                          <div className="text-white font-medium">{uploadedFiles.length} file{uploadedFiles.length === 1 ? '' : 's'} queued</div>
                           <div className="text-xs text-gray-400">Click "Create Project" to upload and index.</div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => folderInputRef.current?.click()}
+                          className="text-sm text-[#5EEAD4] hover:text-white"
+                        >
+                          Folder
+                        </button>
+                        <span className="text-gray-600">·</span>
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-sm text-[#5EEAD4] hover:text-white"
+                        >
+                          Files
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <button
                         type="button"
                         onClick={() => folderInputRef.current?.click()}
-                        className="text-sm text-[#5EEAD4] hover:text-[#5EEAD4]"
+                        className="p-6 border-2 border-dashed border-gray-700 hover:border-purple-500 rounded-lg transition-all text-center group"
                       >
-                        Choose different folder
+                        <Folder className="h-10 w-10 text-gray-600 group-hover:text-purple-400 mx-auto mb-3 transition-colors" />
+                        <h4 className="text-white font-medium text-base mb-1">Choose Folder</h4>
+                        <p className="text-xs text-gray-400">
+                          Upload an entire project directory.
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-6 border-2 border-dashed border-gray-700 hover:border-purple-500 rounded-lg transition-all text-center group"
+                      >
+                        <FileCode className="h-10 w-10 text-gray-600 group-hover:text-purple-400 mx-auto mb-3 transition-colors" />
+                        <h4 className="text-white font-medium text-base mb-1">Choose Files</h4>
+                        <p className="text-xs text-gray-400">
+                          Pick individual files to upload.
+                        </p>
                       </button>
                     </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => folderInputRef.current?.click()}
-                      className="w-full p-8 border-2 border-dashed border-gray-700 hover:border-purple-500 rounded-lg transition-all text-center group"
-                    >
-                      <Folder className="h-12 w-12 text-gray-600 group-hover:text-purple-400 mx-auto mb-3 transition-colors" />
-                      <h4 className="text-white font-medium text-base mb-1">Choose Folder</h4>
-                      <p className="text-xs text-gray-400">
-                        Pick a project folder — all files inside will be uploaded.
-                      </p>
-                    </button>
                   )}
                 </div>
               )}
