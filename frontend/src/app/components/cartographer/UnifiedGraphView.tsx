@@ -1169,7 +1169,6 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
 
   return (
     <div className="h-full flex flex-col bg-[#1e1e1e] uml-view-fade relative">
-      {showLegend && <LegendOverlay activeModes={activeModes} />}
       {/* Mind Map Canvas */}
       <div
         ref={canvasRef}
