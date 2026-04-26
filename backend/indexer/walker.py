@@ -22,9 +22,11 @@ _SKIP_DIRS = {
     ".vscode",
 }
 
-# SPEC §10 — Python + TypeScript. ``.d.ts`` declaration files are skipped
-# explicitly because they contain only type signatures, no executable code.
+# SPEC §10 — Python + TypeScript. ``.d.ts`` / ``.d.tsx`` declaration files
+# are skipped explicitly because they contain only type signatures, no
+# executable code.
 _SUPPORTED_SUFFIXES = {".py", ".ts", ".tsx"}
+_DECLARATION_SUFFIXES = (".d.ts", ".d.tsx")
 
 
 def walk_repo(root: str | Path) -> Iterator[Path]:
@@ -35,8 +37,7 @@ def walk_repo(root: str | Path) -> Iterator[Path]:
     for path in _iter(root_path):
         if path.suffix not in _SUPPORTED_SUFFIXES:
             continue
-        # Skip TypeScript declaration files (foo.d.ts).
-        if path.name.endswith(".d.ts"):
+        if path.name.endswith(_DECLARATION_SUFFIXES):
             continue
         yield path
 

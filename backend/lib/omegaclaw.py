@@ -77,17 +77,16 @@ def handle_query(
     if not repo_hash:
         return _error("repo_hash is required")
 
-    user_query = UserQuery(repo_hash=repo_hash, question=question)
-    if extras:
-        # Pass through arbitrary fields so callers can preselect query_type
-        # or attach structured payloads (flow / arch / invariant). UserQuery
-        # may or may not allow extras depending on whether uagents.Model or
-        # pydantic.BaseModel is in play, so we set defensively.
-        for k, v in extras.items():
-            try:
-                setattr(user_query, k, v)
-            except Exception:
-                pass
+    # UserQuery's pydantic config is ``extra="allow"`` so kwargs at construction
+    # land in ``model_extra``, which the Coordinator reads to apply
+    # query_type / structured payload overrides. If extras is None we just
+    # build the bare query.
+    try:
+        user_query = UserQuery(repo_hash=repo_hash, question=question, **(extras or {}))
+    except Exception:
+        # If the runtime model is uagents.Model and rejects extras, fall back
+        # to the bare query and let keyword classification do the work.
+        user_query = UserQuery(repo_hash=repo_hash, question=question)
 
     try:
         response = coordinator.handle_user_query(user_query)

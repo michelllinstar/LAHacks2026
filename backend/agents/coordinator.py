@@ -23,6 +23,27 @@ from .protocols import UserQuery, UserResponse
 logger = logging.getLogger(__name__)
 
 
+_USER_QUERY_DECLARED = {"repo_hash", "question"}
+
+
+def _query_extras(query) -> dict:
+    """Return the dict of fields the caller passed beyond UserQuery's declared
+    fields. Handles Pydantic v2 (``model_extra``) and v1 (extras land in
+    ``__dict__`` because UserQuery sets ``Config.extra = 'allow'``).
+    Pydantic v1 is what ``uagents.Model`` ships with."""
+    extra = getattr(query, "model_extra", None)
+    if isinstance(extra, dict) and extra:
+        return extra
+    # Pydantic v1: pull everything off the model and subtract declared fields.
+    if hasattr(query, "dict"):
+        try:
+            data = query.dict()
+        except Exception:
+            data = {}
+        return {k: v for k, v in data.items() if k not in _USER_QUERY_DECLARED}
+    return {}
+
+
 def _count_by_source(invariants: list[dict]) -> dict[str, int]:
     """Group an invariant list by source_kind so the Activity Log can render
     per-kind counts (test/defensive/comment) without re-scanning the bundle."""
@@ -86,7 +107,7 @@ def _extract_flow_payload(query: UserQuery) -> dict:
     via Pydantic's ``model_extra`` (when the model permits) or via attribute
     access. We look in both places defensively.
     """
-    extra = getattr(query, "model_extra", None) or {}
+    extra = _query_extras(query)
     explicit = extra.get("flow") if isinstance(extra, dict) else None
     if isinstance(explicit, dict):
         payload = dict(explicit)
@@ -112,7 +133,7 @@ def _extract_flow_payload(query: UserQuery) -> dict:
 
 def _extract_arch_payload(query: UserQuery) -> dict:
     """Pull an ArchQuery-shaped dict off a UserQuery (path / cluster_id)."""
-    extra = getattr(query, "model_extra", None) or {}
+    extra = _query_extras(query)
     payload: dict = {}
     if isinstance(extra, dict):
         explicit = extra.get("arch")
@@ -133,7 +154,7 @@ def _extract_invariant_payload(query: UserQuery) -> dict:
     qualified name out of the question text so prompts like
     ``"what invariants apply to auth.login?"`` still work.
     """
-    extra = getattr(query, "model_extra", None) or {}
+    extra = _query_extras(query)
     payload: dict = {}
     if isinstance(extra, dict):
         explicit = extra.get("invariant")
@@ -155,7 +176,7 @@ def _extract_invariant_payload(query: UserQuery) -> dict:
 
 def _extract_exemplar_payload(query: UserQuery) -> dict:
     """Pull an ExemplarQuery-shaped dict off a UserQuery (task / cluster_id)."""
-    extra = getattr(query, "model_extra", None) or {}
+    extra = _query_extras(query)
     payload: dict = {"task": query.question or ""}
     if isinstance(extra, dict):
         explicit = extra.get("exemplar")
@@ -173,7 +194,7 @@ def handle_user_query(query: UserQuery) -> UserResponse:
     # Allow callers to skip the keyword classifier by passing an explicit
     # ``query_type`` field (e.g. via the FastAPI gateway). Falls back to
     # keyword-based classification per SPEC §7.2.3.
-    extra = getattr(query, "model_extra", None) or {}
+    extra = _query_extras(query)
     explicit_type = extra.get("query_type") if isinstance(extra, dict) else None
     query_type = explicit_type or _classify(query.question)
     engine = QueryEngine(query.repo_hash)

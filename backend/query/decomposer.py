@@ -76,9 +76,11 @@ def _heuristic(task: str) -> Decomposition:
         task_type = "understand"
     else:
         task_type = "modify existing"
+    # Cap at 8 to match the LLM path so downstream consumers see a stable
+    # bound regardless of which path produced the decomposition.
     return Decomposition(
         task_type=task_type,
-        keywords=keywords or tokens,
+        keywords=(keywords or tokens)[:8],
         constraints=[],
     )
 

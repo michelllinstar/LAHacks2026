@@ -17,7 +17,10 @@ class SymbolRow:
     file_path: str
     line_start: int
     line_end: int
-    kind: str  # "function" | "class" | "method" | "variable"
+    kind: str  # "function" | "class" | "method" | "variable" | "type"
+    # ("type" is emitted by the TypeScript extractor for interface, type
+    # alias, and enum declarations. Layers 2 and 4 filter to function/method
+    # only, so type symbols are correctly ignored downstream.)
     signature: str = ""
 
 

@@ -73,8 +73,16 @@ class InvariantGraph(Model):
 
 
 class UserQuery(Model):
+    # Allow callers (e.g. the OmegaClaw skill) to pass ``query_type`` or
+    # structured payloads alongside the required fields; the Coordinator
+    # reads them via ``model_extra``. uagents.Model is built on Pydantic
+    # v1, so we use an inner Config class (the v1-canonical syntax) which
+    # also still works under v2.
     repo_hash: str
     question: str
+
+    class Config:
+        extra = "allow"
 
 
 class UserResponse(Model):
