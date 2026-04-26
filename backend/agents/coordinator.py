@@ -429,6 +429,11 @@ def build_agent(seed: Optional[str] = None, port: int = 8001):
         seed=seed or os.getenv("COORDINATOR_SEED", "cartographer-coordinator-seed"),
         port=port,
         mailbox=True,
+        # Default to testnet so the agent self-registers on the Almanac
+        # without funding. Flip CARTOGRAPHER_AGENT_NETWORK=mainnet once a
+        # FET-funded wallet exists. SPEC §2.1: Coordinator must be routable
+        # via ASI:One — Almanac registration is what makes that work.
+        network=os.getenv("CARTOGRAPHER_AGENT_NETWORK", "testnet"),
         description=_AGENT_DESCRIPTION,
         metadata={"is_public": "True", "categories": ["coding", "developer-tools"]},
     )

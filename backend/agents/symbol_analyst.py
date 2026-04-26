@@ -36,6 +36,7 @@ def build_agent(seed: Optional[str] = None, port: int = 8002):
         seed=seed or os.getenv("SYMBOL_ANALYST_SEED", "cartographer-symbol-analyst-seed"),
         port=port,
         mailbox=False,
+        network=os.getenv("CARTOGRAPHER_AGENT_NETWORK", "testnet"),
     )
 
     @agent.on_message(model=SymbolQuery, replies=SymbolGraph)
