@@ -515,6 +515,7 @@ def build_agent(seed: Optional[str] = None, port: int = 8001):
             sender,
             ChatAcknowledgement(timestamp=datetime.now(), acknowledged_msg_id=msg.msg_id),
         )
+        response_text = "Sorry, something went wrong processing your request."
         try:
             raw = "".join(
                 item.text for item in msg.content if isinstance(item, TextContent)
@@ -550,14 +551,6 @@ def build_agent(seed: Optional[str] = None, port: int = 8001):
                 # Strip the URL from the question so the remaining text (if any)
                 # is treated as a follow-up query against the freshly indexed repo.
                 question = (raw[: url_match.start()] + raw[url_match.end():]).strip()
-                # Strip leading command words like "index", "use", "load" so
-                # "index <url>" / "use <url>" don't get fed into the query
-                # engine as standalone meaningless searches.
-                _STRIP = {"index", "use", "load", "add", "scan", "analyze", "analyse", "ingest", "please", "and", "then", "for"}
-                tokens = [t for t in re.split(r"[\s,.:;!?]+", question) if t]
-                while tokens and tokens[0].lower().strip("@") in _STRIP:
-                    tokens.pop(0)
-                question = " ".join(tokens).strip()
                 if not question:
                     response_text = (
                         f"Indexed {repo_name} (repo_hash={repo_hash}). "
@@ -593,7 +586,7 @@ def build_agent(seed: Optional[str] = None, port: int = 8001):
                     )
                     repo_hash = ""
                 else:
-                    repo_hash = repos[0].get("repo_hash") or ""
+                    repo_hash = repos[0].get("hash") or ""
 
             if repo_hash:
                 if not question:
@@ -606,6 +599,11 @@ def build_agent(seed: Optional[str] = None, port: int = 8001):
                         UserQuery(repo_hash=repo_hash, question=question)
                     )
                     response_text = json.dumps(result.bundle)
+            else:
+                response_text = (
+                    "No repositories are indexed yet. Please index a repo "
+                    "via the Cartographer UI first, then ask again."
+                )
         except Exception as exc:
             logger.exception("Coordinator Chat Protocol error: %s", exc)
             response_text = f"Error: {exc}"
