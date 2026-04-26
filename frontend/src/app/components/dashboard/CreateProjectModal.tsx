@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, GitBranch, HardDrive, FolderPlus, ArrowRight, Upload, Folder, FileCode, User, Briefcase } from 'lucide-react';
 import { toast } from 'sonner';
-import { createRepo, triggerIndex } from '../../../lib/api';
+import { createRepo, triggerIndex, uploadRepo } from '../../../lib/api';
 import type { RepoSummary } from '../../../lib/types';
 
 type DomainType = 'personal' | 'work';
@@ -59,6 +59,25 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
   const handleTypeSelect = (type: 'github' | 'local') => {
     setProjectType(type);
     setStep('details');
+  };
+
+  // Folder picker (webkitdirectory) cannot expose the absolute path the user
+  // selected — browsers strip it for security. So we capture the FileList,
+  // upload it as multipart on submit, and the backend materializes the tree
+  // under the workspace jail. ``webkitRelativePath`` carries the per-file
+  // path inside the picked folder, which the backend uses to reconstruct it.
+  const handleFolderPick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    const first = files[0] as File & { webkitRelativePath?: string };
+    const rel = first.webkitRelativePath || '';
+    const folderName = rel.split('/')[0] || first.name;
+    setUploadedFiles(files);
+    if (!name && folderName) setName(folderName);
+    // Clear the manually-typed path — the upload flow takes precedence.
+    setLocalPath('');
+    // Reset the input so picking the same folder again still triggers change.
+    event.target.value = '';
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -136,20 +155,14 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
       return;
     }
 
-    // File-upload path is unsupported by the backend.
-    if (projectType === 'local' && uploadedFiles && !localPath) {
-      toast.info('File upload not yet supported — use a git URL or local path');
-      return;
-    }
-
     if (projectType === 'github' && !repoUrl) {
       const msg = 'Repository URL is required.';
       setValidationError(msg);
       toast.error(msg);
       return;
     }
-    if (projectType === 'local' && !localPath) {
-      const msg = 'Local path is required.';
+    if (projectType === 'local' && !uploadedFiles) {
+      const msg = 'Choose a folder to upload.';
       setValidationError(msg);
       toast.error(msg);
       return;
@@ -158,12 +171,36 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
     setValidationError('');
     setSubmitting(true);
     try {
-      const body = {
-        name,
-        git_url: projectType === 'github' ? repoUrl : undefined,
-        local_path: projectType === 'local' ? localPath : undefined,
-      };
-      const repo = await createRepo(body);
+      let repo;
+      if (projectType === 'local' && uploadedFiles) {
+        // Upload everything in the folder, but skip the obvious dependency /
+        // build / VCS directories that are never useful to the indexer and
+        // would blow past the upload size cap on most projects.
+        const skipDirs = new Set([
+          '.git', 'node_modules', '__pycache__', '.next', '.venv', 'venv',
+          'dist', 'build', 'target', '.cache', '.idea', '.vscode',
+        ]);
+        const filtered = Array.from(uploadedFiles).filter((f) => {
+          const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || '';
+          // Drop the leading picked-folder segment, then check each ancestor.
+          const parts = rel.split('/').slice(1);
+          return !parts.some((seg) => skipDirs.has(seg));
+        });
+        if (filtered.length === 0) {
+          toast.error('Folder is empty after skipping dependency / build directories.');
+          setSubmitting(false);
+          return;
+        }
+        toast.info(`Uploading ${filtered.length} file${filtered.length === 1 ? '' : 's'}…`);
+        repo = await uploadRepo(name, filtered);
+      } else {
+        // GitHub URL path.
+        const body = {
+          name,
+          git_url: repoUrl,
+        };
+        repo = await createRepo(body);
+      }
       await triggerIndex(repo.hash);
 
       onCreate({
@@ -189,7 +226,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
       className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-[#2d2d2d] rounded-2xl border border-gray-800 w-full max-w-2xl overflow-hidden">
+      <div className="bg-[#2d2d2d] rounded-2xl border border-gray-800 w-full max-w-2xl max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-800">
           <h2 className="text-2xl font-bold text-white">Create New Project</h2>
@@ -202,7 +239,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="flex-1 overflow-y-auto p-6">
           {step === 'type' ? (
             <div>
               <p className="text-gray-400 mb-6">Choose how you want to connect your codebase</p>
@@ -372,130 +409,44 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
 
               {projectType === 'local' && (
                 <div className="space-y-5">
-                  <div>
-                    <label className="block text-base font-medium text-gray-300 mb-5">
-                      Local Path *
-                    </label>
-                    <input
-                      type="text"
-                      value={localPath}
-                      onChange={(e) => setLocalPath(e.target.value)}
-                      placeholder="/absolute/path/to/repo"
-                      className="w-full px-5 py-3 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                    <p className="text-xs text-gray-500 mt-5">
-                      Absolute path to a directory readable by the Cartographer backend
-                    </p>
-                  </div>
-
-                  {/* Hidden file inputs */}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    multiple
-                    accept=".js,.jsx,.ts,.tsx,.py,.java,.go,.cpp,.c,.cs,.rb,.php,.swift,.kt,.rs,.html,.css,.json,.xml,.yaml,.yml,.md"
-                  />
+                  {/* Hidden folder picker — triggered by the buttons below. */}
                   <input
                     ref={folderInputRef}
                     type="file"
-                    onChange={handleFileUpload}
+                    onChange={handleFolderPick}
                     className="hidden"
                     {...({ webkitdirectory: '', directory: '', mozdirectory: '' } as any)}
                   />
 
                   {uploadedFiles && uploadedFiles.length > 0 ? (
-                    <div className="space-y-5">
-                      <div className="flex items-center justify-between p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                        <div className="flex items-center gap-5">
-                          <Folder className="h-5 w-5 text-green-400" />
-                          <span className="text-base text-white font-medium">
-                            {uploadedFiles.length} files uploaded
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-5">
-                          <button
-                            onClick={() => folderInputRef.current?.click()}
-                            className="text-xs text-blue-400 hover:text-blue-300"
-                          >
-                            Upload Folder
-                          </button>
-                          <span className="text-gray-600">|</span>
-                          <button
-                            onClick={() => fileInputRef.current?.click()}
-                            className="text-xs text-blue-400 hover:text-blue-300"
-                          >
-                            Add Files
-                          </button>
+                    <div className="flex items-center justify-between p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Folder className="h-5 w-5 text-green-400" />
+                        <div>
+                          <div className="text-white font-medium">{uploadedFiles.length} files queued</div>
+                          <div className="text-xs text-gray-400">Click "Create Project" to upload and index.</div>
                         </div>
                       </div>
-
-                      {/* Folder Structure Preview */}
-                      <div className="bg-[#1e1e1e] border border-gray-700 rounded-lg p-4 max-h-48 overflow-auto">
-                        <h4 className="text-xs font-semibold text-gray-400 uppercase mb-5">Uploaded Files</h4>
-                        <div className="space-y-1">
-                          {Object.entries(folderStructure).map(([folder, files]) => (
-                            <div key={folder} className="text-base">
-                              <div className="flex items-center gap-5 text-gray-300 mb-1">
-                                <Folder className="h-3.5 w-3.5 text-[#dcb67a]" />
-                                <span className="font-medium">{folder}</span>
-                                <span className="text-xs text-gray-500">({files.length} files)</span>
-                              </div>
-                              <div className="ml-6 space-y-0.5">
-                                {files.slice(0, 3).map((file, idx) => (
-                                  <div key={idx} className="flex items-center gap-5 text-xs text-gray-500">
-                                    <FileCode className="h-3 w-3" />
-                                    <span className="truncate">{file.name}</span>
-                                  </div>
-                                ))}
-                                {files.length > 3 && (
-                                  <div className="text-xs text-gray-600 ml-5">
-                                    +{files.length - 3} more files
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => folderInputRef.current?.click()}
+                        className="text-sm text-blue-400 hover:text-blue-300"
+                      >
+                        Choose different folder
+                      </button>
                     </div>
                   ) : (
-                    <div className="space-y-5">
-                      <div className="grid grid-cols-2 gap-5">
-                        {/* Upload Folder */}
-                        <button
-                          type="button"
-                          onClick={() => folderInputRef.current?.click()}
-                          className="p-6 border-2 border-dashed border-gray-700 hover:border-purple-500 rounded-lg transition-all text-center group"
-                        >
-                          <Folder className="h-10 w-10 text-gray-600 group-hover:text-purple-400 mx-auto mb-5 transition-colors" />
-                          <h4 className="text-white font-medium text-base mb-1">Upload Folder</h4>
-                          <p className="text-xs text-gray-400">
-                            Select entire project folder
-                          </p>
-                        </button>
-
-                        {/* Upload Files */}
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="p-6 border-2 border-dashed border-gray-700 hover:border-blue-500 rounded-lg transition-all text-center group"
-                        >
-                          <Upload className="h-10 w-10 text-gray-600 group-hover:text-blue-400 mx-auto mb-5 transition-colors" />
-                          <h4 className="text-white font-medium text-base mb-1">Upload Files</h4>
-                          <p className="text-xs text-gray-400">
-                            Select individual files
-                          </p>
-                        </button>
-                      </div>
-
-                      <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                        <p className="text-xs text-gray-400">
-                          💡 <strong className="text-blue-400">Tip:</strong> Upload a folder to automatically organize by directory structure
-                        </p>
-                      </div>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => folderInputRef.current?.click()}
+                      className="w-full p-8 border-2 border-dashed border-gray-700 hover:border-purple-500 rounded-lg transition-all text-center group"
+                    >
+                      <Folder className="h-12 w-12 text-gray-600 group-hover:text-purple-400 mx-auto mb-3 transition-colors" />
+                      <h4 className="text-white font-medium text-base mb-1">Choose Folder</h4>
+                      <p className="text-xs text-gray-400">
+                        Pick a project folder — all files inside will be uploaded.
+                      </p>
+                    </button>
                   )}
                 </div>
               )}
