@@ -49,8 +49,6 @@ def _to_summary(doc: dict) -> ExternalAgentSummary:
         name=doc["name"],
         endpoint_url=doc["endpoint_url"],
         has_auth=bool(doc.get("auth_header")),
-        kind=doc.get("kind", "http"),
-        agent_address=doc.get("agent_address"),
         created_at=doc["created_at"],
     )
 
@@ -95,20 +93,10 @@ def register_agent(req: ExternalAgentCreate) -> ExternalAgentSummary:
     """Register a new external agent. ``auth_header`` is stored verbatim
     (hackathon scope) but never returned by ``GET``."""
     _validate_endpoint_url(req.endpoint_url)
-    if req.kind == "fetchai" and req.agent_address:
-        # Cheap shape check; uAgent addresses always start with ``agent1`` and
-        # are bech32-encoded. We don't verify the checksum — the website just
-        # needs enough discrimination to refuse obviously wrong input.
-        if not req.agent_address.startswith("agent1") or len(req.agent_address) < 20:
-            raise HTTPException(
-                status_code=400, detail="agent_address does not look like a uAgent address"
-            )
     doc = db_store.register_external_agent(
         name=req.name,
         endpoint_url=req.endpoint_url,
         auth_header=req.auth_header,
-        kind=req.kind,
-        agent_address=req.agent_address,
     )
     return _to_summary(doc)
 
