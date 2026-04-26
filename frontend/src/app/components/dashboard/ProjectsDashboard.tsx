@@ -12,6 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { CreateProjectModal } from './CreateProjectModal';
 
 type DomainType = 'personal' | 'work';
 
@@ -29,7 +30,10 @@ interface Project {
 }
 
 interface ProjectsDashboardProps {
-  onCreateProject: () => void;
+  /** Optional. Kept so existing parents (dashboard/page.tsx) can hook in,
+   *  but the dashboard owns the modal directly so the button always works
+   *  even if the parent forgets to wire this. */
+  onCreateProject?: () => void;
   onOpenProject: (projectId: string) => void;
   user: {
     name: string;
@@ -63,6 +67,12 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDomain, setActiveDomain] = useState<DomainType>('personal');
   const [loading, setLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  const openCreate = () => {
+    setShowCreateModal(true);
+    onCreateProject?.();
+  };
 
   const repos = useCartographerStore((s) => s.repos);
   const setRepos = useCartographerStore((s) => s.setRepos);
@@ -77,7 +87,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : 'Unknown error';
-        toast.error(`Failed to load repositories: ${msg}`);
+        toast.error('Couldn\u2019t load repositories', { description: msg });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -105,7 +115,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
       toast.success(`Deleted "${name}"`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast.error(`Failed to delete: ${msg}`);
+      toast.error('Couldn\u2019t delete repository', { description: msg });
     }
   };
 
@@ -188,7 +198,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
     <div className="min-h-screen bg-[#1e1e1e]">
       {/* Top Navigation */}
       <nav className="bg-[#2d2d2d] border-b border-gray-800">
-        <div className="px-[100px] py-1.5">
+        <div className="px-[100px] py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-4">
@@ -277,30 +287,12 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
             </div>
 
             <button
-              onClick={onCreateProject}
-              onMouseMove={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`);
-                e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`);
-              }}
-              className="relative overflow-hidden px-7 py-4 rounded-lg text-white font-medium transition-all flex items-center gap-2 border border-white/20 group"
-              style={{
-                background: 'rgba(255,255,255,0.04)',
-                backdropFilter: 'blur(14px)',
-                WebkitBackdropFilter: 'blur(14px)',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.08)',
-              }}
+              type="button"
+              onClick={openCreate}
+              className="hover-glow inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-white/10 bg-white/[0.04] backdrop-blur-md text-white font-medium transition-all cursor-pointer"
             >
-              <span
-                aria-hidden
-                className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                style={{
-                  background:
-                    'radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.18), transparent 60%)',
-                }}
-              />
-              <Plus className="h-6 w-6 relative mr-3" strokeWidth={2.5} />
-              <span className="relative">New Project</span>
+              <Plus className="h-5 w-5" strokeWidth={2} />
+              <span>New Project</span>
             </button>
           </div>
         </div>
@@ -317,12 +309,15 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
           >
             <span
               aria-hidden
-              className="absolute top-1 bottom-1 rounded-md border border-white/15 transition-transform duration-300 ease-out"
+              className="absolute top-1 bottom-1 rounded-md transition-transform duration-300 ease-out"
               style={{
                 width: 104,
                 left: 4,
-                background: 'linear-gradient(135deg, rgba(255,255,255,0.18), rgba(255,255,255,0.05))',
-                boxShadow: '0 2px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.18)',
+                background:
+                  'linear-gradient(135deg, rgba(249,115,22,0.45), rgba(249,115,22,0.18))',
+                border: '1px solid rgba(249,115,22,0.55)',
+                boxShadow:
+                  '0 0 18px rgba(249,115,22,0.55), 0 0 36px rgba(249,115,22,0.35), inset 0 1px 0 rgba(255,255,255,0.20)',
                 transform: activeDomain === 'personal' ? 'translateX(0)' : 'translateX(116px)',
               }}
             />
@@ -373,7 +368,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
           } as CSSProperties}
         >
         {!loading && (viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredProjects.map((project) => (
               <div
                 key={project.id}
@@ -407,8 +402,8 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
                   style={{ background: 'radial-gradient(circle, rgba(183,85,58,0.30) 0%, transparent 70%)' }}
                 />
 
-                <div className="relative p-5">
-                  <div className="flex items-start justify-between mb-3">
+                <div className="relative p-7">
+                  <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-3 min-w-0">
                       <div
                         className="p-2 rounded-lg flex-shrink-0 border border-white/10"
@@ -594,37 +589,33 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
             </p>
             {!searchQuery && (
               <button
-                onClick={onCreateProject}
-                onMouseMove={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`);
-                  e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`);
-                }}
-                className="relative overflow-hidden px-8 py-5 rounded-lg text-white font-medium transition-all inline-flex items-center gap-0 border border-white/20 group"
-                style={{
-                  background:
-                    'linear-gradient(135deg, rgba(45,212,191,0.35) 0%, rgba(251,191,36,0.25) 100%)',
-                  backdropFilter: 'blur(14px)',
-                  WebkitBackdropFilter: 'blur(14px)',
-                  boxShadow: '0 4px 20px rgba(45,212,191,0.25), inset 0 1px 0 rgba(255,255,255,0.18)',
-                }}
+                type="button"
+                onClick={openCreate}
+                className="hover-glow inline-flex items-center gap-2 px-6 py-3 rounded-lg border border-white/10 bg-white/[0.04] backdrop-blur-md text-white font-medium transition-all cursor-pointer"
               >
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                  style={{
-                    background:
-                      'radial-gradient(240px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.20), transparent 60%)',
-                  }}
-                />
-                <Plus className="h-6 w-6 relative mr-3" strokeWidth={2.5} />
-                <span className="relative">Create Project</span>
+                <Plus className="h-5 w-5" strokeWidth={2} />
+                <span>Create Project</span>
               </button>
             )}
           </div>
         )}
         </div>
       </div>
+
+      {showCreateModal && (
+        <CreateProjectModal
+          onClose={() => setShowCreateModal(false)}
+          onCreate={(p) => {
+            toast.success(`${p.domain === 'work' ? 'Work' : 'Personal'} project created`, {
+              description: `${p.name} indexing started`,
+            });
+          }}
+          onCreated={(repo) => {
+            setRepos([...repos, repo]);
+            setShowCreateModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }

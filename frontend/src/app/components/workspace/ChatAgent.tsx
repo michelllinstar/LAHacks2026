@@ -52,7 +52,9 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
       toast.success('Copied to clipboard');
     } catch {
       // Fallback: show a toast indicating the failure
-      toast.error('Copy failed — please copy manually');
+      toast.error('Couldn\u2019t copy', {
+        description: 'Clipboard access was denied — copy the text manually.',
+      });
     }
   };
 
@@ -125,7 +127,9 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
       if (err instanceof DOMException && err.name === 'AbortError') return;
       if (!mountedRef.current) return;
 
-      toast.error('MarkCodePolo query failed');
+      toast.error('Query failed', {
+        description: 'MarkCodePolo couldn\u2019t answer that — try rephrasing.',
+      });
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',

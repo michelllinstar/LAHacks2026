@@ -433,15 +433,29 @@ select {
   background: rgba(255,255,255,0.025);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
   transition: border-color 220ms ease, box-shadow 220ms ease, background 220ms ease;
+}
+
+/* Chrome / Edge paint a gray-blue box over autofilled inputs. Override it
+   with a neutral gray fill so autofilled values match the dark theme. */
+.glass-input input:-webkit-autofill,
+.glass-input input:-webkit-autofill:hover,
+.glass-input input:-webkit-autofill:focus,
+.glass-input input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #3a3a3a inset !important;
+  box-shadow: 0 0 0 1000px #3a3a3a inset !important;
+  -webkit-text-fill-color: #e5e5e5 !important;
+  caret-color: #e5e5e5 !important;
+  border-radius: inherit;
+  transition: background-color 9999s ease-out 0s;
 }
 .glass-input:focus-within {
   background: rgba(255,255,255,0.05);
-  border-color: var(--accent-sienna-soft);
+  border-color: rgba(255,255,255,0.75);
   box-shadow:
-    0 0 0 3px var(--accent-sienna-glow),
-    0 0 24px rgba(255,255,255,0.10);
+    0 0 0 3px rgba(255,255,255,0.20),
+    0 0 24px rgba(255,255,255,0.20);
 }
 
 .glass-divider {
@@ -494,6 +508,35 @@ select {
 .anim-fade-up-delay-1 { animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both; }
 .anim-fade-up-delay-2 { animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both; }
 .anim-fade-up-delay-3 { animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both; }
+
+/* Per-word staggered reveal — each word slides up + fades in.
+   Set delay via the --d custom property: style={{ '--d': '0.2s' }}. */
+@keyframes wordReveal {
+  from { opacity: 0; transform: translateY(0.5em); filter: blur(4px); }
+  to   { opacity: 1; transform: translateY(0);     filter: blur(0); }
+}
+.anim-word-reveal {
+  display: inline-block;
+  animation: wordReveal 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--d, 0s);
+}
+
+/* Gradient text reveal: a one-shot fade-in paired with a continuous
+   horizontal slide so the sheen keeps looping after the entry beat. */
+@keyframes sheenFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes sheenLoop {
+  from { background-position: -100% 0; }
+  to   { background-position: 200% 0; }
+}
+.anim-sheen-reveal {
+  background-size: 250% 100%;
+  animation:
+    sheenFadeIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s) both,
+    sheenLoop 5s linear var(--d, 0s) infinite;
+}
 
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
@@ -619,22 +662,22 @@ select {
   border-color: rgba(255,255,255,0.10) !important;
 }
 
-/* Tailwind ring utilities pointing at the old teal — recolor to sienna */
+/* Tailwind ring utilities pointing at the old teal — recolor to white */
 .ring-\[\#2DD4BF\],
 .ring-\[\#5EEAD4\] {
-  --tw-ring-color: var(--accent-sienna-soft) !important;
+  --tw-ring-color: rgba(255,255,255,0.65) !important;
 }
 .focus\:ring-\[\#2DD4BF\]:focus,
 .focus\:ring-\[\#5EEAD4\]:focus,
 .focus\:ring-\[\#2DD4BF\]\/40:focus {
-  --tw-ring-color: var(--accent-sienna-soft) !important;
+  --tw-ring-color: rgba(255,255,255,0.55) !important;
 }
 .focus\:border-\[\#2DD4BF\]\/60:focus {
-  border-color: var(--accent-sienna-soft) !important;
+  border-color: rgba(255,255,255,0.55) !important;
 }
 .focus\:border-\[\#2DD4BF\]:focus,
 .focus\:border-\[\#5EEAD4\]:focus {
-  border-color: var(--accent-sienna) !important;
+  border-color: rgba(255,255,255,0.75) !important;
 }
 
 /* Promote any element using the brand gradient at rest into a hover-glow surface */
@@ -647,3 +690,9 @@ select {
     0 0 28px rgba(255,255,255,0.18),
     0 12px 40px rgba(183, 85, 58, 0.32) !important;
 }
+
+/* Bump smallest fonts up project-wide for readability */
+.text-xs { font-size: 0.8125rem !important; line-height: 1.15rem !important; } /* 12 -> 13 */
+.text-\[9px\]  { font-size: 11px !important; }
+.text-\[10px\] { font-size: 12px !important; }
+.text-\[11px\] { font-size: 13px !important; }

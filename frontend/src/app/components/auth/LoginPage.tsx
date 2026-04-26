@@ -62,15 +62,27 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     setIssuedCode(null);
   };
 
+  const errorFromAxios = (err: unknown, fallback: string): string => {
+    if (err instanceof AxiosError) {
+      const detail = (err.response?.data as { detail?: string } | undefined)?.detail;
+      return detail || err.message || fallback;
+    }
+    return fallback;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSignup) {
       if (password.length < 8) {
-        toast.error('Password must be at least 8 characters');
+        toast.error('Password too short', {
+          description: 'Use at least 8 characters.',
+        });
         return;
       }
       if (password !== confirmPassword) {
-        toast.error('Passwords do not match');
+        toast.error('Passwords don\u2019t match', {
+          description: 'Make sure both fields are identical.',
+        });
         return;
       }
       setIsLoading(true);
@@ -87,15 +99,14 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       await login(email, password);
       onLogin();
     } catch (err: unknown) {
-      if (err instanceof AxiosError) {
-        if (err.response?.status === 401) {
-          toast.error('Invalid email or password');
-        } else {
-          const detail = (err.response?.data as { detail?: string } | undefined)?.detail;
-          toast.error(detail || err.message || 'Login failed');
-        }
+      if (err instanceof AxiosError && err.response?.status === 401) {
+        toast.error('Sign-in failed', {
+          description: 'Email or password is incorrect.',
+        });
       } else {
-        toast.error('Login failed');
+        toast.error('Sign-in failed', {
+          description: errorFromAxios(err, 'Please try again.'),
+        });
       }
     } finally {
       setIsLoading(false);
@@ -105,7 +116,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const handleVerifySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (codeInput.trim() !== issuedCode) {
-      toast.error('Incorrect verification code');
+      toast.error('Incorrect code', {
+        description: 'Double-check the 6-digit code from your email.',
+      });
       return;
     }
     setIsLoading(true);
@@ -114,15 +127,14 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       // login with the entered credentials. Replace with a real `signup`
       // call once the API exists.
       await login(email, password);
-      toast.success('Account verified');
+      toast.success('Account verified', {
+        description: 'Welcome to MarkCodePolo.',
+      });
       onLogin();
     } catch (err: unknown) {
-      if (err instanceof AxiosError) {
-        const detail = (err.response?.data as { detail?: string } | undefined)?.detail;
-        toast.error(detail || 'Could not finalize signup');
-      } else {
-        toast.error('Could not finalize signup');
-      }
+      toast.error('Could not finalize signup', {
+        description: errorFromAxios(err, 'Please try again.'),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -162,14 +174,17 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           <div className="space-y-5">
             <div>
               <h2 className="text-2xl font-bold text-white mb-5">
-                Transform Code into
+                <span className="anim-word-reveal" style={{ ['--d' as string]: '0.05s' } as React.CSSProperties}>Transform</span>{' '}
+                <span className="anim-word-reveal" style={{ ['--d' as string]: '0.18s' } as React.CSSProperties}>Code</span>{' '}
+                <span className="anim-word-reveal" style={{ ['--d' as string]: '0.31s' } as React.CSSProperties}>into</span>{' '}
                 <span
-                  className="bg-clip-text text-transparent anim-gradient-text"
+                  className="bg-clip-text text-transparent anim-sheen-reveal"
                   style={{
                     backgroundImage:
                       'linear-gradient(110deg, #ffffff 0%, #B7553A 50%, #ffffff 100%)',
-                  }}
-                > Visual Architecture</span>
+                    ['--d' as string]: '0.5s',
+                  } as React.CSSProperties}
+                >Visual Architecture</span>
               </h2>
               <p className="text-gray-400 text-base">
                 AI-powered UML diagrams with Cloudinary optimization. Built for teams that ship fast.
@@ -382,7 +397,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               {!isSignup && (
                 <div className="flex items-center justify-between">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" className="w-4 h-4 rounded border-gray-700 bg-[#1e1e1e] text-blue-500 focus:ring-[#2DD4BF]" />
+                    <input type="checkbox" className="w-4 h-4 rounded border-gray-700 bg-[#1e1e1e] text-white focus:ring-[#2DD4BF]" />
                     <span className="text-base text-gray-400">Remember me</span>
                   </label>
                   <button
@@ -398,7 +413,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="hover-glow w-full py-3 text-base bg-white/[0.04] border border-white/10 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="hover-glow w-full py-6 text-lg bg-white/[0.04] border border-white/10 text-white font-semibold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLoading
                   ? (isSignup ? 'Sending code...' : 'Signing in...')
@@ -452,7 +467,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 <button
                   type="submit"
                   disabled={isLoading || codeInput.length !== 6}
-                  className="hover-glow w-full py-3 text-base bg-white/[0.04] border border-white/10 text-white font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="hover-glow w-full py-6 text-lg bg-white/[0.04] border border-white/10 text-white font-semibold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isLoading ? 'Verifying...' : 'Verify & Create Account'}
                 </button>

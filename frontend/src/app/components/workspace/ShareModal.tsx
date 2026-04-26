@@ -39,7 +39,9 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
     // Basic email format validation: must contain @ and a dot after the @
     const atIndex = email.indexOf('@');
     if (atIndex === -1 || !email.slice(atIndex + 1).includes('.')) {
-      toast.error('Please enter a valid email address');
+      toast.error('Invalid email', {
+        description: 'Enter a valid email address to send an invite.',
+      });
       return;
     }
     toast.success(`Invitation sent to ${email}`);
