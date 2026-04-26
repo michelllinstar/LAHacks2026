@@ -429,6 +429,8 @@ def build_agent(seed: Optional[str] = None, port: int = 8001):
         seed=seed or os.getenv("COORDINATOR_SEED", "cartographer-coordinator-seed"),
         port=port,
         mailbox=True,
+        description=_AGENT_DESCRIPTION,
+        metadata={"is_public": "True", "categories": ["coding", "developer-tools"]},
     )
 
     protocol = Protocol(spec=chat_protocol_spec)
