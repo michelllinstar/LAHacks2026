@@ -165,8 +165,13 @@ export async function dispatchQuery(req: DispatchRequest): Promise<DispatchRespo
 import type { AgentRunSummary, AgentScope, AgentTemplateSummary } from './types';
 
 export async function listAgentTemplates(): Promise<AgentTemplateSummary[]> {
+  // Backend wraps the array in ``{"templates": [...]}`` (see
+  // backend/routes/agents.py). Unwrap so callers get a plain array.
   const res = await apiClient.get('/api/agents/templates');
-  return res.data;
+  const data = res.data;
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.templates)) return data.templates;
+  return [];
 }
 
 export interface CreateAgentRunBody {
@@ -185,7 +190,10 @@ export async function listAgentRuns(repoHash: string, status?: string): Promise<
   const params: Record<string, string> = { repo_hash: repoHash };
   if (status) params.status = status;
   const res = await apiClient.get('/api/agents/runs', { params });
-  return res.data;
+  const data = res.data;
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.runs)) return data.runs;
+  return [];
 }
 
 export async function getAgentRun(repoHash: string, runId: string): Promise<unknown> {
@@ -195,6 +203,44 @@ export async function getAgentRun(repoHash: string, runId: string): Promise<unkn
 
 export async function cancelAgentRun(repoHash: string, runId: string): Promise<void> {
   await apiClient.delete(`/api/agents/runs/${runId}`, { params: { repo_hash: repoHash } });
+}
+
+// ---------------------------------------------------------------------------
+// External agents — user-owned HTTP endpoints registered with the website.
+// ---------------------------------------------------------------------------
+
+import type {
+  CreateExternalAgentBody,
+  ExternalAgent,
+  ExternalAgentResult,
+} from './types';
+
+export async function listExternalAgents(): Promise<ExternalAgent[]> {
+  const res = await apiClient.get('/api/agents/external');
+  const data = res.data;
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.agents)) return data.agents;
+  return [];
+}
+
+export async function createExternalAgent(body: CreateExternalAgentBody): Promise<ExternalAgent> {
+  const res = await apiClient.post('/api/agents/external', body);
+  return res.data;
+}
+
+export async function deleteExternalAgent(agentId: string): Promise<void> {
+  await apiClient.delete(`/api/agents/external/${agentId}`);
+}
+
+/** Dispatch a registered external agent against the active repo + a prompt.
+ *  Backend pre-fetches a ContextBundle, POSTs to the agent's URL, awaits up
+ *  to 30s, returns whatever the agent replied with. */
+export async function runExternalAgent(
+  agentId: string,
+  body: { prompt: string; repo_hash: string },
+): Promise<ExternalAgentResult> {
+  const res = await apiClient.post(`/api/agents/external/${agentId}/run`, body);
+  return res.data;
 }
 
 // ---------------------------------------------------------------------------

@@ -233,6 +233,34 @@ export interface AgentRunSummary {
   error?: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// External agents — user-registered HTTP endpoints the backend dispatches to.
+// Wire contract:
+//   request   → { prompt, repo_hash, context_bundle: ContextBundle }
+//   response  ← { summary: string, citations?: string[], warnings?: string[] }
+// See backend/routes/external_agents.py.
+// ---------------------------------------------------------------------------
+
+export interface ExternalAgent {
+  agent_id: string;
+  name: string;
+  endpoint_url: string;
+  has_auth: boolean; // backend never returns the raw auth header, just whether one is stored
+  created_at: string;
+}
+
+export interface CreateExternalAgentBody {
+  name: string;
+  endpoint_url: string;
+  auth_header?: string; // sent verbatim as the ``Authorization`` request header
+}
+
+export interface ExternalAgentResult {
+  summary: string;
+  citations?: string[];
+  warnings?: string[];
+}
+
 export interface SseEvent<T = Record<string, unknown>> {
   type: SseEventType;
   payload: T;

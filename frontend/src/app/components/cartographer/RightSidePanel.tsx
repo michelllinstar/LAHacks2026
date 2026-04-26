@@ -202,13 +202,13 @@ export function RightSidePanel({
       )}
       <ResizeHandle above="node" />
 
-      {/* Available Agents */}
+      {/* Available Tools */}
       {open.agents && (
         <div
           className="flex flex-col min-h-0 overflow-hidden"
           style={{ flex: `${flexFor('agents')} 0 0` }}
         >
-          <SectionHeader title="Available Agents" panel="agents" />
+          <SectionHeader title="Available Tools" panel="agents" />
           <div className="flex-1 overflow-auto p-2 space-y-1">
             {AGENT_ROSTER.map((a) => {
               const Icon = a.icon;

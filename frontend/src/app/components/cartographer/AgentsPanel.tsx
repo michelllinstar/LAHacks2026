@@ -1,10 +1,17 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, CheckCircle2, Loader2, Play, Plus, Trash2, X, XCircle } from 'lucide-react';
+import { Bot, CheckCircle2, Globe, Loader2, Play, Plus, Trash2, X, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { createAgentRun, listAgentTemplates } from '../../../lib/api';
+import {
+  createAgentRun,
+  createExternalAgent,
+  deleteExternalAgent,
+  listAgentTemplates,
+  listExternalAgents,
+  runExternalAgent,
+} from '../../../lib/api';
 import { useCartographerStore } from '../../../lib/store';
-import type { AgentTemplateSummary } from '../../../lib/types';
+import type { AgentTemplateSummary, ExternalAgent } from '../../../lib/types';
 
 // User-defined agent — a saved (template, prompt, name) tuple. Pressing "Run"
 // dispatches POST /api/agents/runs against the active repo, which spawns the
@@ -79,23 +86,117 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
 
   const activeRepoHash = useCartographerStore((s) => s.activeRepoHash);
   const agentRuns = useCartographerStore((s) => s.agentRuns);
+  const pushActivity = useCartographerStore((s) => s.pushActivity);
+
+  // External agents (user-owned HTTP endpoints registered with backend).
+  const [externalAgents, setExternalAgents] = useState<ExternalAgent[]>([]);
+  const [, setExternalLoading] = useState(false);
+  const [showExternalForm, setShowExternalForm] = useState(false);
+  const [extDraftName, setExtDraftName] = useState('');
+  const [extDraftUrl, setExtDraftUrl] = useState('');
+  const [extDraftAuth, setExtDraftAuth] = useState('');
+  const [extRunningId, setExtRunningId] = useState<string | null>(null);
 
   // Hydrate from localStorage and fetch the backend's template catalog.
   useEffect(() => {
     setAgents(loadAgents());
+    // Hardcoded fallback used both when the backend is unreachable AND when
+    // it returns a non-array body (e.g. an auth error envelope or HTML 404).
+    // Order matches backend/routes/agents.py.
+    const fallback: AgentTemplateSummary[] = [
+      { id: 'region-auditor', name: 'Region Auditor', description: 'Describe the area and surface invariants.' },
+      { id: 'flow-tracer', name: 'Flow Tracer', description: 'Trace data flows from a seed.' },
+      { id: 'convention-scout', name: 'Convention Scout', description: 'Identify role + exemplars in this region.' },
+      { id: 'refactor-planner', name: 'Refactor Planner', description: 'Propose a refactor citing exemplars.' },
+    ];
     listAgentTemplates()
-      .then(setTemplates)
-      .catch(() => {
-        // Fall back to a known set so the form still renders if the backend
-        // is briefly unreachable. Order matches backend/routes/agents.py.
-        setTemplates([
-          { id: 'region-auditor', name: 'Region Auditor', description: 'Describe the area and surface invariants.' },
-          { id: 'flow-tracer', name: 'Flow Tracer', description: 'Trace data flows from a seed.' },
-          { id: 'convention-scout', name: 'Convention Scout', description: 'Identify role + exemplars in this region.' },
-          { id: 'refactor-planner', name: 'Refactor Planner', description: 'Propose a refactor citing exemplars.' },
-        ]);
-      });
+      .then((data) => {
+        // Defensive: backend may not be wired yet (route returns HTML 404
+        // body, an error envelope, or null). Only accept a real array.
+        setTemplates(Array.isArray(data) && data.length > 0 ? data : fallback);
+      })
+      .catch(() => setTemplates(fallback));
   }, []);
+
+  // Fetch registered external agents from the backend.
+  useEffect(() => {
+    setExternalLoading(true);
+    listExternalAgents()
+      .then((data) => {
+        setExternalAgents(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setExternalAgents([]))
+      .finally(() => setExternalLoading(false));
+  }, []);
+
+  const addExternal = async () => {
+    const name = extDraftName.trim();
+    const url = extDraftUrl.trim();
+    if (!name || !url) {
+      toast.error('Name and endpoint URL are required.');
+      return;
+    }
+    try {
+      const created = await createExternalAgent({
+        name,
+        endpoint_url: url,
+        auth_header: extDraftAuth.trim() || undefined,
+      });
+      setExternalAgents([...externalAgents, created]);
+      setExtDraftName('');
+      setExtDraftUrl('');
+      setExtDraftAuth('');
+      setShowExternalForm(false);
+      toast.success(`Registered "${name}"`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to register: ${msg}`);
+    }
+  };
+
+  const deleteExternal = async (agent: ExternalAgent) => {
+    if (!window.confirm(`Delete "${agent.name}"?`)) return;
+    try {
+      await deleteExternalAgent(agent.agent_id);
+      setExternalAgents(externalAgents.filter((a) => a.agent_id !== agent.agent_id));
+      toast.success(`Deleted "${agent.name}"`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to delete: ${msg}`);
+    }
+  };
+
+  const runExternal = async (agent: ExternalAgent) => {
+    if (!activeRepoHash) {
+      toast.error('Open a project first.');
+      return;
+    }
+    const prompt = window.prompt(`Prompt for ${agent.name}:`);
+    if (!prompt || !prompt.trim()) return;
+    const trimmed = prompt.trim();
+    setExtRunningId(agent.agent_id);
+    try {
+      const result = await runExternalAgent(agent.agent_id, {
+        prompt: trimmed,
+        repo_hash: activeRepoHash,
+      });
+      const summary = result.summary ?? '';
+      toast.success(`${agent.name}: ${summary.slice(0, 80)}${summary.length > 80 ? '…' : ''}`);
+      pushActivity({
+        id: newId(),
+        query_type: `external:${agent.name}`,
+        task: trimmed,
+        cluster_id: null,
+        symbol_ids: result.citations || [],
+        ts: Date.now(),
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`${agent.name} failed: ${msg}`);
+    } finally {
+      setExtRunningId(null);
+    }
+  };
 
   const sorted = useMemo(
     () => [...agents].sort((a, b) => a.name.localeCompare(b.name)),
@@ -104,7 +205,11 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
 
   const templateById = useMemo(() => {
     const map = new Map<string, AgentTemplateSummary>();
-    for (const t of templates) map.set(t.id, t);
+    // Belt-and-braces guard — state can briefly hold a non-array if a
+    // future code path skips the validator above.
+    if (Array.isArray(templates)) {
+      for (const t of templates) map.set(t.id, t);
+    }
     return map;
   }, [templates]);
 
@@ -209,7 +314,7 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
               onChange={(e) => setDraftTemplate(e.target.value)}
               className="w-full bg-[#1e1e1e] border border-[#3e3e42] px-2 py-1.5 text-xs text-white rounded focus:outline-none focus:border-[#007acc]"
             >
-              {templates.map((t) => (
+              {(Array.isArray(templates) ? templates : []).map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
                 </option>
@@ -347,6 +452,143 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
             </div>
           );
         })}
+      </div>
+
+      {/* External Agents section */}
+      <div className="border-t-2 border-[#1e1e1e]">
+        <div className="p-2.5 border-b border-[#1e1e1e] bg-[#252526]">
+          <div className="flex items-center gap-2 mb-1">
+            <Globe className="h-[13px] w-[13px] text-emerald-400" />
+            <h3 className="text-sm font-bold text-white flex-1">External Agents</h3>
+            <span className="text-[10px] text-gray-500">{externalAgents.length}</span>
+          </div>
+          <p className="text-xs text-gray-400">
+            HTTP endpoints you own — backend POSTs work to your runtime.
+          </p>
+        </div>
+
+        <div className="p-3 border-b border-[#1e1e1e] bg-[#252526]">
+          {showExternalForm ? (
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={extDraftName}
+                onChange={(e) => setExtDraftName(e.target.value)}
+                placeholder="Agent name"
+                className="w-full bg-[#1e1e1e] border border-[#3e3e42] px-2 py-1.5 text-xs text-white rounded focus:outline-none focus:border-emerald-500"
+                autoFocus
+              />
+              <input
+                type="url"
+                value={extDraftUrl}
+                onChange={(e) => setExtDraftUrl(e.target.value)}
+                placeholder="https://your-runtime.example.com/handle"
+                className="w-full bg-[#1e1e1e] border border-[#3e3e42] px-2 py-1.5 text-xs text-white rounded focus:outline-none focus:border-emerald-500"
+              />
+              <input
+                type="text"
+                value={extDraftAuth}
+                onChange={(e) => setExtDraftAuth(e.target.value)}
+                placeholder="Bearer sk-… (optional)"
+                className="w-full bg-[#1e1e1e] border border-[#3e3e42] px-2 py-1.5 text-xs text-white rounded focus:outline-none focus:border-emerald-500"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={addExternal}
+                  className="flex-1 px-2 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
+                >
+                  Register
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExternalForm(false);
+                    setExtDraftName('');
+                    setExtDraftUrl('');
+                    setExtDraftAuth('');
+                  }}
+                  className="px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowExternalForm(true)}
+              className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded transition-colors"
+            >
+              <Plus className="h-3 w-3" />
+              Register endpoint
+            </button>
+          )}
+        </div>
+
+        <div className="divide-y divide-[#1e1e1e]">
+          {externalAgents.length === 0 && !showExternalForm && (
+            <div className="p-4 text-center text-xs text-gray-500 italic">
+              No external agents yet — register an HTTP endpoint to dispatch work to your own runtime.
+            </div>
+          )}
+          {externalAgents.map((agent) => {
+            const running = extRunningId === agent.agent_id;
+            return (
+              <div key={agent.agent_id} className="p-3">
+                <div className="flex items-start gap-2">
+                  <div className="w-7 h-7 rounded bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center flex-shrink-0">
+                    <Bot className="h-3.5 w-3.5 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="text-xs text-white font-medium truncate flex-1">{agent.name}</div>
+                      {agent.has_auth && (
+                        <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 flex-shrink-0">
+                          Authorized
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-500 mb-2 truncate font-mono" title={agent.endpoint_url}>
+                      {agent.endpoint_url}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => runExternal(agent)}
+                        disabled={running || !activeRepoHash}
+                        className="flex-1 px-2 py-1.5 text-xs rounded transition-colors flex items-center justify-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={!activeRepoHash ? 'Open a project first' : 'Dispatch a prompt to this endpoint'}
+                      >
+                        {running ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Running…
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-3 w-3" />
+                            Run
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteExternal(agent)}
+                        disabled={running}
+                        className="px-2 py-1.5 text-xs rounded transition-colors text-red-400 hover:bg-red-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="Delete agent"
+                        aria-label={`Delete ${agent.name}`}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Footer note */}

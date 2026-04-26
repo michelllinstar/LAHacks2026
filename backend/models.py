@@ -188,3 +188,33 @@ class ExemplarResponse(BaseModel):
 class LoginPayload(BaseModel):
     email: str
     password: str
+
+
+# ---------------------------------------------------------------------------
+# External agents (user-registered HTTP endpoints)
+# ---------------------------------------------------------------------------
+
+
+class ExternalAgentCreate(BaseModel):
+    name: str
+    endpoint_url: str
+    auth_header: Optional[str] = None
+
+
+class ExternalAgentSummary(BaseModel):
+    agent_id: str
+    name: str
+    endpoint_url: str
+    has_auth: bool      # True iff auth_header is set; raw value never returned
+    created_at: str
+
+
+class ExternalAgentRunRequest(BaseModel):
+    repo_hash: str
+    prompt: str
+
+
+class ExternalAgentResult(BaseModel):
+    summary: str
+    citations: list[str] = []
+    warnings: list[str] = []

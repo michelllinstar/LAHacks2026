@@ -106,6 +106,11 @@ def _ensure_control_indexes(db: Database) -> None:
         [("repo_hash", ASCENDING), ("layer", ASCENDING)],
         name="index_jobs_repo_layer",
     )
+    db["external_agents"].create_index(
+        [("agent_id", ASCENDING)],
+        unique=True,
+        name="external_agents_agent_id_unique",
+    )
 
 
 def _ensure_repo_indexes(db: Database) -> None:
@@ -1353,6 +1358,52 @@ def get_agent_run(repo_hash: str, run_id: str) -> Optional[dict]:
     return db["agent_runs"].find_one(
         {"repo_hash": repo_hash, "run_id": run_id}, {"_id": 0}
     )
+
+
+# ---------------------------------------------------------------------------
+# External agents (user-owned HTTP endpoints we POST work to)
+# ---------------------------------------------------------------------------
+
+
+def register_external_agent(
+    name: str, endpoint_url: str, auth_header: Optional[str]
+) -> dict:
+    """Insert a new external agent record. Returns the inserted document
+    sans Mongo's ``_id``, including any ``auth_header`` so the caller can
+    immediately echo it if needed (the list endpoint strips it)."""
+    db = get_db()
+    agent_id = _uuid.uuid4().hex
+    doc = {
+        "agent_id": agent_id,
+        "name": name,
+        "endpoint_url": endpoint_url,
+        "auth_header": auth_header,
+        "created_at": _now_iso(),
+    }
+    db["external_agents"].insert_one(dict(doc))
+    return doc
+
+
+def list_external_agents() -> list[dict]:
+    """Return all external agents, newest first. ``auth_header`` is stripped
+    so secrets never go over the wire."""
+    db = get_db()
+    cursor = db["external_agents"].find({}, {"_id": 0, "auth_header": 0}).sort(
+        "created_at", -1
+    )
+    return list(cursor)
+
+
+def get_external_agent(agent_id: str) -> Optional[dict]:
+    """Internal lookup; returns the full record (incl. auth_header) or None."""
+    db = get_db()
+    return db["external_agents"].find_one({"agent_id": agent_id}, {"_id": 0})
+
+
+def delete_external_agent(agent_id: str) -> bool:
+    db = get_db()
+    res = db["external_agents"].delete_one({"agent_id": agent_id})
+    return res.deleted_count > 0
 
 
 def list_agent_runs(
