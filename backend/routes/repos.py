@@ -59,6 +59,7 @@ def _row_to_summary(row) -> RepoSummary:
         status=row["status"],
         git_url=row["git_url"],
         local_path=row["local_path"],
+        symbol_count=db_store.count_symbols(row["hash"]),
     )
 
 
@@ -102,6 +103,20 @@ def get_repo(repo_hash: str) -> RepoSummary:
     if row is None:
         raise HTTPException(status_code=404, detail="repo not found")
     return _row_to_summary(row)
+
+
+@router.delete("/{repo_hash}", status_code=204)
+def delete_repo(repo_hash: str) -> None:
+    """Wipe a repo's index store — all four layers, jobs, registration row.
+
+    Returns 404 if the repo isn't registered. On-disk uploaded files under
+    ``CARTOGRAPHER_WORKSPACE_ROOT`` are *not* removed; the user's source
+    tree is the user's to manage. This only clears Cartographer's index.
+    """
+    if db_store.get_repo(repo_hash) is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    db_store.delete_repo(repo_hash)
+    return None
 
 
 def _safe_dir_name(raw: str) -> str:

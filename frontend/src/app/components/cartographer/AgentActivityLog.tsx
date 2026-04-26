@@ -25,6 +25,21 @@ const QUERY_TYPE_LABEL: Record<string, string> = {
   find_exemplars: 'Exemplar Finder',
 };
 
+// Illustrative entry shown only while the live activity feed is empty so
+// users see what a real Agentverse query looks like without firing one.
+// As soon as the first real `agent_activity` SSE event lands the sample is
+// replaced. Footer stats and the "Highlight in view" button are suppressed
+// so the sample isn't mistaken for production data.
+const SAMPLE_QUERY: AgentQuery = {
+  id: '__sample__',
+  timestamp: new Date(),
+  agent: 'Coordinator',
+  query: 'Add rate limiting to all public API endpoints',
+  cluster: 'api/middleware',
+  symbolsReturned: 7,
+  tokensSaved: 7 * TOKENS_PER_SYMBOL,
+};
+
 interface AgentActivityLogProps {
   onCollapse?: () => void;
   onHighlight?: (query: AgentQuery) => void;
@@ -81,58 +96,74 @@ export function AgentActivityLog({ onCollapse, onHighlight, highlightedQueryId }
       {/* Activity List */}
       <div className="flex-1 overflow-auto">
         {queries.length === 0 && (
-          <div className="p-6 text-center text-xs text-gray-500">
-            No agent queries yet. Live activity will appear here as the
-            Query Engine handles requests.
+          <div className="px-3 pt-3 pb-1 text-center text-xs text-gray-500">
+            No agent queries yet — sample shown below until the first one fires.
           </div>
         )}
         <div className="divide-y divide-[#1e1e1e]">
-          {queries.map((query) => (
-            <div key={query.id} className="p-3 hover:bg-[#2d2d2d] cursor-pointer transition-colors group">
-              <div className="flex items-start gap-2 mb-2">
-                <div className="w-6 h-6 rounded bg-gradient-to-br from-[#34D399] to-[#F59E0B] flex items-center justify-center flex-shrink-0">
-                  <Bot className="h-3 w-3 text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs text-white font-medium mb-1">{query.agent}</div>
-                  <div className="text-xs text-gray-300 mb-2">{query.query}</div>
-
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                    <Clock className="h-3 w-3" />
-                    <span>{formatTimeAgo(query.timestamp)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-[#1e1e1e] rounded-[5px] p-2 border border-[#3e3e42]">
-                  <div className="text-gray-500 mb-0.5">Cluster</div>
-                  <div className="text-white font-medium">{query.cluster}</div>
-                </div>
-                <div className="bg-[#1e1e1e] rounded-[5px] p-2 border border-[#3e3e42]">
-                  <div className="text-gray-500 mb-0.5">Symbols</div>
-                  <div className="text-white font-medium">{query.symbolsReturned}</div>
-                </div>
-              </div>
-
-              <div className="mt-2 flex items-center gap-1.5 text-xs text-green-400">
-                <Zap className="h-3 w-3" />
-                <span>~{query.tokensSaved.toLocaleString()} tokens saved</span>
-              </div>
-
-              <button
-                onClick={() => onHighlight?.(query)}
-                className={`mt-2 w-full px-2 py-1.5 text-xs rounded transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 ${
-                  highlightedQueryId === query.id
-                    ? 'bg-[#2DD4BF] text-white'
-                    : 'bg-[#2DD4BF]/10 hover:bg-[#2DD4BF]/20 text-[#2DD4BF]'
+          {(queries.length === 0 ? [SAMPLE_QUERY] : queries).map((query) => {
+            const isSample = query.id === '__sample__';
+            return (
+              <div
+                key={query.id}
+                className={`p-3 transition-colors group ${
+                  isSample ? 'opacity-70' : 'hover:bg-[#2d2d2d] cursor-pointer'
                 }`}
               >
-                <Eye className="h-3 w-3" />
-                {highlightedQueryId === query.id ? 'Highlighting...' : 'Highlight in view'}
-              </button>
-            </div>
-          ))}
+                <div className="flex items-start gap-2 mb-2">
+                  <div className="w-6 h-6 rounded bg-gradient-to-br from-[#34D399] to-[#F59E0B] flex items-center justify-center flex-shrink-0">
+                    <Bot className="h-3 w-3 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="text-xs text-white font-medium">{query.agent}</div>
+                      {isSample && (
+                        <span className="px-1.5 py-0.5 text-[10px] uppercase tracking-wide rounded bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                          Sample
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-300 mb-2">{query.query}</div>
+
+                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                      <Clock className="h-3 w-3" />
+                      <span>{isSample ? 'preview' : formatTimeAgo(query.timestamp)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-[#1e1e1e] rounded-[5px] p-2 border border-[#3e3e42]">
+                    <div className="text-gray-500 mb-0.5">Cluster</div>
+                    <div className="text-white font-medium">{query.cluster}</div>
+                  </div>
+                  <div className="bg-[#1e1e1e] rounded-[5px] p-2 border border-[#3e3e42]">
+                    <div className="text-gray-500 mb-0.5">Symbols</div>
+                    <div className="text-white font-medium">{query.symbolsReturned}</div>
+                  </div>
+                </div>
+
+                <div className="mt-2 flex items-center gap-1.5 text-xs text-green-400">
+                  <Zap className="h-3 w-3" />
+                  <span>~{query.tokensSaved.toLocaleString()} tokens saved</span>
+                </div>
+
+                {!isSample && (
+                  <button
+                    onClick={() => onHighlight?.(query)}
+                    className={`mt-2 w-full px-2 py-1.5 text-xs rounded transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 ${
+                      highlightedQueryId === query.id
+                        ? 'bg-[#2DD4BF] text-white'
+                        : 'bg-[#2DD4BF]/10 hover:bg-[#2DD4BF]/20 text-[#2DD4BF]'
+                    }`}
+                  >
+                    <Eye className="h-3 w-3" />
+                    {highlightedQueryId === query.id ? 'Highlighting...' : 'Highlight in view'}
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -287,6 +287,42 @@ def list_repos() -> list[dict]:
     return list(db["repos"].find({}, {"_id": 0}).sort("created_at", -1))
 
 
+def count_symbols(repo_hash: str) -> int:
+    """Return how many Layer 1 symbols are stored for ``repo_hash``.
+
+    Backed by the ``(repo_hash, qualified_name, file_path, line_start)``
+    compound index so it stays cheap even on large repos. Used by the dashboard
+    to render per-repo symbol counts without a per-tile round trip.
+    """
+    return get_db()["symbols"].count_documents({"repo_hash": repo_hash})
+
+
+def delete_repo(repo_hash: str) -> None:
+    """Wipe every trace of ``repo_hash`` from the index store.
+
+    Removes Layer 1–4 rows, index-job history, and the registration record
+    itself. Idempotent: missing rows are silently no-op'd. Called by
+    ``DELETE /api/repos/{repo_hash}``.
+    """
+    db = get_db()
+    # Layer 4: invariants.
+    db["invariants"].delete_many({"repo_hash": repo_hash})
+    # Layer 3: clusters + dependencies + (cluster_id is set on files which
+    # are wiped below by reset_layer1, so no explicit unset needed).
+    db["clusters"].delete_many({"repo_hash": repo_hash})
+    db["cluster_dependencies"].delete_many({"repo_hash": repo_hash})
+    # Layer 2: flows.
+    db["flows"].delete_many({"repo_hash": repo_hash})
+    # Layer 1: files / symbols / refs / embeddings.
+    db["files"].delete_many({"repo_hash": repo_hash})
+    db["symbols"].delete_many({"repo_hash": repo_hash})
+    db["refs"].delete_many({"repo_hash": repo_hash})
+    db["symbol_embeddings"].delete_many({"repo_hash": repo_hash})
+    # Job history + repo registration row.
+    db["index_jobs"].delete_many({"repo_hash": repo_hash})
+    db["repos"].delete_one({"hash": repo_hash})
+
+
 def get_repo(repo_hash: str) -> Optional[dict]:
     db = get_db()
     return db["repos"].find_one({"hash": repo_hash}, {"_id": 0})
