@@ -3,7 +3,22 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Share2, Files, Search, GitBranch, Info, X, Layers, ShieldCheck, Bot } from 'lucide-react';
 import { AnimatedLogo } from '../ui/AnimatedLogo';
 import { useRouter } from 'next/navigation';
-import { UnifiedGraphView, GraphNode, GraphMode, GraphDensity, PathFilter, classifyLayerBand, type LayerBand, type ClusterRegion } from './UnifiedGraphView';
+import { UnifiedGraphView, GraphNode, GraphMode, GraphDensity, PathFilter, type ClusterRegion } from './UnifiedGraphView';
+
+// Layer-band classifier — moved into the workspace because the unified graph
+// view (restored to its pre-Layers design) no longer exports it. Only the
+// focus-stack counting code below uses this; it filters nodes by which of
+// the four canonical bands their name + path pattern fits, so the breadcrumb
+// can show "{n} classes" at the layer focus level.
+type LayerBand = 'Controller' | 'Service' | 'Repository' | 'Entity';
+function classifyLayerBand(name: string, filePath: string | null | undefined): LayerBand {
+  const n = (name || '').toLowerCase();
+  const p = (filePath || '').toLowerCase();
+  if (/(controller|handler|router|view|page|api)/.test(n) || /(controllers?|handlers?|routes?|views?|pages?|api)\//.test(p)) return 'Controller';
+  if (/(repository|repo|dao|store|gateway)/.test(n) || /(repositor(y|ies)|daos?|stores?|gateways?)\//.test(p)) return 'Repository';
+  if (/(entity|model|schema|dto|domain)/.test(n) || /(entit(y|ies)|models?|schemas?|dto|domain)\//.test(p)) return 'Entity';
+  return 'Service';
+}
 import { InvariantView } from './InvariantView';
 import { ContextsView } from './ContextsView';
 import { PackagesView } from './PackagesView';
@@ -902,7 +917,6 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   sidebarCollapsed={sidebarCollapsed}
                   pathFilter={pathFilter}
                   density={diagramDensity}
-                  viewLevel={viewLevel}
                 />
               )}
               {activeView === 'invariant' && <InvariantView repositoryId={projectId} showLegend={showLegend} />}
