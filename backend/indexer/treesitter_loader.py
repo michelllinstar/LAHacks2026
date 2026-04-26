@@ -29,16 +29,8 @@ _tsx_load_attempted = False
 def _try_get_parser(language: str) -> Optional[Any]:
     """Best-effort tree-sitter parser load; returns None on any failure."""
     try:
-        from tree_sitter import Language, Parser  # type: ignore
-        if language == "python":
-            import tree_sitter_python as tspython  # type: ignore
-            lang = Language(tspython.language())
-        elif language in ("typescript", "tsx"):
-            import tree_sitter_typescript as tstype  # type: ignore
-            lang = Language(tstype.language_typescript() if language == "typescript" else tstype.language_tsx())
-        else:
-            return None
-        parser = Parser(lang)
+        from tree_sitter_languages import get_parser  # type: ignore
+        parser = get_parser(language)
         logger.info("tree-sitter parser loaded language=%s", language)
         return parser
     except Exception as exc:
