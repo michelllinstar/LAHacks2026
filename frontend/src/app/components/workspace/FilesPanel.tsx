@@ -72,7 +72,7 @@ interface TreeRowProps {
   depth: number;
   expanded: Record<string, boolean>;
   onToggle: (path: string) => void;
-  onPick: (item: SelectedPath) => void;
+  onPick: (item: SelectedPath | null) => void;
   selectedPath: string | null;
 }
 
