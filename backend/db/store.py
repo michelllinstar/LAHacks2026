@@ -1366,11 +1366,21 @@ def get_agent_run(repo_hash: str, run_id: str) -> Optional[dict]:
 
 
 def register_external_agent(
-    name: str, endpoint_url: str, auth_header: Optional[str]
+    name: str,
+    endpoint_url: str,
+    auth_header: Optional[str],
+    kind: str = "http",
+    agent_address: Optional[str] = None,
 ) -> dict:
     """Insert a new external agent record. Returns the inserted document
     sans Mongo's ``_id``, including any ``auth_header`` so the caller can
-    immediately echo it if needed (the list endpoint strips it)."""
+    immediately echo it if needed (the list endpoint strips it).
+
+    ``kind`` is ``"http"`` for a plain webhook or ``"fetchai"`` for a uAgent
+    that exposes its REST adapter on this URL — both share the wire contract,
+    but the website surfaces a Fetch.ai-specific badge + form. ``agent_address``
+    is the optional ``agent1q…`` Almanac address for fetchai agents.
+    """
     db = get_db()
     agent_id = _uuid.uuid4().hex
     doc = {
@@ -1378,6 +1388,8 @@ def register_external_agent(
         "name": name,
         "endpoint_url": endpoint_url,
         "auth_header": auth_header,
+        "kind": kind,
+        "agent_address": agent_address,
         "created_at": _now_iso(),
     }
     db["external_agents"].insert_one(dict(doc))

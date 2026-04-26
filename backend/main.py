@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.db.store import get_db, init_control_db
 from backend.routes import (
+    agent_query,
     agents,
     auth,
     external_agents,
@@ -72,6 +73,8 @@ app.include_router(stream.router, prefix="/api/stream")
 app.include_router(omegaclaw.router, prefix="/api/omegaclaw")
 app.include_router(agents.router, prefix="/api/agents")
 app.include_router(external_agents.router, prefix="/api/agents/external")
+# Read-only callback surface for external agents (token-gated, not cookie-gated).
+app.include_router(agent_query.router, prefix="/api/agent-query")
 
 
 @app.on_event("startup")

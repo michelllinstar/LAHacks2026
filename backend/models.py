@@ -195,10 +195,21 @@ class LoginPayload(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+ExternalAgentKind = Literal["http", "fetchai"]
+
+
 class ExternalAgentCreate(BaseModel):
     name: str
     endpoint_url: str
     auth_header: Optional[str] = None
+    # Discriminator for the registration UI. ``http`` is a generic webhook
+    # endpoint; ``fetchai`` is a uAgent whose REST adapter happens to live at
+    # this URL — same wire contract, different surface in the website.
+    kind: ExternalAgentKind = "http"
+    # Optional ``agent1q…`` Almanac address for fetchai agents; informational
+    # only today (the website displays it but the dispatcher still talks
+    # over HTTP).
+    agent_address: Optional[str] = None
 
 
 class ExternalAgentSummary(BaseModel):
@@ -206,6 +217,8 @@ class ExternalAgentSummary(BaseModel):
     name: str
     endpoint_url: str
     has_auth: bool      # True iff auth_header is set; raw value never returned
+    kind: ExternalAgentKind = "http"
+    agent_address: Optional[str] = None
     created_at: str
 
 
@@ -214,7 +227,19 @@ class ExternalAgentRunRequest(BaseModel):
     prompt: str
 
 
+class ReasoningStep(BaseModel):
+    """One entry in an external agent's chain of reasoning. Optional — agents
+    that don't supply steps still get a single-summary activity entry."""
+
+    kind: Literal["thought", "tool_call", "tool_result", "final"]
+    text: str
+    tool: Optional[str] = None
+    citations: list[str] = []
+    ts_ms: Optional[int] = None
+
+
 class ExternalAgentResult(BaseModel):
     summary: str
     citations: list[str] = []
     warnings: list[str] = []
+    steps: list[ReasoningStep] = []

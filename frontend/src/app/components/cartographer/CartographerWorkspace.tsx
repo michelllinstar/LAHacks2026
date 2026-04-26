@@ -15,7 +15,7 @@ import { GraphInfoModal } from './GraphInfoModal';
 import { InvariantToolbar } from './InvariantToolbar';
 import { getGraph, getIndexStatus, listRepos } from '../../../lib/api';
 import { useRepoStream } from '../../../lib/sse';
-import { useCartographerStore } from '../../../lib/store';
+import { useCartographerStore, type AgentActivity } from '../../../lib/store';
 import type { GraphProjection, IndexStatus, LayerName, SseEvent } from '../../../lib/types';
 
 interface CartographerWorkspaceProps {
@@ -254,14 +254,43 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
           break;
         }
         case 'agent_activity': {
+          const symbolNames = (payload.symbol_ids as string[] | undefined) ?? [];
           pushActivity({
             id: (payload.id as string | undefined) ?? (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`),
             query_type: (payload.query_type as string | undefined) ?? 'unknown',
             task: (payload.task as string | undefined) ?? '',
             cluster_id: (payload.cluster_id as string | null | undefined) ?? null,
-            symbol_ids: (payload.symbol_ids as string[] | undefined) ?? [],
+            symbol_ids: symbolNames,
             ts: Date.now(),
+            summary: payload.summary as string | undefined,
+            steps: (payload.steps as AgentActivity['steps']) ?? [],
           });
+
+          // Light up touched symbols on the graph. The agent's symbol_ids
+          // are qualified_names (the bundle wire format); the graph's node
+          // ids are stringified ObjectIds. Translate by scanning the current
+          // symbol projection's labels. Pulled imperatively from the store
+          // so the SSE handler doesn't need to be re-keyed when projections
+          // change.
+          if (symbolNames.length > 0) {
+            const symGraph = useCartographerStore
+              .getState()
+              .byRepo[projectId]?.graphs?.symbol;
+            if (symGraph) {
+              const nameToId = new Map<string, string>();
+              for (const n of symGraph.nodes) nameToId.set(n.label, n.id);
+              const nodeIds = symbolNames
+                .map((n) => nameToId.get(n))
+                .filter((v): v is string => !!v);
+              if (nodeIds.length > 0) {
+                pushHighlight(projectId, {
+                  node_ids: nodeIds,
+                  color: 'emerald',
+                  expires_at: Date.now() + 5000,
+                });
+              }
+            }
+          }
           break;
         }
         case 'agent_run_started': {
@@ -301,6 +330,16 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   );
 
   useRepoStream(projectId, handleEvent);
+
+  // Prune expired highlights every 1s so the visual fade actually fires —
+  // without this, a 5s expiry window only "ends" the next time something
+  // else writes to the store. Cheap: it's a no-op when nothing has expired.
+  const pruneExpiredHighlights = useCartographerStore((s) => s.pruneExpiredHighlights);
+  useEffect(() => {
+    if (!projectId) return;
+    const t = setInterval(() => pruneExpiredHighlights(projectId), 1000);
+    return () => clearInterval(t);
+  }, [projectId, pruneExpiredHighlights]);
 
   const handleHighlight = (query: AgentQuery) => {
     setHighlightedQuery(query);

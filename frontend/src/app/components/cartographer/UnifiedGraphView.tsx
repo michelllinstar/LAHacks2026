@@ -380,6 +380,25 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     (s) => s.byRepo[repositoryId]?.graphs[layer],
   );
 
+  // Highlights pushed by the workspace's SSE handler when an agent_activity
+  // event arrives. We flatten all currently-live highlights into a single
+  // Set<node_id> for O(1) per-node lookup at render time. The pruner in the
+  // workspace ticks expired highlights out of the store, which re-renders us.
+  const highlights = useCartographerStore(
+    (s) => s.byRepo[repositoryId]?.highlights,
+  );
+  const highlightedIds = useMemo(() => {
+    const set = new Set<string>();
+    if (!highlights) return set;
+    const now = Date.now();
+    for (const h of highlights) {
+      if (h.expires_at > now) {
+        for (const id of h.node_ids) set.add(id);
+      }
+    }
+    return set;
+  }, [highlights]);
+
   // Derived nodes from the projection, then a local override layer for
   // user-driven drags so positions don't snap back when the projection
   // re-renders (e.g. after an SSE refetch).
@@ -1193,6 +1212,12 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             const colors = getNodeColors(node.type);
             const isSelected = selectedNode?.id === node.id;
             const isDraggingThis = draggingNodeId === node.id;
+            // Agent-driven highlight: when an agent_activity SSE event names
+            // this node's qualified_name in its citations, the workspace
+            // pushes a 5s highlight into the store. We bring it forward with
+            // a glowing emerald border + pulse so the user can SEE which
+            // symbols a running agent just touched.
+            const isAgentHighlighted = highlightedIds.has(node.id);
             return (
               <div
                 key={node.id}
@@ -1205,7 +1230,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                   width: cardW,
                   transition: isDraggingThis ? 'none' : 'transform 0.15s ease-out',
                   transform: isSelected || isDraggingThis ? 'scale(1.04)' : 'scale(1)',
-                  zIndex: isSelected || isDraggingThis ? 10 : 1,
+                  zIndex: isAgentHighlighted ? 11 : (isSelected || isDraggingThis ? 10 : 1),
                 }}
               >
                 {/* Agent highlight pulse */}
@@ -1216,6 +1241,19 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                     boxShadow: `0 0 10px ${colors.dot}`,
                     border: '2px solid white',
                   }} />
+                )}
+
+                {/* Live agent-touched node pulse (separate from cluster
+                    highlight above): a soft emerald ring around the whole
+                    card while the highlight is alive in the store. */}
+                {isAgentHighlighted && (
+                  <div
+                    className="absolute inset-0 pointer-events-none rounded-lg animate-pulse"
+                    style={{
+                      boxShadow: '0 0 0 3px rgba(16,185,129,0.85), 0 0 24px 4px rgba(16,185,129,0.45)',
+                      borderRadius: 10,
+                    }}
+                  />
                 )}
 
                 {node.type === 'module' ? (
@@ -1308,7 +1346,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                 <div style={{
                   borderRadius: 8,
                   overflow: 'hidden',
-                  border: `2px solid ${isSelected ? colors.border : '#3e3e42'}`,
+                  border: `2px solid ${isAgentHighlighted ? '#10b981' : (isSelected ? colors.border : '#3e3e42')}`,
                   boxShadow: isSelected ? `0 0 0 1px ${colors.border}40, 0 4px 20px ${colors.border}30` : '0 2px 8px #0008',
                   background: '#1e1e1e',
                   transition: 'border-color 0.15s, box-shadow 0.15s',
