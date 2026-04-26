@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+_ROOT = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_ROOT / ".env.local")
 
 from . import (
     architecture_analyst,
