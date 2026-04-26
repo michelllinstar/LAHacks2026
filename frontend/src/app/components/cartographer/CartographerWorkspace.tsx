@@ -1,12 +1,13 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ArrowLeft, Settings, Share2, Database, Files, Search, GitBranch, Info, X, Layers, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Settings, Share2, Database, Files, Search, GitBranch, Info, X, Layers, ShieldCheck, Bot } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { UnifiedGraphView, GraphNode, GraphMode, PathFilter } from './UnifiedGraphView';
 import { InvariantView } from './InvariantView';
 import { DiagramToolbar } from './DiagramToolbar';
 import { AgentActivityLog, AgentQuery } from './AgentActivityLog';
 import { FilesPanel, SelectedPath } from '../workspace/FilesPanel';
+import { AgentsPanel } from './AgentsPanel';
 import { GraphInfoModal } from './GraphInfoModal';
 import { InvariantToolbar } from './InvariantToolbar';
 import { getGraph, getIndexStatus } from '../../../lib/api';
@@ -22,7 +23,7 @@ interface CartographerWorkspaceProps {
 }
 
 type ActiveView = 'diagram' | 'invariant';
-type ActivityBarItem = 'explorer' | 'search' | 'source-control' | 'info';
+type ActivityBarItem = 'explorer' | 'search' | 'source-control' | 'agents' | 'info';
 
 export function CartographerWorkspace({ projectId, projectName, onBack, onShare }: CartographerWorkspaceProps) {
   const router = useRouter();
@@ -341,6 +342,28 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
             )}
           </button>
 
+          <button
+            onClick={() => {
+              if (activeActivity === 'agents' && !sidebarCollapsed) {
+                setSidebarCollapsed(true);
+              } else {
+                setActiveActivity('agents');
+                setSidebarCollapsed(false);
+              }
+            }}
+            className={`w-12 h-12 flex items-center justify-center transition-colors relative ${
+              activeActivity === 'agents' && !sidebarCollapsed
+                ? 'text-white'
+                : 'text-gray-400 hover:text-white'
+            }`}
+            title="Agents"
+          >
+            <Bot className="h-6 w-6" />
+            {activeActivity === 'agents' && !sidebarCollapsed && (
+              <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-white" />
+            )}
+          </button>
+
           <div className="flex-1" />
 
           {/* Graph Info */}
@@ -385,6 +408,9 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   <span>main</span>
                 </div>
               </div>
+            )}
+            {activeActivity === 'agents' && (
+              <AgentsPanel onCollapse={() => setSidebarCollapsed(true)} />
             )}
           </div>
         )}

@@ -232,6 +232,21 @@ def _ensure_repo_indexes(db: Database) -> None:
         name="invariants_repo_confidence",
     )
 
+    # Agent runs: per-repo dispatch records for the agent runner. ``run_id`` is
+    # uuid4 hex and unique; ``created_at`` descending powers the most-recent
+    # listings shown in the frontend.
+    db["agent_runs"].create_index(
+        [("run_id", ASCENDING)], unique=True, name="agent_runs_run_id_unique"
+    )
+    db["agent_runs"].create_index(
+        [("repo_hash", ASCENDING), ("created_at", DESCENDING)],
+        name="agent_runs_repo_created",
+    )
+    db["agent_runs"].create_index(
+        [("repo_hash", ASCENDING), ("status", ASCENDING)],
+        name="agent_runs_repo_status",
+    )
+
 
 def init_control_db() -> None:
     """Idempotently create control-plane indexes."""
@@ -1255,3 +1270,103 @@ def count_invariants(repo_hash: str) -> int:
     """Total invariant count for the repo."""
     db = get_db()
     return db["invariants"].count_documents({"repo_hash": repo_hash})
+
+
+# ---------------------------------------------------------------------------
+# Agent runs (Phase 2 — agent runner persistence)
+# ---------------------------------------------------------------------------
+
+
+import uuid as _uuid
+
+
+def create_agent_run(
+    repo_hash: str,
+    template_id: str,
+    scope: Optional[dict],
+    prompt: str,
+    created_by: Optional[str],
+) -> str:
+    """Insert a new agent run with status='queued'; return its uuid4 hex run_id.
+
+    The transcript starts empty and is appended to via
+    :func:`append_agent_run_step`. The unique ``run_id`` index defends against
+    the (vanishingly unlikely) uuid4 collision and lets DELETE / GET look the
+    document up without an ObjectId round-trip.
+    """
+    db = get_db()
+    run_id = _uuid.uuid4().hex
+    db["agent_runs"].insert_one(
+        {
+            "run_id": run_id,
+            "repo_hash": repo_hash,
+            "template_id": template_id,
+            "scope": scope,
+            "prompt": prompt,
+            "status": "queued",
+            "created_by": created_by,
+            "created_at": _now_iso(),
+            "started_at": None,
+            "finished_at": None,
+            "transcript": [],
+            "result": None,
+            "error": None,
+        }
+    )
+    return run_id
+
+
+def update_agent_run_status(
+    repo_hash: str, run_id: str, status: str, **fields: Any
+) -> None:
+    """Set status and optional ``finished_at`` / ``error`` / ``result`` / ``started_at``.
+
+    Status must be one of: queued | running | succeeded | failed | cancelled.
+    Unknown ``fields`` are passed through verbatim so the caller can stamp
+    things like ``started_at`` without us hard-coding every transition.
+    """
+    allowed = {"queued", "running", "succeeded", "failed", "cancelled"}
+    if status not in allowed:
+        raise ValueError("invalid agent run status: %s" % status)
+    set_doc: dict[str, Any] = {"status": status}
+    for k, v in fields.items():
+        set_doc[k] = v
+    db = get_db()
+    db["agent_runs"].update_one(
+        {"repo_hash": repo_hash, "run_id": run_id},
+        {"$set": set_doc},
+    )
+
+
+def append_agent_run_step(repo_hash: str, run_id: str, step: dict) -> None:
+    """Atomically ``$push`` ``step`` onto the run's transcript array."""
+    db = get_db()
+    db["agent_runs"].update_one(
+        {"repo_hash": repo_hash, "run_id": run_id},
+        {"$push": {"transcript": step}},
+    )
+
+
+def get_agent_run(repo_hash: str, run_id: str) -> Optional[dict]:
+    """Return the full run document (including transcript) or None."""
+    db = get_db()
+    return db["agent_runs"].find_one(
+        {"repo_hash": repo_hash, "run_id": run_id}, {"_id": 0}
+    )
+
+
+def list_agent_runs(
+    repo_hash: str, limit: int = 50, status: Optional[str] = None
+) -> list[dict]:
+    """Most-recent first, transcript projected away to keep the payload small."""
+    db = get_db()
+    query: dict[str, Any] = {"repo_hash": repo_hash}
+    if status is not None:
+        query["status"] = status
+    cursor = (
+        db["agent_runs"]
+        .find(query, {"_id": 0, "transcript": 0})
+        .sort("created_at", -1)
+        .limit(int(limit))
+    )
+    return list(cursor)
