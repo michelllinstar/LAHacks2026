@@ -65,6 +65,13 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
 
   const rolledMethods = new Map<string, string[]>(); // class label → method names
   const absorbed = new Set<string>();                // node ids hidden as members
+  // Restricted rollup. Earlier versions also did a greedy dotted-prefix walk
+  // that absorbed any free function whose qname segment happened to match a
+  // class's bare name (e.g. ``parser.parse`` → some unrelated ``Parser``).
+  // That swallowed nodes silently in larger repos, so we now only roll up
+  // when the backend explicitly tags a symbol with its parent class, OR when
+  // ``symbol_kind`` is literally ``"method"`` AND its label starts with an
+  // exact class qname prefix.
   const findParentClass = (n: typeof graph.nodes[number]): { parent: string; memberName: string } | null => {
     // 1. Authoritative metadata field (added by the backend symbol_projection
     //    for symbol_kind == "method").
@@ -80,21 +87,17 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
         return { parent, memberName: n.label.split('.').pop() ?? n.label };
       }
     }
-    // 2. Walk the dotted qname from longest to shortest prefix and roll up
-    //    on the first class match.
-    const parts = n.label.split('.');
-    for (let i = parts.length - 1; i > 0; i--) {
-      const prefix = parts.slice(0, i).join('.');
-      if (classByName.has(prefix)) {
-        return { parent: prefix, memberName: parts.slice(i).join('.') };
-      }
-      // Try matching by the last segment of the candidate prefix — handles
-      // qname format mismatches (e.g. method qname is "pkg.mod.Foo.bar" but
-      // class is registered as "Foo").
-      const shortPrefix = parts[i - 1];
-      if (classByShortName.has(shortPrefix)) {
-        const parent = classByShortName.get(shortPrefix)!.label;
-        return { parent, memberName: parts.slice(i).join('.') };
+    // 2. ONLY when symbol_kind is literally "method" — try an exact dotted
+    //    prefix match against a known class. Bare-name fallback is removed
+    //    because it caused false absorption of free functions.
+    const sym = (n.metadata?.symbol_kind as string | undefined)?.toLowerCase();
+    if (sym === 'method') {
+      const parts = n.label.split('.');
+      for (let i = parts.length - 1; i > 0; i--) {
+        const prefix = parts.slice(0, i).join('.');
+        if (classByName.has(prefix)) {
+          return { parent: prefix, memberName: parts.slice(i).join('.') };
+        }
       }
     }
     return null;
@@ -196,16 +199,58 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
   const startX = cx - ((totalCols - 1) * colWidth) / 2;
 
   const positioned = new Map<string, { x: number; y: number; cluster: string }>();
-  sortedLayerKeys.forEach((li, colIdx) => {
-    const list = layers.get(li)!;
-    const colH = list.length * rowHeight - cardH * 0.6;
-    list.forEach((n, i) => {
-      const x = startX + colIdx * colWidth;
-      const y = baseY - colH / 2 + i * rowHeight;
-      const cluster = mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind);
-      positioned.set(n.id, { x, y, cluster });
+
+  // Fallback layout for small / sparse graphs: when the topological layout
+  // produces fewer than 3 columns (i.e. most nodes have in-degree 0, so they
+  // all stack into column 0), switch to a per-type grid. Each legend type
+  // gets its own row block, with nodes wrapping into columns. This is the
+  // pre-regression layout — it stays readable on tiny repos like cart-smoke
+  // where the topological collapse would otherwise produce a 1-2 column
+  // strip.
+  if (totalCols < 3) {
+    const grouped = new Map<GraphNode['type'], typeof graph.nodes>();
+    for (const n of visibleNodes) {
+      const t = mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind);
+      if (!grouped.has(t)) grouped.set(t, []);
+      grouped.get(t)!.push(n);
+    }
+    // Sort within each type for stable ordering.
+    for (const [, list] of grouped) {
+      list.sort((a, b) => a.label.localeCompare(b.label));
+    }
+    // Type ordering matches TYPE_ORDER above.
+    const orderedTypes = TYPE_ORDER.filter((t) => grouped.has(t));
+    // Pick a column count that gives roughly square blocks; clamp 3..6.
+    const colsPerBlock = Math.max(3, Math.min(6, Math.ceil(Math.sqrt(visibleNodes.length))));
+    const blockColWidth = cardW + cardW * 0.6;
+    const blockRowHeight = cardH + cardH * 0.5;
+    let blockY = baseY - ((orderedTypes.length - 1) * (blockRowHeight * 2)) / 2;
+    for (const t of orderedTypes) {
+      const list = grouped.get(t)!;
+      const rowsInBlock = Math.ceil(list.length / colsPerBlock);
+      const blockCols = Math.min(list.length, colsPerBlock);
+      const blockStartX = cx - ((blockCols - 1) * blockColWidth) / 2;
+      list.forEach((n, i) => {
+        const r = Math.floor(i / colsPerBlock);
+        const c = i % colsPerBlock;
+        const x = blockStartX + c * blockColWidth;
+        const y = blockY + r * blockRowHeight;
+        positioned.set(n.id, { x, y, cluster: t });
+      });
+      blockY += rowsInBlock * blockRowHeight + blockRowHeight; // gap between blocks
+    }
+  } else {
+    sortedLayerKeys.forEach((li, colIdx) => {
+      const list = layers.get(li)!;
+      const colH = list.length * rowHeight - cardH * 0.6;
+      list.forEach((n, i) => {
+        const x = startX + colIdx * colWidth;
+        const y = baseY - colH / 2 + i * rowHeight;
+        const cluster = mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind);
+        positioned.set(n.id, { x, y, cluster });
+      });
     });
-  });
+  }
 
   return visibleNodes.map((n) => {
     const placed = positioned.get(n.id);
@@ -372,13 +417,34 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
 
   // Live graph data sourced from the Cartographer store. The store is
   // populated by CartographerWorkspace's initial fetch + SSE handler.
-  // Symbol / Flow / Architecture are now overlay modes on the same graph,
-  // not separate projections. Always pull the symbol layer so the node set
-  // stays stable; the active mode only changes which overlay is drawn.
-  const layer: LayerName = 'symbol';
-  const projection = useCartographerStore(
-    (s) => s.byRepo[repositoryId]?.graphs[layer],
+  //
+  // Multi-overlay rendering: any combination of symbol/flow/architecture can
+  // be on at once. We read all three projections, then:
+  //   - One projection provides the NODE SET (the cards drawn on the canvas).
+  //     Priority: symbol > architecture > flow. Symbol is the richest, so
+  //     when it's on it always anchors the layout; flow nodes are a subset
+  //     of symbol nodes (same ObjectId) so flow can layer cleanly on top.
+  //   - Each active projection contributes its EDGES, tagged with which
+  //     layer they came from so the styler can pick UML vs flow visuals.
+  const symbolProjection = useCartographerStore(
+    (s) => s.byRepo[repositoryId]?.graphs.symbol,
   );
+  const flowProjection = useCartographerStore(
+    (s) => s.byRepo[repositoryId]?.graphs.flow,
+  );
+  const architectureProjection = useCartographerStore(
+    (s) => s.byRepo[repositoryId]?.graphs.architecture,
+  );
+  const layer: LayerName = activeModes.has('symbol')
+    ? 'symbol'
+    : activeModes.has('architecture')
+      ? 'architecture'
+      : 'flow';
+  const projection = layer === 'symbol'
+    ? symbolProjection
+    : layer === 'architecture'
+      ? architectureProjection
+      : flowProjection;
 
   // Highlights pushed by the workspace's SSE handler when an agent_activity
   // event arrives. We flatten all currently-live highlights into a single
@@ -403,6 +469,27 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
   // user-driven drags so positions don't snap back when the projection
   // re-renders (e.g. after an SSE refetch).
   const baseNodes = useMemo(() => projectionToNodes(projection, cardW, cardH), [projection, cardW, cardH]);
+
+  // Combined edge list — pulls edges from EACH active projection and tags
+  // each entry with its source layer so the renderer can pick the right
+  // visual style (UML for symbol/architecture, teal arrows for flow).
+  // Edges whose source/target nodes aren't in the rendered set are skipped
+  // by the render pass. This is what lets Symbol+Flow draw teal flow arrows
+  // overlaid on top of UML-classified symbol relationships.
+  const overlayEdges = useMemo(() => {
+    type Tagged = { edge: GraphProjection['edges'][number]; sourceLayer: LayerName };
+    const out: Tagged[] = [];
+    if (activeModes.has('symbol') && symbolProjection) {
+      for (const e of symbolProjection.edges) out.push({ edge: e, sourceLayer: 'symbol' });
+    }
+    if (activeModes.has('flow') && flowProjection) {
+      for (const e of flowProjection.edges) out.push({ edge: e, sourceLayer: 'flow' });
+    }
+    if (activeModes.has('architecture') && architectureProjection) {
+      for (const e of architectureProjection.edges) out.push({ edge: e, sourceLayer: 'architecture' });
+    }
+    return out;
+  }, [activeModes, symbolProjection, flowProjection, architectureProjection]);
   const [positionOverrides, setPositionOverrides] = useState<Record<string, { x: number; y: number }>>({});
 
   const allNodes: GraphNode[] = useMemo(
@@ -590,7 +677,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
         onZoomChange(Math.min(200, zoomLevel + 10));
       } else if (e.key === '-' || e.key === '_') {
         e.preventDefault();
-        onZoomChange(Math.max(50, zoomLevel - 10));
+        onZoomChange(Math.max(10, zoomLevel - 10));
       }
     };
 
@@ -738,30 +825,28 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     setDraggingNodeId(null);
   };
 
-  // Wheel/trackpad zoom handler
+  // Wheel/trackpad zoom handler. Smooth exponential factor scaled by deltaY
+  // so a mouse wheel notch (~100) and a trackpad nudge (~5) feel comparable.
+  // Floor matches the auto-fit floor (10%) so users can always scroll back to
+  // the initial fit zoom.
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
 
-    // Detect if this is a pinch gesture (trackpad) or regular scroll
-    if (e.ctrlKey || Math.abs(e.deltaY) < 50) {
-      // Pinch zoom on trackpad or ctrl+wheel
-      const delta = -e.deltaY;
-      const zoomFactor = delta > 0 ? 1.1 : 0.9;
-      const newZoom = Math.max(50, Math.min(200, zoomLevel * zoomFactor));
+    const zoomFactor = Math.exp(-e.deltaY * 0.0015);
+    const newZoom = Math.max(10, Math.min(200, zoomLevel * zoomFactor));
+    if (newZoom === zoomLevel) return;
 
-      // Zoom towards mouse cursor position
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (rect) {
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        const scaleFactor = newZoom / zoomLevel;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) {
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const scaleFactor = newZoom / zoomLevel;
 
-        setPanX(mouseX - (mouseX - panX) * scaleFactor);
-        setPanY(mouseY - (mouseY - panY) * scaleFactor);
-      }
-
-      onZoomChange(newZoom);
+      setPanX(mouseX - (mouseX - panX) * scaleFactor);
+      setPanY(mouseY - (mouseY - panY) * scaleFactor);
     }
+
+    onZoomChange(newZoom);
   };
 
   // Touch handlers for mobile pinch zoom
@@ -790,7 +875,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
 
       const delta = distance - lastTouchDistance;
       const zoomFactor = 1 + (delta / 500);
-      const newZoom = Math.max(50, Math.min(200, zoomLevel * zoomFactor));
+      const newZoom = Math.max(10, Math.min(200, zoomLevel * zoomFactor));
 
       onZoomChange(newZoom);
       setLastTouchDistance(distance);
@@ -911,30 +996,63 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
               transition: draggingNodeId ? 'none' : 'all 0.1s ease-out',
             }}
           >
-            {/* UML 2.5 edges — rendered only when the Flow overlay is on.
-                Each projection edge is classified into one of six canonical
-                relationships (association, aggregation, composition,
-                inheritance, realization, dependency) by its ``kind`` string
-                and rendered with the matching line style and arrowhead.
-                Lines route from the right edge of the source node to the
-                left edge of the target node so the layered (left→right)
-                layout keeps every arrow flowing in the same direction. */}
-            {activeModes.has('flow') && projection?.edges.map((edge) => {
+            {/* Edges — drawn from EVERY active overlay's projection. Each
+                edge knows which layer it came from (``sourceLayer``) so the
+                styler can pick the right visual:
+                  - ``flow`` source → teal line + ``arrowhead-flow``, amber
+                    if the edge is tagged with a sensitivity (password/token).
+                  - ``symbol`` / ``architecture`` source → UML 2.5
+                    classification via ``classifyUmlEdge``.
+                Edges whose source/target nodes aren't in the rendered set
+                (e.g. flow edges between symbols when only Architecture is
+                providing the node base) are skipped silently. Lines route
+                from the right edge of the source to the left edge of the
+                target so the layered (left→right) layout stays coherent. */}
+            {overlayEdges.map(({ edge, sourceLayer }) => {
               const source = nodes.find((n) => n.id === edge.source);
               const target = nodes.find((n) => n.id === edge.target);
               if (!source || !target) return null;
+
+              const isFlow = sourceLayer === 'flow' || (edge.kind || '').toLowerCase().startsWith('flow');
+              const x1 = source.x + cardW;
+              const y1 = source.y + cardH / 2;
+              const x2 = target.x;
+              const y2 = target.y + cardH / 2;
+
+              if (isFlow) {
+                // Flow edges: teal. Sensitive flows go warmer (amber) so the
+                // eye picks them out instantly. Standard #2DD4BF teal
+                // matches the legacy flow view.
+                const sensitivity = (edge as unknown as { metadata?: { sensitivity?: string } })
+                  .metadata?.sensitivity;
+                const stroke = sensitivity ? '#f59e0b' : '#2DD4BF';
+                return (
+                  <g key={`flow-${edge.source}-${edge.target}-${edge.kind}`}>
+                    <line
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      stroke={stroke}
+                      strokeWidth={2}
+                      markerEnd="url(#arrowhead-flow)"
+                      opacity={0.9}
+                    />
+                  </g>
+                );
+              }
+
               const style = classifyUmlEdge(edge.kind);
               const markerId =
                 style.endMarker === 'open-arrow' ? 'uml-arrow-open' :
                 style.endMarker === 'hollow-triangle' ? 'uml-arrow-triangle' :
                 style.endMarker === 'hollow-diamond' ? 'uml-diamond-hollow' :
                 'uml-diamond-filled';
-              const x1 = source.x + cardW;          // exit right edge of source
-              const y1 = source.y + cardH / 2;
-              const x2 = target.x;                  // enter left edge of target
-              const y2 = target.y + cardH / 2;
               return (
-                <g key={`uml-${edge.source}-${edge.target}-${edge.kind}`} style={{ color: style.color }}>
+                <g
+                  key={`${sourceLayer}-uml-${edge.source}-${edge.target}-${edge.kind}`}
+                  style={{ color: style.color }}
+                >
                   <line
                     x1={x1}
                     y1={y1}

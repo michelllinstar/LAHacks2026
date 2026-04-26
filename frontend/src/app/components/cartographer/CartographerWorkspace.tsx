@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { UnifiedGraphView, GraphNode, GraphMode, GraphDensity, PathFilter } from './UnifiedGraphView';
 import { InvariantView } from './InvariantView';
 import { DiagramToolbar } from './DiagramToolbar';
-import { ViewLevelToolbar, type ViewLevel } from './ViewLevelToolbar';
 import { AgentQuery } from './AgentActivityLog';
 import { RightSidePanel } from './RightSidePanel';
 import { FilesPanel, SelectedPath } from '../workspace/FilesPanel';
@@ -26,78 +25,29 @@ interface CartographerWorkspaceProps {
 }
 
 type ActiveView = 'diagram' | 'invariant';
-
-const LEVEL_ORDER: ViewLevel[] = ['tiers', 'layers', 'contexts', 'packages', 'classes'];
-const LEVEL_LABELS: Record<ViewLevel, string> = {
-  tiers: 'Tiers',
-  layers: 'Layers',
-  contexts: 'Contexts',
-  packages: 'Packages',
-  classes: 'Classes',
-};
-
-interface FocusBreadcrumbProps {
-  viewLevel: ViewLevel;
-  focusPath: string[];
-  onJump: (idx: number) => void;
-}
-
-// Renders the focus chain (e.g. Tiers › Backend › Service › Ordering › ⟨Packages⟩).
-// Segment 0..n-1 are clickable focus selections; the trailing segment shows
-// the current level label (greyed out, non-clickable since you're already
-// there). Toolbar level + this trail share the same focusPath state, so they
-// stay in sync by construction.
-function FocusBreadcrumb({ viewLevel, focusPath, onJump }: FocusBreadcrumbProps) {
-  const currentIdx = LEVEL_ORDER.indexOf(viewLevel);
-  return (
-    <div className="flex items-center gap-1.5 px-4 py-1.5 bg-[#252526] border-b border-[#1e1e1e] text-[11px] text-gray-400 flex-wrap">
-      <button
-        type="button"
-        onClick={() => onJump(0)}
-        className={`px-1.5 py-0.5 rounded hover:bg-white/[0.06] hover:text-white transition-colors ${
-          currentIdx === 0 ? 'text-white font-medium' : ''
-        }`}
-      >
-        {LEVEL_LABELS[LEVEL_ORDER[0]]}
-      </button>
-      {focusPath.map((segment, i) => {
-        const targetLevel = LEVEL_ORDER[i + 1];
-        const isCurrent = i + 1 === currentIdx;
-        return (
-          <span key={`${i}-${segment}`} className="flex items-center gap-1.5">
-            <span className="text-gray-600">›</span>
-            <button
-              type="button"
-              onClick={() => onJump(i + 1)}
-              className={`px-1.5 py-0.5 rounded hover:bg-white/[0.06] hover:text-white transition-colors max-w-[200px] truncate ${
-                isCurrent ? 'text-white font-medium' : ''
-              }`}
-              title={`${segment} (${LEVEL_LABELS[targetLevel]})`}
-            >
-              {segment}
-            </button>
-          </span>
-        );
-      })}
-    </div>
-  );
-}
 type ActivityBarItem = 'explorer' | 'search' | 'source-control' | 'agents' | 'info';
 
 export function CartographerWorkspace({ projectId, projectName, onBack, onShare }: CartographerWorkspaceProps) {
   const router = useRouter();
   const [activeView, setActiveView] = useState<ActiveView>('diagram');
-  // Multi-select overlay modes — any combination of symbol/flow/architecture
-  // can be on at once. The base graph stays the same; each mode adds a
-  // separate overlay (color-coding / arrows / folder backgrounds).
+  // Multi-overlay layer toggle — any combination of symbol/flow/architecture
+  // can be on at once. The renderer picks Symbol as the node base when it's
+  // on (symbols + cluster backgrounds + flow arrows all overlay together);
+  // otherwise Architecture (cluster nodes); otherwise Flow alone. Clicking
+  // the last-remaining active layer is a no-op so we never end up empty
+  // (which would render a blank canvas).
   const [diagramLayers, setDiagramLayers] = useState<Set<GraphMode>>(
     () => new Set<GraphMode>(['symbol']),
   );
   const toggleDiagramLayer = (mode: GraphMode) => {
     setDiagramLayers((prev) => {
       const next = new Set(prev);
-      if (next.has(mode)) next.delete(mode);
-      else next.add(mode);
+      if (next.has(mode)) {
+        if (next.size === 1) return prev; // refuse to leave an empty selection
+        next.delete(mode);
+      } else {
+        next.add(mode);
+      }
       return next;
     });
   };
@@ -114,10 +64,6 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   const [zoomLevel, setZoomLevel] = useState(100);
   const [highlightedQuery, setHighlightedQuery] = useState<AgentQuery | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
-  const [viewLevel, setViewLevel] = useState<ViewLevel>('tiers');
-  // focusPath[i] is the focus chosen at LEVEL_ORDER[i]. Length == index of the
-  // current viewLevel: an empty path means the user is at the root level.
-  const [focusPath, setFocusPath] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState<SelectedPath | null>(null);
   // File click in the explorer panel keeps the row highlighted, but no longer
   // narrows the graph projection — the path filter behaviour was disorienting
@@ -125,30 +71,12 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   // purely a visual cue.
   const pathFilter: PathFilter | null = null;
 
-  // activeModes mirrors the user's overlay selections so UnifiedGraphView
-  // can render any combination of overlays. The view-level toolbar
-  // (Tiers / Layers / Contexts / Packages / Classes) acts as a coarser
-  // selector that maps onto a single underlying graph projection:
-  //
-  //   Tiers, Layers   → architecture  (highest-level cluster view)
-  //   Contexts        → flow          (cross-module call/data flows)
-  //   Packages,
-  //   Classes         → symbol        (per-symbol layer)
-  //
-  // The toolbar wins when set: it overrides any multi-select overlay so
-  // clicking a level always changes the rendered graph. Multi-select
-  // overlays remain visible only at the level whose mapped layer matches.
+  // ``activeModes`` is just the user's diagram-toolbar selection. The toolbar
+  // is a 3-way switch over Cartographer's actual projections (symbol / flow /
+  // architecture); UnifiedGraphView's ``pickLayer`` resolves it to one of
+  // those when reading from the store.
   const isGraphView = activeView === 'diagram';
-  const levelToLayer: Record<ViewLevel, GraphMode> = {
-    tiers: 'architecture',
-    layers: 'architecture',
-    contexts: 'flow',
-    packages: 'symbol',
-    classes: 'symbol',
-  };
-  const activeModes: Set<GraphMode> = isGraphView
-    ? new Set<GraphMode>([levelToLayer[viewLevel]])
-    : new Set();
+  const activeModes: Set<GraphMode> = isGraphView ? diagramLayers : new Set();
 
   // ---------------------------------------------------------------------
   // Live data wiring — projectId is the repo hash after dashboard wiring.
@@ -371,33 +299,6 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
     setZoomLevel(100);
   };
 
-  // Drilling: clicking a node at the current level focuses on it and advances
-  // to the next finer level. At the deepest level the click is a no-op for
-  // the breadcrumb (the right-side panel still shows node details).
-  const handleNodeFocus = useCallback((node: GraphNode) => {
-    const currentIdx = LEVEL_ORDER.indexOf(viewLevel);
-    if (currentIdx < 0 || currentIdx >= LEVEL_ORDER.length - 1) return;
-    setFocusPath((prev) => {
-      const next = prev.slice(0, currentIdx);
-      next.push(node.name);
-      return next;
-    });
-    setViewLevel(LEVEL_ORDER[currentIdx + 1]);
-  }, [viewLevel]);
-
-  // Toolbar level click: jumps to that level and trims the breadcrumb so the
-  // path never claims focus we don't have.
-  const handleLevelChange = useCallback((next: ViewLevel) => {
-    const idx = LEVEL_ORDER.indexOf(next);
-    setViewLevel(next);
-    setFocusPath((prev) => prev.slice(0, idx));
-  }, []);
-
-  // Breadcrumb click: jump back to the level whose focus segment was clicked.
-  const handleBreadcrumbJump = useCallback((idx: number) => {
-    setViewLevel(LEVEL_ORDER[idx]);
-    setFocusPath((prev) => prev.slice(0, idx));
-  }, []);
 
   // Real repositories from store; fallback to a single-entry list of the
   // currently-loaded repo if the store hasn't been hydrated yet.
@@ -686,32 +587,18 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
           </div>
 
           {activeView === 'diagram' && (
-            <>
-              {/* View-level selector (Tiers / Layers / Contexts / Packages /
-                  Classes) sits in the same toolbar slot the layer overlays
-                  used so the user always sees the active level next to the
-                  Symbol/Flow/Architecture overlay toggles. */}
-              <ViewLevelToolbar value={viewLevel} onChange={handleLevelChange} />
-              <DiagramToolbar
-                activeLayers={diagramLayers}
-                onToggleLayer={toggleDiagramLayer}
-                density={diagramDensity}
-                onDensityChange={setDiagramDensity}
-              />
-            </>
+            <DiagramToolbar
+              activeLayers={diagramLayers}
+              onToggleLayer={toggleDiagramLayer}
+              density={diagramDensity}
+              onDensityChange={setDiagramDensity}
+            />
           )}
           {activeView === 'invariant' && <InvariantToolbar />}
 
           {/* Visualization Content */}
           <div className="flex-1 overflow-hidden flex">
             <div className="flex-1 overflow-hidden flex flex-col">
-              {isGraphView && (
-                <FocusBreadcrumb
-                  viewLevel={viewLevel}
-                  focusPath={focusPath}
-                  onJump={handleBreadcrumbJump}
-                />
-              )}
               {/* `key={activeView}` forces a remount on view swap so the
                   uml-view-fade keyframe re-runs and the user perceives the
                   swap as a brief zoom-in rather than an instant page swap. */}
@@ -723,7 +610,6 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   agentLogCollapsed={agentLogCollapsed}
                   activeModes={activeModes}
                   onNodeSelect={setSelectedNode}
-                  onNodeFocus={handleNodeFocus}
                   zoomLevel={zoomLevel}
                   onZoomChange={setZoomLevel}
                   onResetView={resetView}

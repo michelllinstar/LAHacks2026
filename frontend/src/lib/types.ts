@@ -268,6 +268,9 @@ export interface ExternalAgentResult {
   citations?: string[];
   warnings?: string[];
   steps?: ReasoningStep[];
+  // Echoed activity-log id used in the SSE broadcast — lets the caller
+  // correlate its optimistic row with the broadcast event.
+  activity_id?: string;
 }
 
 export interface SseEvent<T = Record<string, unknown>> {
