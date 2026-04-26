@@ -202,37 +202,64 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
    try {
      let repo;
      if (projectType === 'local' && uploadedFiles) {
-       // Skip only directories that are never source code: VCS data,
-       // package manager installs, compiled bytecache, and framework
-       // build output. Intentionally exclude 'build', 'dist', 'target' —
-       // those are common source directory names in many projects.
-       const skipDirs = new Set([
-         '.git', 'node_modules', '__pycache__', '.next', '.venv', 'venv', '.cache',
+       // Mirror the backend walker (backend/indexer/walker.py): the
+       // indexer only parses .py / .ts / .tsx, and never descends into
+       // these directories. Filtering on the client keeps the FormData
+       // small enough to actually upload — a "big project" (50k+ files,
+       // node_modules, build artifacts, images, lockfiles) would
+       // otherwise OOM the browser building the multipart body or blow
+       // past the backend's size cap before anything reaches the server.
+       const SKIP_DIRS = new Set([
+         '.git', 'node_modules', '__pycache__', '.next', '.venv', 'venv',
+         '.cache', '.mypy_cache', '.pytest_cache', '.tox', 'dist', 'build',
+         '.idea', '.vscode', '.turbo', '.parcel-cache', 'coverage',
+         '.nuxt', 'out', 'target', 'vendor',
        ]);
-       let filtered = Array.from(uploadedFiles).filter((f) => {
-         const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || '';
-         // Drop the leading picked-folder segment, then check each ancestor.
-         const parts = rel.split('/').slice(1);
-         return !parts.some((seg) => skipDirs.has(seg));
+       const SUPPORTED_EXT = /\.(py|ts|tsx)$/i;
+       const DECLARATION_EXT = /\.d\.tsx?$/i;
+       const MAX_FILES = 10_000;
+       const MAX_BYTES = 50 * 1024 * 1024; // matches backend cap
+
+       const all = Array.from(uploadedFiles);
+       let filtered = all.filter((f) => {
+         const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+         const parts = rel.split('/').slice(1); // drop the picked-folder root
+         if (parts.some((seg) => SKIP_DIRS.has(seg))) return false;
+         if (!SUPPORTED_EXT.test(f.name)) return false;
+         if (DECLARATION_EXT.test(f.name)) return false;
+         return true;
        });
+
        if (filtered.length === 0) {
-         // Filter was too aggressive — upload everything so the user isn't
-         // hard-blocked. The backend's 50MB / 10k file caps still apply.
-         filtered = Array.from(uploadedFiles);
-         toast.warning(`Uploading all ${filtered.length} file${filtered.length === 1 ? '' : 's'} (no source files detected outside dependency dirs)`);
-       } else {
-         toast.info(`Uploading ${filtered.length} file${filtered.length === 1 ? '' : 's'}…`);
-       }
-       if (filtered.length === 0) {
-         // Defensive: if even the unfiltered list is empty (empty folder
-         // pick), fail fast with a clear message instead of letting the
-         // backend respond with a generic 422.
-         const msg = 'The selected folder has no files.';
+         const msg = 'No .py / .ts / .tsx source files found in this folder.';
          setValidationError(msg);
-         toast.error('Nothing to upload', { description: msg });
+         toast.error('Nothing to index', { description: msg });
          setSubmitting(false);
          return;
        }
+
+       const totalBytes = filtered.reduce((sum, f) => sum + f.size, 0);
+       if (filtered.length > MAX_FILES) {
+         const msg = `Project has ${filtered.length} source files (max ${MAX_FILES}). Pick a subdirectory.`;
+         setValidationError(msg);
+         toast.error('Project too large', { description: msg });
+         setSubmitting(false);
+         return;
+       }
+       if (totalBytes > MAX_BYTES) {
+         const mb = Math.round(totalBytes / (1024 * 1024));
+         const msg = `Source files total ${mb} MB (max ${MAX_BYTES / (1024 * 1024)} MB). Pick a subdirectory.`;
+         setValidationError(msg);
+         toast.error('Project too large', { description: msg });
+         setSubmitting(false);
+         return;
+       }
+
+       const skipped = all.length - filtered.length;
+       toast.info(
+         `Uploading ${filtered.length} source file${filtered.length === 1 ? '' : 's'} (${Math.round(totalBytes / 1024)} KB)`,
+         skipped > 0 ? { description: `Skipped ${skipped} non-source file${skipped === 1 ? '' : 's'}` } : undefined,
+       );
        repo = await uploadRepo(name, filtered);
      } else {
        // GitHub URL path.

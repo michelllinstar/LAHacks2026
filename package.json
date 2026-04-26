@@ -10,6 +10,7 @@
     "agents": "python -m backend.agents.runtime",
     "mcp": "python -m backend.mcp.server",
     "claude-agent": "python -m examples.external_agents.claude_code",
+    "claude-agent:diamondhacks": "python -m examples.external_agents.claude_code --write --repo-root ~/gitssh/diamondhacks2026",
     "demo": "python scripts/run_demo.py",
     "lint": "eslint . --ext .js,.jsx"
   },
