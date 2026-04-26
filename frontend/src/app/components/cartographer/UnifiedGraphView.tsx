@@ -1,8 +1,7 @@
 'use client';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useCartographerStore } from '../../../lib/store';
-import type { GraphProjection, LayerName, GraphEdgeWire, GraphNodeWire } from '../../../lib/types';
-import type { ViewLevel } from './ViewLevelToolbar';
+import type { GraphProjection, LayerName } from '../../../lib/types';
 
 // Pick which projection feeds the unified view based on which graph modes
 // are active. Symbol mode is the default base layer; flow/architecture
@@ -30,60 +29,38 @@ function mapKind(kind: string | undefined | null): GraphNode['type'] {
   return 'function';
 }
 
+// Cluster region returned alongside layout-positioned nodes so the renderer
+// can draw a labeled background for every Layer 3 cluster the symbol set
+// belongs to. Clicking a region surfaces the cluster in the right panel.
+export interface ClusterRegion {
+  id: string;            // cluster ObjectId, or '__unclustered__' for the bucket
+  shortName: string;     // short upper-snake tag (e.g. AUTH, USERS) for the badge
+  role: string;          // full human-readable role description (may be empty)
+  x: number;             // top-left of the region (canvas coords)
+  y: number;
+  w: number;
+  h: number;
+  nodeCount: number;
+}
+
+const REGION_PAD = 36;
+const REGION_HEADER_H = 32;
+const UNCLUSTERED_ID = '__unclustered__';
+
+// Hoisted to module scope so both the cluster-grouped layout (early branch)
+// and the per-type-grid fallback (later branch) can reference the same
+// canonical ordering without TDZ issues.
+const TYPE_ORDER: GraphNode['type'][] = ['class', 'interface', 'function', 'module'];
+
 // Group nodes by their legend type (class / interface / function / module /
 // variable) and lay each type out in its own grid block. Same-type nodes
 // stay visually together so the legend doubles as a cluster map.
-// Standard backend layer roles. Order matters — controllers at the top,
-// entities at the bottom, so dependency arrows always read top-to-bottom.
-export const LAYER_BANDS = ['Controller', 'Service', 'Repository', 'Entity'] as const;
-export type LayerBand = typeof LAYER_BANDS[number];
-
-// Geometry constants for the Layers view (mirrored in the JSX render
-// block below). Kept at the top of the module so the auto-fit effect can
-// frame the bounding box without re-running the render block.
-const LAYERS_BOX_W = 720;
-const LAYERS_BOX_H = 150;
-const LAYERS_GAP = 56;
-const LAYERS_STACK_TOP = 60;
-const LAYERS_CX = 600;
-const LAYERS_VIEW_BOUNDS = {
-  // Slight horizontal padding on the right to leave room for the «SQL»
-  // external stub that the layers block draws beside the Repository row.
-  x: LAYERS_CX - LAYERS_BOX_W / 2 - 24,
-  y: LAYERS_STACK_TOP - 32,
-  width: LAYERS_BOX_W + 240,
-  height: LAYERS_STACK_TOP + 4 * LAYERS_BOX_H + 3 * LAYERS_GAP + 64,
-};
-
-const LAYER_BAND_DESCRIPTIONS: Record<LayerBand, string> = {
-  Controller: 'translates HTTP requests into method calls',
-  Service: 'business logic / orchestration',
-  Repository: 'data access — talks to the database',
-  Entity: 'domain data — the objects that get persisted',
-};
-
-const LAYER_BAND_ACCENTS: Record<LayerBand, string> = {
-  Controller: '#3b82f6',
-  Service: '#22c55e',
-  Repository: '#f59e0b',
-  Entity: '#a855f7',
-};
-
-// Heuristic-based bucketing: a class belongs to a layer if its name or
-// source-path contains a layer keyword. Defaults to "Service" for things
-// that don't match any keyword (most business code lives in the middle
-// band anyway).
-export function classifyLayerBand(name: string, filePath: string | null | undefined): LayerBand {
-  const s = `${name} ${filePath ?? ''}`.toLowerCase();
-  if (/(controller|handler|router|\broute\b|routes\/|view\b|page\b|endpoint|\bapi\b)/.test(s)) return 'Controller';
-  if (/(entity|\bmodel\b|models\/|schema|\bdto\b|record\b|domain\/)/.test(s)) return 'Entity';
-  if (/(repository|\brepo\b|\bdao\b|\bstore\b|gateway)/.test(s)) return 'Repository';
-  if (/(service|manager|use[-_]?case|workflow|processor|worker)/.test(s)) return 'Service';
-  return 'Service';
-}
-
-function projectionToNodes(graph: GraphProjection | undefined, cardW: number, cardH: number, viewLevel: ViewLevel = 'classes'): GraphNode[] {
-  if (!graph) return [];
+function projectionToNodes(
+  graph: GraphProjection | undefined,
+  cardW: number,
+  cardH: number,
+): { nodes: GraphNode[]; clusterRegions: ClusterRegion[] } {
+  if (!graph) return { nodes: [], clusterRegions: [] };
   const adjacency = new Map<string, string[]>();
   for (const n of graph.nodes) adjacency.set(n.id, []);
   for (const e of graph.edges) {
@@ -115,6 +92,13 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
 
   const rolledMethods = new Map<string, string[]>(); // class label → method names
   const absorbed = new Set<string>();                // node ids hidden as members
+  // Restricted rollup. Earlier versions also did a greedy dotted-prefix walk
+  // that absorbed any free function whose qname segment happened to match a
+  // class's bare name (e.g. ``parser.parse`` → some unrelated ``Parser``).
+  // That swallowed nodes silently in larger repos, so we now only roll up
+  // when the backend explicitly tags a symbol with its parent class, OR when
+  // ``symbol_kind`` is literally ``"method"`` AND its label starts with an
+  // exact class qname prefix.
   const findParentClass = (n: typeof graph.nodes[number]): { parent: string; memberName: string } | null => {
     // 1. Authoritative metadata field (added by the backend symbol_projection
     //    for symbol_kind == "method").
@@ -130,21 +114,17 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
         return { parent, memberName: n.label.split('.').pop() ?? n.label };
       }
     }
-    // 2. Walk the dotted qname from longest to shortest prefix and roll up
-    //    on the first class match.
-    const parts = n.label.split('.');
-    for (let i = parts.length - 1; i > 0; i--) {
-      const prefix = parts.slice(0, i).join('.');
-      if (classByName.has(prefix)) {
-        return { parent: prefix, memberName: parts.slice(i).join('.') };
-      }
-      // Try matching by the last segment of the candidate prefix — handles
-      // qname format mismatches (e.g. method qname is "pkg.mod.Foo.bar" but
-      // class is registered as "Foo").
-      const shortPrefix = parts[i - 1];
-      if (classByShortName.has(shortPrefix)) {
-        const parent = classByShortName.get(shortPrefix)!.label;
-        return { parent, memberName: parts.slice(i).join('.') };
+    // 2. ONLY when symbol_kind is literally "method" — try an exact dotted
+    //    prefix match against a known class. Bare-name fallback is removed
+    //    because it caused false absorption of free functions.
+    const sym = (n.metadata?.symbol_kind as string | undefined)?.toLowerCase();
+    if (sym === 'method') {
+      const parts = n.label.split('.');
+      for (let i = parts.length - 1; i > 0; i--) {
+        const prefix = parts.slice(0, i).join('.');
+        if (classByName.has(prefix)) {
+          return { parent: prefix, memberName: parts.slice(i).join('.') };
+        }
       }
     }
     return null;
@@ -163,9 +143,156 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
     }
   }
 
+  // Helper used by every layout path to materialize the final GraphNode shape
+  // from a positioned (x, y, cluster) entry. Hoisted so the cluster-grouped
+  // path can reuse the same return logic the topological/grid paths use.
+  const buildNodes = (
+    visible: typeof graph.nodes,
+    positionsMap: Map<string, { x: number; y: number; cluster: string }>,
+  ): GraphNode[] => visible.map((n) => {
+    const placed = positionsMap.get(n.id);
+    const fallbackCluster = (n.metadata?.cluster_id as string | undefined)
+      ?? (n.metadata?.cluster as string | undefined)
+      ?? 'Unclustered';
+    const baseMethods = (n.metadata?.methods as string[] | undefined) ?? [];
+    const rolled = rolledMethods.get(n.label) ?? [];
+    const methods = Array.from(new Set([...baseMethods, ...rolled]));
+    const properties = (n.metadata?.properties as string[] | undefined) ?? [];
+    const filePath = (n.metadata?.file_path as string | undefined) ?? null;
+    const stereotype = (n.metadata?.stereotype as string | undefined) ?? null;
+    return {
+      id: n.id,
+      name: n.label,
+      type: mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind),
+      cluster: placed?.cluster ?? fallbackCluster,
+      stereotype,
+      methods,
+      properties,
+      filePath,
+      dependencies: (adjacency.get(n.id) ?? []).map((tid) => idToName.get(tid) ?? tid),
+      x: (placed?.x ?? 600) - cardW / 2,
+      y: (placed?.y ?? 350) - cardH / 2,
+    };
+  });
+
   // Visible nodes only — methods absorbed above are hidden from the canvas
   // because they now live inside the class card's method list.
   const visibleNodes = graph.nodes.filter((n) => !absorbed.has(n.id));
+
+  // ---------------------------------------------------------------------
+  // Cluster-grouped layout — when ≥60% of visible nodes carry a
+  // ``metadata.cluster_id`` (i.e. Layer 3 ran for this repo), bucket nodes
+  // by cluster and lay each cluster as its own grid block, packed across
+  // the canvas. Each cluster also gets a labeled background region (drawn
+  // by the renderer) so the user sees architectural grouping at a glance.
+  // ---------------------------------------------------------------------
+  let clusteredCount = 0;
+  for (const n of visibleNodes) {
+    if (n.metadata?.cluster_id) clusteredCount++;
+  }
+  if (visibleNodes.length > 0 && clusteredCount / visibleNodes.length >= 0.6) {
+    const buckets = new Map<string, typeof graph.nodes>();
+    const roleByCluster = new Map<string, string>();
+    const shortByCluster = new Map<string, string>();
+    for (const n of visibleNodes) {
+      const cid = (n.metadata?.cluster_id as string | undefined) ?? UNCLUSTERED_ID;
+      if (!buckets.has(cid)) buckets.set(cid, []);
+      buckets.get(cid)!.push(n);
+      const role = n.metadata?.cluster_role as string | undefined;
+      if (cid !== UNCLUSTERED_ID && role && !roleByCluster.has(cid)) {
+        roleByCluster.set(cid, role);
+      }
+      const short = n.metadata?.cluster_short as string | undefined;
+      if (cid !== UNCLUSTERED_ID && short && !shortByCluster.has(cid)) {
+        shortByCluster.set(cid, short);
+      }
+    }
+
+    // Sort within each cluster: classes first, then functions, alphabetical
+    // within each type. Stable + cheap.
+    for (const [, list] of buckets) {
+      list.sort((a, b) => {
+        const ta = mapKind((a.metadata?.symbol_kind as string | undefined) ?? a.kind);
+        const tb = mapKind((b.metadata?.symbol_kind as string | undefined) ?? b.kind);
+        const ra = TYPE_ORDER.indexOf(ta);
+        const rb = TYPE_ORDER.indexOf(tb);
+        if (ra !== rb) return ra - rb;
+        return a.label.localeCompare(b.label);
+      });
+    }
+
+    // Lay clusters out in a wrapping row. Bigger clusters first so the row
+    // budget gets used efficiently; "Unclustered" sinks to the end.
+    const clusterIds = [...buckets.keys()].sort((a, b) => {
+      if (a === UNCLUSTERED_ID) return 1;
+      if (b === UNCLUSTERED_ID) return -1;
+      return buckets.get(b)!.length - buckets.get(a)!.length;
+    });
+
+    // Spacing — generous so individual nodes and whole clusters both have
+    // breathing room. Bumped from the earlier compact values; the canvas
+    // pans/zooms so making it bigger doesn't cost anything.
+    const innerColW = cardW + cardW * 0.6;      // node-to-node horizontal gap inside a cluster
+    const innerRowH = cardH + cardH * 0.7;      // node-to-node vertical gap inside a cluster
+    const clusterGapX = 140;                    // gap between adjacent cluster regions on a row
+    const clusterGapY = 140;                    // gap between cluster rows
+    const ROW_BUDGET = 2800;                    // approx canvas width at zoom 100
+
+    const positionsMap = new Map<string, { x: number; y: number; cluster: string }>();
+    const clusterRegions: ClusterRegion[] = [];
+
+    let cursorX = 0;
+    let cursorY = 0;
+    let rowMaxH = 0;
+    let cursorRowMaxBottomY = 0;
+
+    for (const cid of clusterIds) {
+      const list = buckets.get(cid)!;
+      const colCount = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(list.length))));
+      const rowCount = Math.ceil(list.length / colCount);
+      const innerW = colCount * cardW + (colCount - 1) * (innerColW - cardW);
+      const innerH = rowCount * cardH + (rowCount - 1) * (innerRowH - cardH);
+      const regionW = innerW + REGION_PAD * 2;
+      const regionH = innerH + REGION_PAD * 2 + REGION_HEADER_H;
+
+      // Wrap to a new row if this cluster wouldn't fit on the current one.
+      if (cursorX > 0 && cursorX + regionW > ROW_BUDGET) {
+        cursorX = 0;
+        cursorY = cursorRowMaxBottomY + clusterGapY;
+        rowMaxH = 0;
+      }
+
+      const regionX = cursorX;
+      const regionY = cursorY;
+      clusterRegions.push({
+        id: cid,
+        shortName: cid === UNCLUSTERED_ID
+          ? 'OTHER'
+          : (shortByCluster.get(cid) || 'CLUSTER'),
+        role: cid === UNCLUSTERED_ID ? 'Unclustered' : (roleByCluster.get(cid) || 'Cluster'),
+        x: regionX,
+        y: regionY,
+        w: regionW,
+        h: regionH,
+        nodeCount: list.length,
+      });
+
+      // Place each node in the cluster's interior grid.
+      list.forEach((n, i) => {
+        const r = Math.floor(i / colCount);
+        const c = i % colCount;
+        const x = regionX + REGION_PAD + cardW / 2 + c * innerColW;
+        const y = regionY + REGION_HEADER_H + REGION_PAD + cardH / 2 + r * innerRowH;
+        positionsMap.set(n.id, { x, y, cluster: cid });
+      });
+
+      cursorX += regionW + clusterGapX;
+      rowMaxH = Math.max(rowMaxH, regionH);
+      cursorRowMaxBottomY = Math.max(cursorRowMaxBottomY, regionY + regionH);
+    }
+
+    return { nodes: buildNodes(visibleNodes, positionsMap), clusterRegions };
+  }
 
   // ---------------------------------------------------------------------
   // Layered (topological) layout — assign each visible node a "layer index"
@@ -215,83 +342,77 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
     }
   }
 
+  // Group nodes by layer, then sort each layer by legend type so same-kind
+  // nodes still cluster vertically within a column.
+  const typeRank = (n: typeof graph.nodes[number]) => {
+    const t = mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind);
+    const idx = TYPE_ORDER.indexOf(t);
+    return idx === -1 ? TYPE_ORDER.length : idx;
+  };
+
+  const layers = new Map<number, typeof graph.nodes>();
+  for (const n of visibleNodes) {
+    const li = layerOf.get(n.id) ?? 0;
+    if (!layers.has(li)) layers.set(li, []);
+    layers.get(li)!.push(n);
+  }
+  for (const [, list] of layers) {
+    list.sort((a, b) => {
+      const r = typeRank(a) - typeRank(b);
+      return r !== 0 ? r : a.label.localeCompare(b.label);
+    });
+  }
+
+  const colWidth = cardW + cardW * 1.0;
+  const rowHeight = cardH + cardH * 0.6;
+  const cx = 600;
+  const baseY = 350;
+  const sortedLayerKeys = [...layers.keys()].sort((a, b) => a - b);
+  const totalCols = sortedLayerKeys.length;
+  const startX = cx - ((totalCols - 1) * colWidth) / 2;
+
   const positioned = new Map<string, { x: number; y: number; cluster: string }>();
 
-  if (viewLevel === 'layers') {
-    // ---------------------------------------------------------------------
-    // Layered (role-based) layout — bucket every visible node into one of
-    // the four standard backend layers and draw each as a horizontal band,
-    // top-to-bottom: Controller → Service → Repository → Entity. This gives
-    // the user a visual representation of the one-way dependency rule
-    // (controllers may call services, services may call repositories, etc.)
-    // ---------------------------------------------------------------------
-    const buckets: Record<LayerBand, typeof graph.nodes> = {
-      Controller: [],
-      Service: [],
-      Repository: [],
-      Entity: [],
-    };
+  // Fallback layout for small / sparse graphs: when the topological layout
+  // produces fewer than 3 columns (i.e. most nodes have in-degree 0, so they
+  // all stack into column 0), switch to a per-type grid. Each legend type
+  // gets its own row block, with nodes wrapping into columns. This is the
+  // pre-regression layout — it stays readable on tiny repos like cart-smoke
+  // where the topological collapse would otherwise produce a 1-2 column
+  // strip.
+  if (totalCols < 3) {
+    const grouped = new Map<GraphNode['type'], typeof graph.nodes>();
     for (const n of visibleNodes) {
-      const filePath = (n.metadata?.file_path as string | undefined) ?? null;
-      const band = classifyLayerBand(n.label, filePath);
-      buckets[band].push(n);
+      const t = mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind);
+      if (!grouped.has(t)) grouped.set(t, []);
+      grouped.get(t)!.push(n);
     }
-    for (const band of LAYER_BANDS) {
-      buckets[band].sort((a, b) => a.label.localeCompare(b.label));
+    // Sort within each type for stable ordering.
+    for (const [, list] of grouped) {
+      list.sort((a, b) => a.label.localeCompare(b.label));
     }
-    const cellW = cardW + cardW * 0.45;
-    const bandRowGap = cardH * 0.5;
-    const bandTopPad = cardH * 1.1;       // vertical room for the band label
-    const cx = 600;
-    let cursorY = 60;
-    for (const band of LAYER_BANDS) {
-      const list = buckets[band];
-      // Reserve space for the band label even when empty so the user still
-      // sees all four roles stacked.
-      const cols = Math.max(1, Math.ceil(Math.sqrt(list.length || 1)));
-      const rows = Math.max(1, Math.ceil(list.length / cols));
-      const blockW = cols * cellW - (cellW - cardW);
-      const startX = cx - blockW / 2;
-      const yStart = cursorY + bandTopPad;
+    // Type ordering matches TYPE_ORDER above.
+    const orderedTypes = TYPE_ORDER.filter((t) => grouped.has(t));
+    // Pick a column count that gives roughly square blocks; clamp 3..6.
+    const colsPerBlock = Math.max(3, Math.min(6, Math.ceil(Math.sqrt(visibleNodes.length))));
+    const blockColWidth = cardW + cardW * 0.6;
+    const blockRowHeight = cardH + cardH * 0.5;
+    let blockY = baseY - ((orderedTypes.length - 1) * (blockRowHeight * 2)) / 2;
+    for (const t of orderedTypes) {
+      const list = grouped.get(t)!;
+      const rowsInBlock = Math.ceil(list.length / colsPerBlock);
+      const blockCols = Math.min(list.length, colsPerBlock);
+      const blockStartX = cx - ((blockCols - 1) * blockColWidth) / 2;
       list.forEach((n, i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const x = startX + col * cellW;
-        const y = yStart + row * (cardH + bandRowGap);
-        positioned.set(n.id, { x, y, cluster: band });
+        const r = Math.floor(i / colsPerBlock);
+        const c = i % colsPerBlock;
+        const x = blockStartX + c * blockColWidth;
+        const y = blockY + r * blockRowHeight;
+        positioned.set(n.id, { x, y, cluster: t });
       });
-      cursorY += bandTopPad + rows * (cardH + bandRowGap) + cardH * 0.4;
+      blockY += rowsInBlock * blockRowHeight + blockRowHeight; // gap between blocks
     }
   } else {
-    // Default — longest-path columns, sources on the left, sinks on the right.
-    const TYPE_ORDER: GraphNode['type'][] = ['class', 'interface', 'function', 'module'];
-    const typeRank = (n: typeof graph.nodes[number]) => {
-      const t = mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind);
-      const idx = TYPE_ORDER.indexOf(t);
-      return idx === -1 ? TYPE_ORDER.length : idx;
-    };
-
-    const layers = new Map<number, typeof graph.nodes>();
-    for (const n of visibleNodes) {
-      const li = layerOf.get(n.id) ?? 0;
-      if (!layers.has(li)) layers.set(li, []);
-      layers.get(li)!.push(n);
-    }
-    for (const [, list] of layers) {
-      list.sort((a, b) => {
-        const r = typeRank(a) - typeRank(b);
-        return r !== 0 ? r : a.label.localeCompare(b.label);
-      });
-    }
-
-    const colWidth = cardW + cardW * 1.0;
-    const rowHeight = cardH + cardH * 0.6;
-    const cx = 600;
-    const baseY = 350;
-    const sortedLayerKeys = [...layers.keys()].sort((a, b) => a - b);
-    const totalCols = sortedLayerKeys.length;
-    const startX = cx - ((totalCols - 1) * colWidth) / 2;
-
     sortedLayerKeys.forEach((li, colIdx) => {
       const list = layers.get(li)!;
       const colH = list.length * rowHeight - cardH * 0.6;
@@ -304,32 +425,9 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
     });
   }
 
-  return visibleNodes.map((n) => {
-    const placed = positioned.get(n.id);
-    const fallbackCluster = (n.metadata?.cluster_id as string | undefined)
-      ?? (n.metadata?.cluster as string | undefined)
-      ?? 'Unclustered';
-    const baseMethods = (n.metadata?.methods as string[] | undefined) ?? [];
-    const rolled = rolledMethods.get(n.label) ?? [];
-    // Merge rolled-in methods with whatever metadata already declared.
-    const methods = Array.from(new Set([...baseMethods, ...rolled]));
-    const properties = (n.metadata?.properties as string[] | undefined) ?? [];
-    const filePath = (n.metadata?.file_path as string | undefined) ?? null;
-    const stereotype = (n.metadata?.stereotype as string | undefined) ?? null;
-    return {
-      id: n.id,
-      name: n.label,
-      type: mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind),
-      cluster: placed?.cluster ?? fallbackCluster,
-      stereotype,
-      methods,
-      properties,
-      filePath,
-      dependencies: (adjacency.get(n.id) ?? []).map((tid) => idToName.get(tid) ?? tid),
-      x: (placed?.x ?? 600) - cardW / 2,
-      y: (placed?.y ?? 350) - cardH / 2,
-    };
-  });
+  // Topological / per-type-grid path: cluster regions empty (this layout
+  // doesn't group by Layer 3 cluster). Renderer skips region drawing.
+  return { nodes: buildNodes(visibleNodes, positioned), clusterRegions: [] };
 }
 
 // UML 2.5 relationship classification. Maps the backend edge ``kind`` string
@@ -379,21 +477,6 @@ export function classifyUmlEdge(kind: string | undefined | null): UmlEdgeStyle {
   return { relation: 'dependency', dashed: true, endMarker: 'open-arrow', color: '#9ca3af' };
 }
 
-// Cluster bounding region — re-exported as a type stub so callers (e.g.
-// CartographerWorkspace) that wired up cluster-selection on main can still
-// import the shape. The actual rendering / selection logic isn't in this
-// branch, so ``onClusterSelect`` is treated as an optional no-op.
-export interface ClusterRegion {
-  id: string;
-  name: string;
-  role?: string;
-  nodeCount?: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 export interface PathFilter {
   path: string;
   kind: 'file' | 'folder';
@@ -414,7 +497,7 @@ interface UnifiedGraphViewProps {
   activeModes: Set<GraphMode>;
   onNodeSelect: (node: GraphNode | null) => void;
   onNodeFocus?: (node: GraphNode) => void;
-  /** Optional cluster-selected callback (compat with main's classes view). */
+  /** Fires when the user clicks a Layer 3 cluster background region. */
   onClusterSelect?: (region: ClusterRegion) => void;
   zoomLevel: number;
   onZoomChange: (zoom: number) => void;
@@ -423,65 +506,6 @@ interface UnifiedGraphViewProps {
   sidebarCollapsed?: boolean;
   pathFilter?: PathFilter | null;
   density?: GraphDensity;
-  viewLevel?: ViewLevel;
-}
-
-// Roll the symbol-level projection up to a coarser granularity by file path.
-// At the "tiers" level, every node is collapsed into its top-level parent
-// folder (the first path segment); edges between two different folders are
-// aggregated into a single inter-folder edge per (src, tgt, kind) triple so
-// the diagram shows how the top-level directories depend on each other.
-function rollupProjection(
-  graph: GraphProjection | undefined,
-  level: ViewLevel,
-): GraphProjection | undefined {
-  if (!graph) return graph;
-  if (level !== 'tiers') return graph;
-  const segmentsForLevel = (filePath: string): string[] => {
-    const parts = filePath.split('/').filter(Boolean);
-    return parts.length > 0 ? parts : ['(root)'];
-  };
-  const groupKey = (filePath: string | undefined): string => {
-    if (!filePath) return '(root)';
-    return segmentsForLevel(filePath)[0] ?? '(root)';
-  };
-  const nodeIdToGroup = new Map<string, string>();
-  for (const n of graph.nodes) {
-    const fp = (n.metadata?.file_path as string | undefined) ?? '';
-    nodeIdToGroup.set(n.id, groupKey(fp));
-  }
-  const memberCount = new Map<string, number>();
-  for (const g of nodeIdToGroup.values()) {
-    memberCount.set(g, (memberCount.get(g) ?? 0) + 1);
-  }
-  const nodes: GraphNodeWire[] = [...memberCount.entries()].map(([group, count]) => ({
-    id: `tier:${group}`,
-    kind: 'cluster',
-    label: group,
-    layer: 0,
-    metadata: {
-      symbol_kind: 'package',
-      file_path: group,
-      member_count: count,
-    },
-  }));
-  const seen = new Set<string>();
-  const edges: GraphEdgeWire[] = [];
-  for (const e of graph.edges) {
-    const src = nodeIdToGroup.get(e.source);
-    const tgt = nodeIdToGroup.get(e.target);
-    if (!src || !tgt || src === tgt) continue;
-    const key = `${src}->${tgt}:${e.kind}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    edges.push({
-      source: `tier:${src}`,
-      target: `tier:${tgt}`,
-      kind: e.kind,
-      weight: e.weight,
-    });
-  }
-  return { nodes, edges };
 }
 
 export type GraphMode = 'symbol' | 'flow' | 'architecture';
@@ -502,7 +526,7 @@ export interface GraphNode {
   y: number;
 }
 
-export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, activeModes, onNodeSelect, onNodeFocus, zoomLevel, onZoomChange, onResetView, highlightedCluster, sidebarCollapsed, pathFilter, density = 'detailed', viewLevel = 'classes' }: UnifiedGraphViewProps) {
+export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, activeModes, onNodeSelect, onNodeFocus, onClusterSelect, zoomLevel, onZoomChange, onResetView, highlightedCluster, sidebarCollapsed, pathFilter, density = 'detailed' }: UnifiedGraphViewProps) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
 
   const handleNodeClick = (node: GraphNode) => {
@@ -538,38 +562,41 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
   // In compact ("Database") density, every class becomes a small pill so
   // large repositories stay legible at a glance. Detailed density keeps the
   // full method/property cards.
-  // At the "layers" view we want each tier to dominate the canvas, so the
-  // user reads them as the primary structural unit rather than a list of
-  // small chips. We scale the card width to a larger fraction of the
-  // viewport (clamped so it doesn't run off-screen) and let the auto-fit
-  // logic re-center afterwards.
-  const cardW = viewLevel === 'layers'
-    ? Math.round(Math.max(280, Math.min(560, viewportWidth * 0.30)))
-    : density === 'compact'
-      ? 96
-      : Math.round(Math.max(110, Math.min(200, viewportWidth * 0.10)));
-  const cardH = viewLevel === 'layers'
-    ? Math.round(cardW * 0.7)
-    : density === 'compact'
-      ? 32
-      : Math.round(cardW * 0.85);
+  const cardW = density === 'compact'
+    ? 96
+    : Math.round(Math.max(110, Math.min(200, viewportWidth * 0.10)));
+  const cardH = density === 'compact' ? 32 : Math.round(cardW * 0.85);
 
   // Live graph data sourced from the Cartographer store. The store is
   // populated by CartographerWorkspace's initial fetch + SSE handler.
-  // Symbol / Flow / Architecture are now overlay modes on the same graph,
-  // not separate projections. Always pull the symbol layer so the node set
-  // stays stable; the active mode only changes which overlay is drawn.
-  const layer: LayerName = 'symbol';
-  const rawProjection = useCartographerStore(
-    (s) => s.byRepo[repositoryId]?.graphs[layer],
+  //
+  // Multi-overlay rendering: any combination of symbol/flow/architecture can
+  // be on at once. We read all three projections, then:
+  //   - One projection provides the NODE SET (the cards drawn on the canvas).
+  //     Priority: symbol > architecture > flow. Symbol is the richest, so
+  //     when it's on it always anchors the layout; flow nodes are a subset
+  //     of symbol nodes (same ObjectId) so flow can layer cleanly on top.
+  //   - Each active projection contributes its EDGES, tagged with which
+  //     layer they came from so the styler can pick UML vs flow visuals.
+  const symbolProjection = useCartographerStore(
+    (s) => s.byRepo[repositoryId]?.graphs.symbol,
   );
-  // Roll the projection up to the active drill-down level. At "tiers", nodes
-  // collapse into their top-level parent folder so the diagram shows
-  // folder-to-folder dependencies. Other levels currently pass through.
-  const projection = useMemo(
-    () => rollupProjection(rawProjection, viewLevel),
-    [rawProjection, viewLevel],
+  const flowProjection = useCartographerStore(
+    (s) => s.byRepo[repositoryId]?.graphs.flow,
   );
+  const architectureProjection = useCartographerStore(
+    (s) => s.byRepo[repositoryId]?.graphs.architecture,
+  );
+  const layer: LayerName = activeModes.has('symbol')
+    ? 'symbol'
+    : activeModes.has('architecture')
+      ? 'architecture'
+      : 'flow';
+  const projection = layer === 'symbol'
+    ? symbolProjection
+    : layer === 'architecture'
+      ? architectureProjection
+      : flowProjection;
 
   // Highlights pushed by the workspace's SSE handler when an agent_activity
   // event arrives. We flatten all currently-live highlights into a single
@@ -593,10 +620,31 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
   // Derived nodes from the projection, then a local override layer for
   // user-driven drags so positions don't snap back when the projection
   // re-renders (e.g. after an SSE refetch).
-  const baseNodes = useMemo(
-    () => projectionToNodes(projection, cardW, cardH, viewLevel),
-    [projection, cardW, cardH, viewLevel],
+  const { nodes: baseNodes, clusterRegions } = useMemo(
+    () => projectionToNodes(projection, cardW, cardH),
+    [projection, cardW, cardH],
   );
+
+  // Combined edge list — pulls edges from EACH active projection and tags
+  // each entry with its source layer so the renderer can pick the right
+  // visual style (UML for symbol/architecture, teal arrows for flow).
+  // Edges whose source/target nodes aren't in the rendered set are skipped
+  // by the render pass. This is what lets Symbol+Flow draw teal flow arrows
+  // overlaid on top of UML-classified symbol relationships.
+  const overlayEdges = useMemo(() => {
+    type Tagged = { edge: GraphProjection['edges'][number]; sourceLayer: LayerName };
+    const out: Tagged[] = [];
+    if (activeModes.has('symbol') && symbolProjection) {
+      for (const e of symbolProjection.edges) out.push({ edge: e, sourceLayer: 'symbol' });
+    }
+    if (activeModes.has('flow') && flowProjection) {
+      for (const e of flowProjection.edges) out.push({ edge: e, sourceLayer: 'flow' });
+    }
+    if (activeModes.has('architecture') && architectureProjection) {
+      for (const e of architectureProjection.edges) out.push({ edge: e, sourceLayer: 'architecture' });
+    }
+    return out;
+  }, [activeModes, symbolProjection, flowProjection, architectureProjection]);
   const [positionOverrides, setPositionOverrides] = useState<Record<string, { x: number; y: number }>>({});
 
   const allNodes: GraphNode[] = useMemo(
@@ -784,7 +832,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
         onZoomChange(Math.min(200, zoomLevel + 10));
       } else if (e.key === '-' || e.key === '_') {
         e.preventDefault();
-        onZoomChange(Math.max(50, zoomLevel - 10));
+        onZoomChange(Math.max(10, zoomLevel - 10));
       }
     };
 
@@ -796,60 +844,25 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
   // On sidebar/log toggle: reuse current zoom, just re-center on the same focal area.
   const initializedRef = useRef(false);
   const lastFilterRef = useRef<string | null>(null);
-  const lastLevelRef = useRef<ViewLevel | null>(null);
   useEffect(() => {
     const filterKey = pathFilter ? `${pathFilter.kind}:${pathFilter.path}` : null;
-    let levelChanged = false;
-    if (lastLevelRef.current !== viewLevel) {
-      levelChanged = true;
-      lastLevelRef.current = viewLevel;
-      initializedRef.current = false;
-    }
     if (filterKey !== lastFilterRef.current) {
       lastFilterRef.current = filterKey;
       initializedRef.current = false;
     }
-    // Coarse levels (Tiers / Layers / Contexts) hold few nodes — fit ALL of
-    // them so clicking the toolbar lands the user with the whole hierarchy
-    // visible, not a zoomed-in subset they have to drag around.
-    const fitAll = viewLevel === 'tiers' || viewLevel === 'layers' || viewLevel === 'contexts';
     const timeoutId = setTimeout(() => {
-      if (!canvasRef.current) return;
+      if (!canvasRef.current || nodes.length === 0) return;
       const vw = canvasRef.current.clientWidth;
       const vh = canvasRef.current.clientHeight;
 
-      // The Layers view doesn't lay out per-symbol cards — it draws four
-      // synthetic LAYER_BAND boxes via a bespoke JSX block whose geometry
-      // matches LAYERS_VIEW_BOUNDS below. Fit the viewport to that bounding
-      // box explicitly so the user sees all four layers, centered.
-      if (viewLevel === 'layers') {
-        const pad = 32;
-        const fw = LAYERS_VIEW_BOUNDS.width;
-        const fh = LAYERS_VIEW_BOUNDS.height;
-        const fitZoom = Math.min((vw - pad * 2) / fw, (vh - pad * 2) / fh, 3) * 100;
-        const zoom = Math.max(20, Math.min(300, fitZoom));
-        onZoomChange(Math.round(zoom));
-        const scale = zoom / 100;
-        setPanX((vw - fw * scale) / 2 - LAYERS_VIEW_BOUNDS.x * scale);
-        setPanY((vh - fh * scale) / 2 - LAYERS_VIEW_BOUNDS.y * scale);
-        return;
-      }
-
-      if (nodes.length === 0) return;
-
-      if (!initializedRef.current || (levelChanged && fitAll)) {
+      if (!initializedRef.current) {
         initializedRef.current = true;
-        const focal = fitAll
-          ? nodes
-          : [...nodes]
-              .sort((a, b) => (b.dependencies?.length ?? 0) - (a.dependencies?.length ?? 0))
-              .slice(0, 10);
+        // Pick the 10 most-connected nodes as focal set
+        const focal = [...nodes]
+          .sort((a, b) => (b.dependencies?.length ?? 0) - (a.dependencies?.length ?? 0))
+          .slice(0, 10);
 
-        // The Layers branch returned early above, so we're at Tiers / Contexts
-        // / Packages / Classes here. Use the standard pad/zoom caps.
         const pad = 80;
-        const maxFit = 1;        // up to 100%
-        const maxZoom = 100;
         const minX = Math.min(...focal.map(n => n.x));
         const minY = Math.min(...focal.map(n => n.y));
         const maxX = Math.max(...focal.map(n => n.x + cardW + 20));
@@ -857,8 +870,8 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
         const fw = maxX - minX;
         const fh = maxY - minY;
 
-        const fitZoom = Math.min((vw - pad * 2) / fw, (vh - pad * 2) / fh, maxFit) * 100;
-        const zoom = Math.max(10, Math.min(maxZoom, fitZoom));
+        const fitZoom = Math.min((vw - pad * 2) / fw, (vh - pad * 2) / fh, 1) * 100;
+        const zoom = Math.max(10, Math.min(100, fitZoom));
         onZoomChange(Math.round(zoom));
 
         const scale = zoom / 100;
@@ -876,7 +889,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
       }
     }, 100);
     return () => clearTimeout(timeoutId);
-  }, [agentLogCollapsed, sidebarCollapsed, nodes, pathFilter, viewLevel]);
+  }, [agentLogCollapsed, sidebarCollapsed, nodes, pathFilter]);
 
   // Mouse drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -967,30 +980,28 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     setDraggingNodeId(null);
   };
 
-  // Wheel/trackpad zoom handler
+  // Wheel/trackpad zoom handler. Smooth exponential factor scaled by deltaY
+  // so a mouse wheel notch (~100) and a trackpad nudge (~5) feel comparable.
+  // Floor matches the auto-fit floor (10%) so users can always scroll back to
+  // the initial fit zoom.
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
 
-    // Detect if this is a pinch gesture (trackpad) or regular scroll
-    if (e.ctrlKey || Math.abs(e.deltaY) < 50) {
-      // Pinch zoom on trackpad or ctrl+wheel
-      const delta = -e.deltaY;
-      const zoomFactor = delta > 0 ? 1.1 : 0.9;
-      const newZoom = Math.max(50, Math.min(200, zoomLevel * zoomFactor));
+    const zoomFactor = Math.exp(-e.deltaY * 0.0015);
+    const newZoom = Math.max(10, Math.min(200, zoomLevel * zoomFactor));
+    if (newZoom === zoomLevel) return;
 
-      // Zoom towards mouse cursor position
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (rect) {
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        const scaleFactor = newZoom / zoomLevel;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) {
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const scaleFactor = newZoom / zoomLevel;
 
-        setPanX(mouseX - (mouseX - panX) * scaleFactor);
-        setPanY(mouseY - (mouseY - panY) * scaleFactor);
-      }
-
-      onZoomChange(newZoom);
+      setPanX(mouseX - (mouseX - panX) * scaleFactor);
+      setPanY(mouseY - (mouseY - panY) * scaleFactor);
     }
+
+    onZoomChange(newZoom);
   };
 
   // Touch handlers for mobile pinch zoom
@@ -1019,7 +1030,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
 
       const delta = distance - lastTouchDistance;
       const zoomFactor = 1 + (delta / 500);
-      const newZoom = Math.max(50, Math.min(200, zoomLevel * zoomFactor));
+      const newZoom = Math.max(10, Math.min(200, zoomLevel * zoomFactor));
 
       onZoomChange(newZoom);
       setLastTouchDistance(distance);
@@ -1126,6 +1137,51 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             transition: isDragging ? 'none' : 'transform 0.2s ease-out',
           }}
         >
+          {/* Cluster regions — drawn beneath the SVG/nodes so they read as
+              grouping backgrounds. All grey for now; click handlers on the
+              header bubble fire ``onClusterSelect`` for the right panel.
+              ``pointer-events`` is scoped to the header so clicks anywhere
+              else on the region pass through to the canvas pan/zoom. */}
+          {clusterRegions.map((r) => (
+            <div
+              key={`cluster-region-${r.id}`}
+              className="absolute"
+              style={{
+                left: r.x,
+                top: r.y,
+                width: r.w,
+                height: r.h,
+                background: 'rgba(255,255,255,0.025)',
+                border: '1px solid rgba(255,255,255,0.10)',
+                borderRadius: 12,
+                pointerEvents: 'none',
+                zIndex: 0,
+              }}
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClusterSelect?.(r);
+                }}
+                className="text-left px-3 text-[12px] font-bold uppercase tracking-wider text-gray-200 hover:text-white hover:bg-white/[0.05] transition-colors"
+                style={{
+                  pointerEvents: 'auto',
+                  display: 'block',
+                  width: '100%',
+                  height: REGION_HEADER_H,
+                  lineHeight: `${REGION_HEADER_H}px`,
+                  borderTopLeftRadius: 12,
+                  borderTopRightRadius: 12,
+                }}
+                title={r.role}
+              >
+                <span className="align-middle">{r.shortName}</span>
+                <span className="ml-2 text-gray-500 font-normal text-[11px]">· {r.nodeCount}</span>
+              </button>
+            </div>
+          ))}
+
           {/* Connection Lines — overflow:visible lets edges extend beyond SVG bounds */}
           <svg
             style={{
@@ -1140,30 +1196,68 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
               transition: draggingNodeId ? 'none' : 'all 0.1s ease-out',
             }}
           >
-            {/* UML 2.5 edges — rendered only when the Flow overlay is on.
-                Each projection edge is classified into one of six canonical
-                relationships (association, aggregation, composition,
-                inheritance, realization, dependency) by its ``kind`` string
-                and rendered with the matching line style and arrowhead.
-                Lines route from the right edge of the source node to the
-                left edge of the target node so the layered (left→right)
-                layout keeps every arrow flowing in the same direction. */}
-            {viewLevel !== 'layers' && activeModes.has('flow') && projection?.edges.map((edge) => {
+            {/* Edges — drawn from EVERY active overlay's projection. Each
+                edge knows which layer it came from (``sourceLayer``) so the
+                styler can pick the right visual:
+                  - ``flow`` source → teal line + ``arrowhead-flow``, amber
+                    if the edge is tagged with a sensitivity (password/token).
+                  - ``symbol`` / ``architecture`` source → UML 2.5
+                    classification via ``classifyUmlEdge``.
+                Edges whose source/target nodes aren't in the rendered set
+                (e.g. flow edges between symbols when only Architecture is
+                providing the node base) are skipped silently. Lines route
+                from the right edge of the source to the left edge of the
+                target so the layered (left→right) layout stays coherent. */}
+            {overlayEdges.map(({ edge, sourceLayer }) => {
               const source = nodes.find((n) => n.id === edge.source);
               const target = nodes.find((n) => n.id === edge.target);
               if (!source || !target) return null;
+
+              // Strictly source-layer-gated. The earlier
+              // ``edge.kind.startsWith('flow')`` fallback caused leakage:
+              // any edge with a flow-prefixed kind rendered as a teal flow
+              // arrow even when Flow mode was off, so toggling to
+              // Architecture-only could leave teal arrows on screen.
+              const isFlow = sourceLayer === 'flow';
+              const x1 = source.x + cardW;
+              const y1 = source.y + cardH / 2;
+              const x2 = target.x;
+              const y2 = target.y + cardH / 2;
+
+              if (isFlow) {
+                // Flow edges: teal. Sensitive flows go warmer (amber) so the
+                // eye picks them out instantly. Standard #2DD4BF teal
+                // matches the legacy flow view.
+                const sensitivity = (edge as unknown as { metadata?: { sensitivity?: string } })
+                  .metadata?.sensitivity;
+                const stroke = sensitivity ? '#f59e0b' : '#2DD4BF';
+                return (
+                  <g key={`flow-${edge.source}-${edge.target}-${edge.kind}`}>
+                    <line
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      stroke={stroke}
+                      strokeWidth={2}
+                      markerEnd="url(#arrowhead-flow)"
+                      opacity={0.9}
+                    />
+                  </g>
+                );
+              }
+
               const style = classifyUmlEdge(edge.kind);
               const markerId =
                 style.endMarker === 'open-arrow' ? 'uml-arrow-open' :
                 style.endMarker === 'hollow-triangle' ? 'uml-arrow-triangle' :
                 style.endMarker === 'hollow-diamond' ? 'uml-diamond-hollow' :
                 'uml-diamond-filled';
-              const x1 = source.x + cardW;          // exit right edge of source
-              const y1 = source.y + cardH / 2;
-              const x2 = target.x;                  // enter left edge of target
-              const y2 = target.y + cardH / 2;
               return (
-                <g key={`uml-${edge.source}-${edge.target}-${edge.kind}`} style={{ color: style.color }}>
+                <g
+                  key={`${sourceLayer}-uml-${edge.source}-${edge.target}-${edge.kind}`}
+                  style={{ color: style.color }}
+                >
                   <line
                     x1={x1}
                     y1={y1}
@@ -1378,296 +1472,10 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             </div>
           ))}
 
-          {/* Layers view — abstract architecture diagram. The four standard
-              backend layers (Controller / Service / Repository / Entity)
-              render as four boxes stacked top-to-bottom, with dashed
-              dependency arrows between them (downward only — the one-way
-              rule), a class-count badge per box, a one-line role caption,
-              and labelled cross-tier protocol stubs («HTTP» from frontend,
-              «SQL» to database). Individual classes never appear at this
-              level — they belong to finer levels of the hierarchy. */}
-          {viewLevel === 'layers' && (() => {
-            // Count classes per layer using the same heuristic the band
-            // classifier uses on individual symbols. Done off the raw graph
-            // (not the laid-out `nodes`) so positions don't matter here.
-            const counts: Record<LayerBand, number> = {
-              Controller: 0,
-              Service: 0,
-              Repository: 0,
-              Entity: 0,
-            };
-            for (const n of (projection?.nodes ?? [])) {
-              const sym = (n.metadata?.symbol_kind as string | undefined)?.toLowerCase();
-              const t = mapKind(sym ?? n.kind);
-              if (t === 'function') continue; // skip rolled-up methods
-              const fp = (n.metadata?.file_path as string | undefined) ?? null;
-              counts[classifyLayerBand(n.label, fp)] += 1;
-            }
-
-            const cx = LAYERS_CX;
-            const boxW = LAYERS_BOX_W;
-            const boxH = LAYERS_BOX_H;
-            const gap = LAYERS_GAP;
-            const stackTop = LAYERS_STACK_TOP;
-            const xLeft = cx - boxW / 2;
-            const xRight = xLeft + boxW;
-
-            const layerY = (i: number) => stackTop + i * (boxH + gap);
-
-            // Repository sits at index 2 — that's where the «SQL» stub leaves.
-            const repoIdx = LAYER_BANDS.indexOf('Repository');
-            const repoY = layerY(repoIdx) + boxH / 2;
-
-            const externalLeft = xRight + 80;        // x of the right-side stub
-            const externalStubW = 130;
-            const externalStubH = 56;
-
-            const totalH = stackTop + 4 * boxH + 3 * gap + 120;
-
-            return (
-              <>
-                {/* SVG layer for arrows + stubs */}
-                <svg
-                  className="absolute pointer-events-none"
-                  style={{ left: 0, top: 0, width: externalLeft + externalStubW + 40, height: totalH, overflow: 'visible' }}
-                >
-                  <defs>
-                    <marker
-                      id="layers-dep-arrow"
-                      viewBox="0 0 12 10"
-                      refX="11"
-                      refY="5"
-                      markerWidth="11"
-                      markerHeight="9"
-                      orient="auto"
-                    >
-                      <polyline points="0,0 11,5 0,10" fill="none" stroke="#94a3b8" strokeWidth="1.5" />
-                    </marker>
-                    <marker
-                      id="layers-stub-arrow"
-                      viewBox="0 0 12 10"
-                      refX="11"
-                      refY="5"
-                      markerWidth="11"
-                      markerHeight="9"
-                      orient="auto"
-                    >
-                      <polyline points="0,0 11,5 0,10" fill="none" stroke="#fbbf24" strokeWidth="1.7" />
-                    </marker>
-                  </defs>
-
-                  {/* Inter-layer dashed dependency arrows (down only). */}
-                  {LAYER_BANDS.slice(0, -1).map((band, i) => {
-                    const startY = layerY(i) + boxH;
-                    const endY = layerY(i + 1);
-                    const midY = (startY + endY) / 2;
-                    return (
-                      <g key={`dep-${band}`}>
-                        <line
-                          x1={cx}
-                          y1={startY}
-                          x2={cx}
-                          y2={endY}
-                          stroke="#94a3b8"
-                          strokeWidth="1.5"
-                          strokeDasharray="6 4"
-                          markerEnd="url(#layers-dep-arrow)"
-                        />
-                        <g>
-                          <rect
-                            x={cx + 6}
-                            y={midY - 8}
-                            width={64}
-                            height={16}
-                            rx={8}
-                            fill="#1e1e1e"
-                            stroke="#94a3b8"
-                            strokeWidth="0.8"
-                          />
-                          <text
-                            x={cx + 38}
-                            y={midY + 4}
-                            textAnchor="middle"
-                            fill="#cbd5f5"
-                            fontSize="10"
-                            fontStyle="italic"
-                            fontFamily='Menlo, Monaco, "Courier New", monospace'
-                          >
-                            «depends»
-                          </text>
-                        </g>
-                      </g>
-                    );
-                  })}
-
-                  {/* «HTTP» stub — entering the Controller layer from above. */}
-                  <g>
-                    <line
-                      x1={cx}
-                      y1={20}
-                      x2={cx}
-                      y2={stackTop}
-                      stroke="#fbbf24"
-                      strokeWidth="1.7"
-                      strokeDasharray="6 4"
-                      markerEnd="url(#layers-stub-arrow)"
-                    />
-                    <rect
-                      x={cx + 8}
-                      y={stackTop / 2 - 9}
-                      width={52}
-                      height={18}
-                      rx={9}
-                      fill="#1e1e1e"
-                      stroke="#fbbf24"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={cx + 34}
-                      y={stackTop / 2 + 4}
-                      textAnchor="middle"
-                      fill="#fde68a"
-                      fontSize="10"
-                      fontWeight="600"
-                      fontStyle="italic"
-                      fontFamily='Menlo, Monaco, "Courier New", monospace'
-                    >
-                      «HTTP»
-                    </text>
-                  </g>
-
-                  {/* «SQL» stub — leaving the Repository layer toward the
-                      external Database tier. */}
-                  <g>
-                    <line
-                      x1={xRight}
-                      y1={repoY}
-                      x2={externalLeft}
-                      y2={repoY}
-                      stroke="#fbbf24"
-                      strokeWidth="1.7"
-                      strokeDasharray="6 4"
-                      markerEnd="url(#layers-stub-arrow)"
-                    />
-                    <rect
-                      x={xRight + (externalLeft - xRight) / 2 - 24}
-                      y={repoY - 18}
-                      width={48}
-                      height={18}
-                      rx={9}
-                      fill="#1e1e1e"
-                      stroke="#fbbf24"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={xRight + (externalLeft - xRight) / 2}
-                      y={repoY - 5}
-                      textAnchor="middle"
-                      fill="#fde68a"
-                      fontSize="10"
-                      fontWeight="600"
-                      fontStyle="italic"
-                      fontFamily='Menlo, Monaco, "Courier New", monospace'
-                    >
-                      «SQL»
-                    </text>
-                  </g>
-                </svg>
-
-                {/* External tier stubs (Frontend / Database) — drawn as
-                    dashed boxes outside the main stack so they read as
-                    cross-tier connection points. */}
-                <div
-                  className="absolute pointer-events-none rounded-md border border-dashed flex flex-col items-center justify-center"
-                  style={{
-                    left: cx - 70,
-                    top: -10,
-                    width: 140,
-                    height: 32,
-                    borderColor: '#fbbf24aa',
-                    background: '#1e1e1eee',
-                  }}
-                >
-                  <div className="text-[10px] uppercase tracking-wider text-amber-300/80 font-semibold">
-                    Frontend tier
-                  </div>
-                </div>
-                <div
-                  className="absolute pointer-events-none rounded-md border border-dashed flex flex-col items-center justify-center"
-                  style={{
-                    left: externalLeft,
-                    top: repoY - externalStubH / 2,
-                    width: externalStubW,
-                    height: externalStubH,
-                    borderColor: '#fbbf24aa',
-                    background: '#1e1e1eee',
-                  }}
-                >
-                  <div className="text-[10px] uppercase tracking-wider text-amber-300/80 font-semibold">
-                    Database tier
-                  </div>
-                </div>
-
-                {/* Layer boxes — one per LAYER_BAND, top-to-bottom. */}
-                {LAYER_BANDS.map((band, i) => {
-                  const accent = LAYER_BAND_ACCENTS[band];
-                  const top = layerY(i);
-                  const count = counts[band];
-                  return (
-                    <div
-                      key={`layer-${band}`}
-                      className="absolute rounded-xl"
-                      style={{
-                        left: xLeft,
-                        top,
-                        width: boxW,
-                        height: boxH,
-                        background: `linear-gradient(135deg, ${accent}28, ${accent}10)`,
-                        border: `2px solid ${accent}aa`,
-                        boxShadow: `0 4px 20px ${accent}22, inset 0 1px 0 rgba(255,255,255,0.06)`,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        pointerEvents: 'auto',
-                      }}
-                    >
-                      <div
-                        className="text-[11px] uppercase tracking-wider font-semibold italic"
-                        style={{ color: accent }}
-                      >
-                        «layer»
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-2xl font-bold text-white">{band}</div>
-                        <div
-                          className="px-2 py-0.5 rounded-full text-xs font-semibold"
-                          style={{
-                            background: '#1a1a1a',
-                            color: accent,
-                            border: `1px solid ${accent}66`,
-                          }}
-                          title={`${count} class${count === 1 ? '' : 'es'} in this layer`}
-                        >
-                          {count} {count === 1 ? 'class' : 'classes'}
-                        </div>
-                      </div>
-                      <div className="text-[11px] text-gray-400 italic px-4 text-center">
-                        {LAYER_BAND_DESCRIPTIONS[band]}
-                      </div>
-                    </div>
-                  );
-                })}
-              </>
-            );
-          })()}
-
           {/* Folder Backgrounds (Architecture overlay) — group nodes by the
               parent directory of their source file so the user sees how
-              classes are bundled on disk. Hidden on the Layers view since
-              classes themselves don't appear there. */}
-          {viewLevel !== 'layers' && activeModes.has('architecture') && (() => {
+              classes are bundled on disk. */}
+          {activeModes.has('architecture') && (() => {
             const folderOf = (n: GraphNode): string => {
               const fp = n.filePath ?? '';
               if (!fp) return '(root)';
@@ -1722,9 +1530,8 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             });
           })()}
 
-          {/* Graph Nodes — hidden on the Layers view; only the abstract
-              layer boxes appear at that level. */}
-          {viewLevel !== 'layers' && nodes.map((node) => {
+          {/* Graph Nodes */}
+          {nodes.map((node) => {
             const colors = getNodeColors(node.type);
             const isSelected = selectedNode?.id === node.id;
             const isDraggingThis = draggingNodeId === node.id;
@@ -1860,29 +1667,31 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                   </div>
                 ) : (
                 <div style={{
-                  borderRadius: 4,
+                  borderRadius: 8,
                   overflow: 'hidden',
-                  // UML class boxes are plain rectangles with a single
-                  // border around the whole shape and horizontal rules
-                  // between compartments. We keep the selection border
-                  // recolored for affordance but drop the colored left
-                  // stripe / coloured header that broke the convention.
-                  border: `1.5px solid ${isAgentHighlighted ? '#10b981' : (isSelected ? colors.border : '#cbd5e1')}`,
-                  boxShadow: isSelected ? `0 0 0 1px ${colors.border}40, 0 4px 20px ${colors.border}30` : '0 2px 6px #0008',
-                  background: 'var(--uml-card-bg, #fafaf9)',
-                  color: 'var(--uml-card-fg, #111827)',
-                  fontFamily: 'var(--uml-mono, Menlo, Monaco, "Courier New", monospace)',
+                  border: `2px solid ${isAgentHighlighted ? '#10b981' : (isSelected ? colors.border : '#3e3e42')}`,
+                  boxShadow: isSelected ? `0 0 0 1px ${colors.border}40, 0 4px 20px ${colors.border}30` : '0 2px 8px #0008',
+                  background: '#1e1e1e',
                   transition: 'border-color 0.15s, box-shadow 0.15s',
                 }}>
-                  {/* Top compartment: stereotype (in guillemets) + class
-                      name. Centered. Class name italicized for interfaces
-                      and abstracts; stereotype always italic. */}
-                  <div style={{ padding: '6px 10px 8px', textAlign: 'center', borderBottom: '1px solid var(--uml-divider, #d4d4d8)' }}>
+                  {/* Colored left stripe + header.
+                      UML 2.5 layout — when a stereotype is set it is shown
+                      in guillemets above the class name; the class name
+                      itself stays centered in the top compartment, with a
+                      horizontal rule separating it from the attribute /
+                      operation compartments below. */}
+                  <div style={{
+                    background: colors.header,
+                    borderLeft: `4px solid ${colors.border}`,
+                    padding: '6px 10px 7px',
+                    fontFamily: 'var(--uml-mono, Menlo, Monaco, "Courier New", monospace)',
+                  }}>
                     {node.stereotype && (
                       <div
                         style={{
-                          fontSize: 11,
-                          color: 'var(--uml-stereotype, #4b5563)',
+                          fontSize: 10,
+                          color: colors.label,
+                          textAlign: 'center',
                           marginBottom: 2,
                           letterSpacing: '0.02em',
                           fontStyle: 'italic',
@@ -1891,28 +1700,25 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                         «{node.stereotype}»
                       </div>
                     )}
-                    {!node.stereotype && node.type === 'interface' && (
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: 'var(--uml-stereotype, #4b5563)',
-                          marginBottom: 2,
-                          letterSpacing: '0.02em',
-                          fontStyle: 'italic',
-                        }}
-                      >
-                        «interface»
+                    {!node.stereotype && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: colors.dot, flexShrink: 0 }} />
+                        <span style={{ fontSize: 10, color: colors.label, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          {node.type}
+                        </span>
                       </div>
                     )}
                     <div
                       style={{
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: 700,
-                        lineHeight: 1.25,
+                        color: '#fff',
+                        lineHeight: 1.3,
                         wordBreak: 'break-all',
+                        textAlign: node.stereotype ? 'center' : 'left',
+                        // UML class names are typically italicized when the class is abstract.
                         fontStyle: node.type === 'interface' ? 'italic' : 'normal',
                       }}
-                      title={node.name}
                     >
                       {node.name.split('.').pop() ?? node.name}
                     </div>
@@ -1920,9 +1726,10 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                       <div
                         style={{
                           fontSize: 10,
-                          color: 'var(--uml-card-muted, #6b7280)',
+                          color: colors.label + 'aa',
                           marginTop: 2,
                           wordBreak: 'break-all',
+                          textAlign: node.stereotype ? 'center' : 'left',
                         }}
                       >
                         {node.name}
@@ -1930,99 +1737,52 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                     )}
                   </div>
 
-                  {/* Attributes compartment — UML uses a visibility prefix
-                      (+ public, - private, # protected, ~ package). We
-                      assume Python-style: leading "_" → private, "__" →
-                      private (mangled), otherwise public. */}
+                  {/* Properties */}
                   {node.properties && node.properties.length > 0 && (
-                    <div
-                      style={{
-                        padding: '6px 10px',
-                        borderBottom: '1px solid var(--uml-divider, #d4d4d8)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 2,
-                      }}
-                    >
-                      {node.properties.slice(0, 6).map((prop, idx) => {
-                        const visibility = prop.startsWith('__')
-                          ? '-'
-                          : prop.startsWith('_')
-                            ? '#'
-                            : '+';
-                        return (
-                          <div
-                            key={`${node.id}-p-${idx}`}
-                            style={{
-                              fontSize: 11,
-                              color: 'var(--uml-card-fg, #111827)',
-                              lineHeight: 1.4,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}
-                            title={prop}
-                          >
-                            <span style={{ color: 'var(--uml-card-muted, #6b7280)', marginRight: 6 }}>
-                              {visibility}
-                            </span>
-                            {prop}
-                          </div>
-                        );
-                      })}
-                      {node.properties.length > 6 && (
-                        <div style={{ fontSize: 10, color: 'var(--uml-card-muted, #6b7280)', fontStyle: 'italic' }}>
-                          … +{node.properties.length - 6} more
+                    <div style={{ borderTop: `1px solid ${colors.border}30`, borderLeft: `4px solid ${colors.border}`, background: '#1a1a1a', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {node.properties.slice(0, 3).map((prop, idx) => (
+                        <div
+                          key={`${node.id}-p-${idx}`}
+                          style={{
+                            fontSize: 10,
+                            color: '#9ca3af',
+                            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                            letterSpacing: '0.02em',
+                            lineHeight: 1.5,
+                            padding: '2px 0',
+                            wordSpacing: '0.1em',
+                          }}
+                        >
+                          – {prop}
                         </div>
+                      ))}
+                      {node.properties.length > 3 && (
+                        <div style={{ fontSize: 10, color: '#6b7280', paddingTop: 2 }}>+{node.properties.length - 3} more</div>
                       )}
                     </div>
                   )}
 
-                  {/* Operations compartment — same visibility rule,
-                      method names get an explicit "()" so they read as
-                      operations. We don't try to recover the parameter
-                      list here (the indexer doesn't store one); the
-                      details panel on click shows the full signature. */}
+                  {/* Methods */}
                   {node.methods && node.methods.length > 0 && (
-                    <div
-                      style={{
-                        padding: '6px 10px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 2,
-                      }}
-                    >
-                      {node.methods.slice(0, 8).map((method, idx) => {
-                        const visibility = method.startsWith('__')
-                          ? '-'
-                          : method.startsWith('_')
-                            ? '#'
-                            : '+';
-                        const display = method.endsWith(')') ? method : `${method}()`;
-                        return (
-                          <div
-                            key={`${node.id}-m-${idx}`}
-                            style={{
-                              fontSize: 11,
-                              color: 'var(--uml-card-fg, #111827)',
-                              lineHeight: 1.4,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}
-                            title={display}
-                          >
-                            <span style={{ color: 'var(--uml-card-muted, #6b7280)', marginRight: 6 }}>
-                              {visibility}
-                            </span>
-                            {display}
-                          </div>
-                        );
-                      })}
-                      {node.methods.length > 8 && (
-                        <div style={{ fontSize: 10, color: 'var(--uml-card-muted, #6b7280)', fontStyle: 'italic' }}>
-                          … +{node.methods.length - 8} more
+                    <div style={{ borderTop: `1px solid ${colors.border}30`, borderLeft: `4px solid ${colors.border}`, background: '#1a1a1a', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {node.methods.slice(0, 6).map((method, idx) => (
+                        <div
+                          key={`${node.id}-m-${idx}`}
+                          style={{
+                            fontSize: 10,
+                            color: '#9ca3af',
+                            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                            letterSpacing: '0.02em',
+                            lineHeight: 1.5,
+                            padding: '2px 0',
+                            wordSpacing: '0.1em',
+                          }}
+                        >
+                          + {method}
                         </div>
+                      ))}
+                      {node.methods.length > 6 && (
+                        <div style={{ fontSize: 10, color: '#6b7280', paddingTop: 2 }}>+{node.methods.length - 6} more</div>
                       )}
                     </div>
                   )}
@@ -2045,7 +1805,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             hasn't been indexed yet (e.g., toggling Flow on a repo where
             Layer 2 hasn't run). Without this, the canvas just looks blank
             and the toolbar appears broken. */}
-        {viewLevel !== 'layers' && nodes.length === 0 && !projection && (
+        {nodes.length === 0 && !projection && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8 pointer-events-none">
             <div
               className="px-5 py-4 rounded-xl border border-white/10 bg-[#1e1e1e]/80 backdrop-blur-md max-w-sm pointer-events-auto"
@@ -2062,7 +1822,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             </div>
           </div>
         )}
-        {viewLevel !== 'layers' && nodes.length === 0 && projection && (
+        {nodes.length === 0 && projection && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8 pointer-events-none">
             <div
               className="px-5 py-4 rounded-xl border border-white/10 bg-[#1e1e1e]/80 backdrop-blur-md max-w-sm pointer-events-auto"
