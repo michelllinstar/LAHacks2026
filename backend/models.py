@@ -212,6 +212,11 @@ class ExternalAgentSummary(BaseModel):
 class ExternalAgentRunRequest(BaseModel):
     repo_hash: str
     prompt: str
+    # Optional client-supplied id for the activity-log entry. When set, the
+    # backend uses it as the SSE event id so the frontend can dedupe between
+    # the panel's optimistic push and the broadcasted event. When absent the
+    # backend mints a UUID.
+    activity_id: Optional[str] = None
 
 
 class ReasoningStep(BaseModel):
@@ -230,3 +235,6 @@ class ExternalAgentResult(BaseModel):
     citations: list[str] = []
     warnings: list[str] = []
     steps: list[ReasoningStep] = []
+    # Echo of the activity-log entry id used in the SSE broadcast. Lets the
+    # caller correlate its optimistic row with the eventual SSE event.
+    activity_id: Optional[str] = None

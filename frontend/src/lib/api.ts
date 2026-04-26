@@ -237,7 +237,7 @@ export async function deleteExternalAgent(agentId: string): Promise<void> {
  *  to 30s, returns whatever the agent replied with. */
 export async function runExternalAgent(
   agentId: string,
-  body: { prompt: string; repo_hash: string },
+  body: { prompt: string; repo_hash: string; activity_id?: string },
 ): Promise<ExternalAgentResult> {
   const res = await apiClient.post(`/api/agents/external/${agentId}/run`, body);
   return res.data;

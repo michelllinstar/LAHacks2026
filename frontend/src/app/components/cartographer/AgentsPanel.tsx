@@ -122,6 +122,10 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
       const result = await runExternalAgent(agent.agent_id, {
         prompt: trimmed,
         repo_hash: activeRepoHash,
+        // Reuse the optimistic row's id — backend echoes it in the SSE
+        // broadcast so the store's id-idempotent push collapses both into
+        // one entry instead of duplicating.
+        activity_id: entryId,
       });
       const summary = result.summary ?? '';
       toast.success(`${agent.name}: ${summary.slice(0, 80)}${summary.length > 80 ? '…' : ''}`);

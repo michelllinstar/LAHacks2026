@@ -20,6 +20,7 @@ import ipaddress
 import logging
 import os
 import socket
+import uuid as _uuid
 from urllib.parse import urlparse
 
 import requests
@@ -221,10 +222,15 @@ def run_agent(agent_id: str, req: ExternalAgentRunRequest) -> ExternalAgentResul
     if raw_steps and not steps:
         warnings = list(warnings) + ["dropped malformed 'steps' entries"]
 
+    activity_id = req.activity_id or _uuid.uuid4().hex
     emit = event_bus.make_emitter(req.repo_hash)
     emit(
         "agent_activity",
         {
+            # Stable id for frontend dedupe — same value is echoed in the
+            # HTTP response below so the dispatching tab's optimistic row
+            # and the SSE broadcast collapse into one entry.
+            "id": activity_id,
             "query_type": "external:%s" % agent["name"],
             "task": req.prompt,
             "cluster_id": bundle.region.cluster_id,
@@ -242,4 +248,5 @@ def run_agent(agent_id: str, req: ExternalAgentRunRequest) -> ExternalAgentResul
         citations=citations,
         warnings=warnings,
         steps=steps,
+        activity_id=activity_id,
     )

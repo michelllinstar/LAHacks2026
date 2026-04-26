@@ -162,8 +162,23 @@ export const useCartographerStore = create<CartographerState>((set) => ({
     }),
 
   activity: [],
+  // Idempotent on id: if an entry with the same id already exists we merge
+  // the new payload into it in place rather than prepending a duplicate.
+  // This is what lets the dispatching tab's optimistic row and the SSE
+  // broadcast (which carries the same id) collapse into a single entry —
+  // and what makes a second tab still see a real entry instead of nothing,
+  // since the upsert pushes when the id is new.
   pushActivity: (a) =>
-    set((state) => ({ activity: [a, ...state.activity].slice(0, 200) })),
+    set((state) => {
+      const idx = state.activity.findIndex((e) => e.id === a.id);
+      if (idx >= 0) {
+        const merged = { ...state.activity[idx], ...a };
+        const next = state.activity.slice();
+        next[idx] = merged;
+        return { activity: next };
+      }
+      return { activity: [a, ...state.activity].slice(0, 200) };
+    }),
   updateActivity: (id, patch) =>
     set((state) => ({
       activity: state.activity.map((entry) =>

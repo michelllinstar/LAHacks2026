@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Share2, Files, Search, GitBranch, Info, X, Layers, ShieldCheck, Bot } from 'lucide-react';
 import { AnimatedLogo } from '../ui/AnimatedLogo';
 import { useRouter } from 'next/navigation';
-import { UnifiedGraphView, GraphNode, GraphMode, GraphDensity, PathFilter, classifyLayerBand, type LayerBand } from './UnifiedGraphView';
+import { UnifiedGraphView, GraphNode, GraphMode, GraphDensity, PathFilter, classifyLayerBand, type LayerBand, type ClusterRegion } from './UnifiedGraphView';
 import { InvariantView } from './InvariantView';
 import { ContextsView } from './ContextsView';
 import { PackagesView } from './PackagesView';
@@ -94,22 +94,30 @@ function FocusBreadcrumb({ viewLevel, focusPath, skippedLevels, onJump }: FocusB
     </div>
   );
 }
+
 type ActivityBarItem = 'explorer' | 'search' | 'source-control' | 'agents' | 'info';
 
 export function CartographerWorkspace({ projectId, projectName, onBack, onShare }: CartographerWorkspaceProps) {
   const router = useRouter();
   const [activeView, setActiveView] = useState<ActiveView>('diagram');
-  // Multi-select overlay modes — any combination of symbol/flow/architecture
-  // can be on at once. The base graph stays the same; each mode adds a
-  // separate overlay (color-coding / arrows / folder backgrounds).
+  // Multi-overlay layer toggle — any combination of symbol/flow/architecture
+  // can be on at once. The renderer picks Symbol as the node base when it's
+  // on (symbols + cluster backgrounds + flow arrows all overlay together);
+  // otherwise Architecture (cluster nodes); otherwise Flow alone. Clicking
+  // the last-remaining active layer is a no-op so we never end up empty
+  // (which would render a blank canvas).
   const [diagramLayers, setDiagramLayers] = useState<Set<GraphMode>>(
     () => new Set<GraphMode>(['symbol']),
   );
   const toggleDiagramLayer = (mode: GraphMode) => {
     setDiagramLayers((prev) => {
       const next = new Set(prev);
-      if (next.has(mode)) next.delete(mode);
-      else next.add(mode);
+      if (next.has(mode)) {
+        if (next.size === 1) return prev; // refuse to leave an empty selection
+        next.delete(mode);
+      } else {
+        next.add(mode);
+      }
       return next;
     });
   };
@@ -123,6 +131,9 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   const [isResizingAgentLog, setIsResizingAgentLog] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  // Cluster the user clicked on the symbol-view background. Rendered as an
+  // inline overlay card in the canvas area; doesn't touch RightSidePanel.
+  const [selectedCluster, setSelectedCluster] = useState<ClusterRegion | null>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [highlightedQuery, setHighlightedQuery] = useState<AgentQuery | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -141,33 +152,29 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   // purely a visual cue.
   const pathFilter: PathFilter | null = null;
 
-  // activeModes mirrors the user's overlay selections so UnifiedGraphView
-  // can render any combination of overlays. The view-level toolbar
-  // (Tiers / Layers / Contexts / Packages / Classes) acts as a coarser
-  // selector that maps onto a single underlying graph projection:
-  //
-  //   Tiers, Layers   → architecture  (highest-level cluster view)
-  //   Contexts        → flow          (cross-module call/data flows)
-  //   Packages,
-  //   Classes         → symbol        (per-symbol layer)
-  //
-  // The toolbar wins when set: it overrides any multi-select overlay so
-  // clicking a level always changes the rendered graph. Multi-select
-  // overlays remain visible only at the level whose mapped layer matches.
+  // ``activeModes`` is just the user's diagram-toolbar selection. The toolbar
+  // is a 3-way switch over Cartographer's actual projections (symbol / flow /
+  // architecture); UnifiedGraphView's ``pickLayer`` resolves it to one of
+  // those when reading from the store.
   const isGraphView = activeView === 'diagram';
-  // ``Contexts`` ⇒ architecture layer rendered with cluster-bounded boxes
-  // around the classes that make up each business-domain boundary (Ordering /
-  // Catalog / Payments…). Architecture mode in UnifiedGraphView already draws
-  // translucent cluster backgrounds with the cluster name header.
-  const levelToLayer: Record<ViewLevel, GraphMode> = {
+  // The view-level toolbar drives the projection at coarse levels:
+  //   Tiers / Layers / Contexts → architecture (cluster-bounded boxes)
+  //   Packages                  → symbol (per-symbol nodes, scoped by ctx)
+  //   Classes                   → user-toggled multi-select overlay
+  //                               (symbol + flow + architecture in any combo)
+  // The Classes branch preserves main's diagramLayers multi-select so the
+  // user can flip between the 3 underlying graph projections at the leaf
+  // level; coarser views always pin to a single canonical projection.
+  const levelToLayer: Record<Exclude<ViewLevel, 'classes'>, GraphMode> = {
     tiers: 'architecture',
     layers: 'architecture',
     contexts: 'architecture',
     packages: 'symbol',
-    classes: 'symbol',
   };
   const activeModes: Set<GraphMode> = isGraphView
-    ? new Set<GraphMode>([levelToLayer[viewLevel]])
+    ? (viewLevel === 'classes'
+        ? diagramLayers
+        : new Set<GraphMode>([levelToLayer[viewLevel]]))
     : new Set();
 
   // ---------------------------------------------------------------------
@@ -829,18 +836,17 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
           {activeView === 'diagram' && (
             <>
               {/* View-level selector (Tiers / Layers / Contexts / Packages /
-                  Classes). Files / Database density toggle is hosted here and
-                  only shown at the Classes level — that's the only level
-                  whose card density is user-configurable. */}
+                  Classes). Files / Database density toggle lives here too. */}
               <ViewLevelToolbar
                 value={viewLevel}
                 onChange={handleLevelChange}
                 density={diagramDensity}
                 onDensityChange={setDiagramDensity}
               />
-              {/* Secondary toolbar (Symbol/Flow/Architecture overlays) is only
-                  meaningful at the Classes level; at higher tiers the chosen
-                  level dictates the projection on its own. */}
+              {/* Symbol/Flow/Architecture multi-toggle from main — kept only at
+                  the Classes level (the leaf view supports flipping between
+                  the three underlying projections; coarser levels pin to one
+                  canonical layer). */}
               {viewLevel === 'classes' && (
                 <DiagramToolbar
                   activeLayers={diagramLayers}
@@ -864,10 +870,10 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   onJump={handleBreadcrumbJump}
                 />
               )}
-              {/* `key={activeView}` forces a remount on view swap so the
-                  uml-view-fade keyframe re-runs and the user perceives the
-                  swap as a brief zoom-in rather than an instant page swap. */}
-              <div key={`${activeView}-${viewLevel}`} className="flex-1 overflow-hidden uml-view-fade">
+              {/* `key` forces a remount on view swap so the uml-view-fade
+                  keyframe re-runs and the user perceives the swap as a brief
+                  zoom-in rather than an instant page swap. */}
+              <div key={`${activeView}-${viewLevel}`} className="flex-1 overflow-hidden uml-view-fade relative">
               {isGraphView && viewLevel === 'contexts' && (
                 <ContextsView repositoryId={projectId} onContextFocus={advanceFocus} />
               )}
@@ -888,7 +894,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   agentLogCollapsed={agentLogCollapsed}
                   activeModes={activeModes}
                   onNodeSelect={setSelectedNode}
-                  onNodeFocus={handleNodeFocus}
+                  onClusterSelect={setSelectedCluster}
                   zoomLevel={zoomLevel}
                   onZoomChange={setZoomLevel}
                   onResetView={resetView}
@@ -900,6 +906,38 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                 />
               )}
               {activeView === 'invariant' && <InvariantView repositoryId={projectId} showLegend={showLegend} />}
+              {/* Cluster info overlay — appears top-right of the canvas
+                  when the user clicks a region's header. Stays fixed in
+                  screen space (independent of pan/zoom). */}
+              {isGraphView && selectedCluster && (
+                <div className="absolute top-3 right-3 z-30 max-w-[320px] bg-[#252526] border border-[#3e3e42] rounded-lg shadow-xl p-3">
+                  <div className="flex items-start gap-2">
+                    <Layers className="h-4 w-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">
+                        Cluster
+                      </div>
+                      <div className="text-sm text-white font-medium leading-snug mb-2 break-words">
+                        {selectedCluster.role}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {selectedCluster.nodeCount} symbol{selectedCluster.nodeCount === 1 ? '' : 's'}
+                      </div>
+                      <div className="text-[10px] text-gray-500 mt-2 font-mono break-all">
+                        id: {selectedCluster.id}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCluster(null)}
+                      className="p-1 -m-1 hover:bg-[#3e3e42] rounded transition-colors flex-shrink-0"
+                      aria-label="Close cluster info"
+                    >
+                      <X className="h-3.5 w-3.5 text-gray-400" />
+                    </button>
+                  </div>
+                </div>
+              )}
               </div>
             </div>
 

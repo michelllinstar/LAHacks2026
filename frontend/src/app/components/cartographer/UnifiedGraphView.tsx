@@ -379,6 +379,21 @@ export function classifyUmlEdge(kind: string | undefined | null): UmlEdgeStyle {
   return { relation: 'dependency', dashed: true, endMarker: 'open-arrow', color: '#9ca3af' };
 }
 
+// Cluster bounding region — re-exported as a type stub so callers (e.g.
+// CartographerWorkspace) that wired up cluster-selection on main can still
+// import the shape. The actual rendering / selection logic isn't in this
+// branch, so ``onClusterSelect`` is treated as an optional no-op.
+export interface ClusterRegion {
+  id: string;
+  name: string;
+  role?: string;
+  nodeCount?: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface PathFilter {
   path: string;
   kind: 'file' | 'folder';
@@ -399,6 +414,8 @@ interface UnifiedGraphViewProps {
   activeModes: Set<GraphMode>;
   onNodeSelect: (node: GraphNode | null) => void;
   onNodeFocus?: (node: GraphNode) => void;
+  /** Optional cluster-selected callback (compat with main's classes view). */
+  onClusterSelect?: (region: ClusterRegion) => void;
   zoomLevel: number;
   onZoomChange: (zoom: number) => void;
   onResetView: () => void;

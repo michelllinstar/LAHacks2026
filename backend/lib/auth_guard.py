@@ -33,8 +33,16 @@ def require_session(
     if not agentverse_session:
         raise HTTPException(status_code=401, detail="not authenticated")
     try:
-        return jwt.decode(agentverse_session, _secret(), algorithms=["HS256"])
+        claims = jwt.decode(agentverse_session, _secret(), algorithms=["HS256"])
     except jwt.PyJWTError as exc:
         raise HTTPException(
             status_code=401, detail=f"invalid session: {exc}"
         ) from None
+    # Defence in depth: agent-callback tokens are signed with the same secret
+    # but issued for a different audience. Reject them here so they can't be
+    # replayed as a session cookie to reach mutating routes.
+    if claims.get("iss") == "cartographer-agent-token":
+        raise HTTPException(
+            status_code=401, detail="agent token cannot be used as a session"
+        )
+    return claims
