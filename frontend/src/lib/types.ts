@@ -196,7 +196,42 @@ export type SseEventType =
   | 'node_updated'
   | 'edge_added'
   | 'region_highlighted'
-  | 'agent_activity';
+  | 'agent_activity'
+  | 'agent_run_started'
+  | 'agent_step'
+  | 'agent_run_finished';
+
+// ---------------------------------------------------------------------------
+// Agent runs (Phase 1-3 backend: backend/routes/agents.py + backend/agents/runner.py)
+// ---------------------------------------------------------------------------
+
+export type AgentRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export type AgentScopeKind = 'cluster' | 'folder' | 'file' | 'symbols';
+
+export interface AgentScope {
+  kind: AgentScopeKind;
+  cluster_id?: string | null;
+  path?: string | null;
+  qnames?: string[] | null;
+}
+
+export interface AgentTemplateSummary {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface AgentRunSummary {
+  run_id: string;
+  template_id: string;
+  status: AgentRunStatus;
+  prompt: string;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error?: string | null;
+}
 
 export interface SseEvent<T = Record<string, unknown>> {
   type: SseEventType;

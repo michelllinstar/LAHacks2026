@@ -8,7 +8,7 @@
 // workspace doesn't need a context provider tree.
 
 import { create } from 'zustand';
-import type { GraphProjection, IndexStatus, LayerName, RepoSummary } from './types';
+import type { AgentRunStatus, GraphProjection, IndexStatus, LayerName, RepoSummary } from './types';
 
 export interface AgentActivity {
   id: string;
@@ -50,6 +50,31 @@ interface CartographerState {
   activity: AgentActivity[];
   pushActivity: (a: AgentActivity) => void;
   clearActivity: () => void;
+
+  // Live agent-run state, keyed by run_id. Mirrors backend/routes/agents.py.
+  agentRuns: Record<string, AgentRunLive>;
+  upsertAgentRun: (run: AgentRunLive) => void;
+  appendAgentStep: (runId: string, step: AgentStepEvent) => void;
+  finishAgentRun: (runId: string, status: AgentRunStatus, result?: unknown, error?: string) => void;
+}
+
+export interface AgentStepEvent {
+  step: number;
+  role: 'thought' | 'tool_call' | 'tool_result' | 'final';
+  payload: Record<string, unknown>;
+  ts: number;
+}
+
+export interface AgentRunLive {
+  run_id: string;
+  template_id: string;
+  prompt: string;
+  status: AgentRunStatus;
+  started_at: number;
+  finished_at?: number;
+  error?: string;
+  steps: AgentStepEvent[];
+  result?: unknown;
 }
 
 export const useCartographerStore = create<CartographerState>((set) => ({
@@ -115,4 +140,30 @@ export const useCartographerStore = create<CartographerState>((set) => ({
   pushActivity: (a) =>
     set((state) => ({ activity: [a, ...state.activity].slice(0, 200) })),
   clearActivity: () => set({ activity: [] }),
+
+  agentRuns: {},
+  upsertAgentRun: (run) =>
+    set((state) => ({ agentRuns: { ...state.agentRuns, [run.run_id]: run } })),
+  appendAgentStep: (runId, step) =>
+    set((state) => {
+      const existing = state.agentRuns[runId];
+      if (!existing) return state;
+      return {
+        agentRuns: {
+          ...state.agentRuns,
+          [runId]: { ...existing, steps: [...existing.steps, step] },
+        },
+      };
+    }),
+  finishAgentRun: (runId, status, result, error) =>
+    set((state) => {
+      const existing = state.agentRuns[runId];
+      if (!existing) return state;
+      return {
+        agentRuns: {
+          ...state.agentRuns,
+          [runId]: { ...existing, status, finished_at: Date.now(), result, error },
+        },
+      };
+    }),
 }));

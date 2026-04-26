@@ -159,6 +159,45 @@ export async function dispatchQuery(req: DispatchRequest): Promise<DispatchRespo
 }
 
 // ---------------------------------------------------------------------------
+// Agent runs (Phase 1-3 backend at /api/agents)
+// ---------------------------------------------------------------------------
+
+import type { AgentRunSummary, AgentScope, AgentTemplateSummary } from './types';
+
+export async function listAgentTemplates(): Promise<AgentTemplateSummary[]> {
+  const res = await apiClient.get('/api/agents/templates');
+  return res.data;
+}
+
+export interface CreateAgentRunBody {
+  repo_hash: string;
+  template_id: string;
+  scope?: AgentScope | null;
+  prompt: string;
+}
+
+export async function createAgentRun(body: CreateAgentRunBody): Promise<{ run_id: string }> {
+  const res = await apiClient.post('/api/agents/runs', body);
+  return res.data;
+}
+
+export async function listAgentRuns(repoHash: string, status?: string): Promise<AgentRunSummary[]> {
+  const params: Record<string, string> = { repo_hash: repoHash };
+  if (status) params.status = status;
+  const res = await apiClient.get('/api/agents/runs', { params });
+  return res.data;
+}
+
+export async function getAgentRun(repoHash: string, runId: string): Promise<unknown> {
+  const res = await apiClient.get(`/api/agents/runs/${runId}`, { params: { repo_hash: repoHash } });
+  return res.data;
+}
+
+export async function cancelAgentRun(repoHash: string, runId: string): Promise<void> {
+  await apiClient.delete(`/api/agents/runs/${runId}`, { params: { repo_hash: repoHash } });
+}
+
+// ---------------------------------------------------------------------------
 // Convenience: detect whether the current user is authenticated.
 //
 // There is no GET /api/auth/me endpoint, so we probe a guarded route. A 401

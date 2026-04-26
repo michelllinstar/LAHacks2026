@@ -57,6 +57,9 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   const setIndex = useCartographerStore((s) => s.setIndex);
   const pushHighlight = useCartographerStore((s) => s.pushHighlight);
   const pushActivity = useCartographerStore((s) => s.pushActivity);
+  const upsertAgentRun = useCartographerStore((s) => s.upsertAgentRun);
+  const appendAgentStep = useCartographerStore((s) => s.appendAgentStep);
+  const finishAgentRun = useCartographerStore((s) => s.finishAgentRun);
   const indexStatus = useCartographerStore((s) => s.byRepo[projectId]?.index);
 
   // Refs for timeout cleanup
@@ -161,9 +164,40 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
           });
           break;
         }
+        case 'agent_run_started': {
+          const runId = payload.run_id as string | undefined;
+          if (!runId) break;
+          upsertAgentRun({
+            run_id: runId,
+            template_id: (payload.template_id as string | undefined) ?? '',
+            prompt: (payload.prompt as string | undefined) ?? '',
+            status: 'running',
+            started_at: Date.now(),
+            steps: [],
+          });
+          break;
+        }
+        case 'agent_step': {
+          const runId = payload.run_id as string | undefined;
+          if (!runId) break;
+          appendAgentStep(runId, {
+            step: (payload.step as number | undefined) ?? 0,
+            role: (payload.role as 'thought' | 'tool_call' | 'tool_result' | 'final' | undefined) ?? 'thought',
+            payload: (payload.payload as Record<string, unknown> | undefined) ?? {},
+            ts: Date.now(),
+          });
+          break;
+        }
+        case 'agent_run_finished': {
+          const runId = payload.run_id as string | undefined;
+          if (!runId) break;
+          const status = (payload.status as 'succeeded' | 'failed' | 'cancelled' | undefined) ?? 'succeeded';
+          finishAgentRun(runId, status, payload.result, payload.error as string | undefined);
+          break;
+        }
       }
     },
-    [projectId, refetchLayer, setIndex, pushHighlight, pushActivity],
+    [projectId, refetchLayer, setIndex, pushHighlight, pushActivity, upsertAgentRun, appendAgentStep, finishAgentRun],
   );
 
   useRepoStream(projectId, handleEvent);

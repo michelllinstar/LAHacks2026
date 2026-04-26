@@ -20,6 +20,9 @@ const EVENT_TYPES: SseEventType[] = [
   'edge_added',
   'region_highlighted',
   'agent_activity',
+  'agent_run_started',
+  'agent_step',
+  'agent_run_finished',
 ];
 
 export function useRepoStream(
