@@ -1,6 +1,6 @@
 'use client';
 import { ArrowRight, Sparkles, Zap, Shield, Cloud, Code2, GitBranch, Users, TrendingUp } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 
 export function LandingPage() {
   return (
@@ -35,13 +35,13 @@ export function LandingPage() {
                 <a href="#pricing" className="text-gray-300 hover:text-white transition-colors">Pricing</a>
                 <a href="#docs" className="text-gray-300 hover:text-white transition-colors">Docs</a>
                 <Link
-                  to="/login"
+                  href="/login"
                   className="px-5 py-2 text-gray-300 hover:text-white transition-colors"
                 >
                   Sign In
                 </Link>
                 <Link
-                  to="/login"
+                  href="/login"
                   className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium rounded-lg transition-all"
                 >
                   Get Started
@@ -71,7 +71,7 @@ export function LandingPage() {
 
             <div className="flex items-center justify-center gap-5">
               <Link
-                to="/login"
+                href="/login"
                 className="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-lg transition-all transform hover:scale-105 flex items-center gap-5"
               >
                 Start Free Trial
@@ -225,7 +225,7 @@ export function LandingPage() {
             Join thousands of developers who trust CodeViz AI for their documentation needs.
           </p>
           <Link
-            to="/login"
+            href="/login"
             className="inline-flex items-center gap-5 px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-lg transition-all transform hover:scale-105"
           >
             Get Started Free

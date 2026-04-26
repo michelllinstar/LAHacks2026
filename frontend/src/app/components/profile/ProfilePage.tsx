@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, Mail, Building, MapPin, Link as LinkIcon, Save, Camera, Briefcase, User, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -25,7 +25,7 @@ interface ProfilePageProps {
 }
 
 export function ProfilePage({ user, onLogout }: ProfilePageProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
 
   const [profile, setProfile] = useState<UserProfile>({
     name: user.name,
@@ -58,7 +58,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
 
   const handleLogout = () => {
     onLogout();
-    navigate('/login');
+    router.push('/login');
     toast.success('Logged out successfully');
   };
 
@@ -69,7 +69,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
         <div className="max-w-6xl mx-auto px-5 py-4">
           <div className="flex items-center justify-between">
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={() => router.push('/dashboard')}
               className="flex items-center gap-5 text-gray-300 hover:text-white transition-colors"
             >
               <ArrowLeft className="h-5 w-5" />

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import { Plus, Search, Grid, List, Clock, Users, Star, MoreVertical, Folder, GitBranch, HardDrive, Briefcase, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { listRepos } from '../../../lib/api';
@@ -48,7 +48,7 @@ function repoToProject(repo: RepoSummary): Project {
 }
 
 export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: ProjectsDashboardProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDomain, setActiveDomain] = useState<DomainType>('personal');
@@ -80,7 +80,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
   const handleProjectClick = (hash: string) => {
     setActiveRepoHash(hash);
     onOpenProject(hash);
-    navigate(`/workspace/${hash}`);
+    router.push(`/workspace/${hash}`);
   };
 
   const projects: Project[] = repos.map(repoToProject);
@@ -175,7 +175,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
               </button>
               <div className="w-px h-6 bg-gray-700" />
               <button
-                onClick={() => navigate('/profile')}
+                onClick={() => router.push('/profile')}
                 className="flex items-center gap-5 hover:bg-[#3a3a3a] rounded-lg px-3 py-2 transition-colors"
               >
                 <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-purple-400 rounded-full flex items-center justify-center">

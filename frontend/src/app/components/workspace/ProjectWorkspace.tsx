@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import {
   Files, Search, GitBranch, Settings, ChevronRight, X, Plus,
   Play, Bug, AlertCircle, Terminal, ChevronDown, FileCode,
@@ -39,7 +39,7 @@ interface ChatMessage {
 }
 
 export function ProjectWorkspace({ projectId, projectName, projectType, onBack, onShare, onUpload }: ProjectWorkspaceProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const [activeActivity, setActiveActivity] = useState<ActivityBarItem>('explorer');
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
@@ -398,7 +398,7 @@ What would you like to know?`;
             <span className="text-xs">Split</span>
           </button>
           <button
-            onClick={() => navigate(`/workspace/${projectId}/overview`)}
+            onClick={() => router.push(`/workspace/${projectId}/overview`)}
             className="px-2 py-1 hover:bg-[#3e3e42] rounded text-gray-400 hover:text-white transition-colors flex items-center gap-1.5"
           >
             <Layers className="h-3.5 w-3.5" />

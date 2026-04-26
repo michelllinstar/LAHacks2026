@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, Settings, Share2, Database, Files, Search, GitBranch, Info, X } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import { UnifiedGraphView, GraphNode, GraphMode } from './UnifiedGraphView';
 import { InvariantView } from './InvariantView';
 import { AgentActivityLog, AgentQuery } from './AgentActivityLog';
@@ -26,7 +26,7 @@ type LayerView = 'graph' | 'invariant';
 type ActivityBarItem = 'explorer' | 'search' | 'source-control' | 'info';
 
 export function CartographerWorkspace({ projectId, projectName, onBack, onShare }: CartographerWorkspaceProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const [activeLayer, setActiveLayer] = useState<LayerView>('graph');
   const [activeModes, setActiveModes] = useState<Set<GraphMode>>(new Set<GraphMode>(['symbol']));
   const [selectedRepository, setSelectedRepository] = useState(projectName);
