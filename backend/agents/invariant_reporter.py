@@ -57,6 +57,7 @@ def build_agent(seed: Optional[str] = None, port: int = 8006):
         or os.getenv("INVARIANT_REPORTER_SEED", "cartographer-invariant-reporter-seed"),
         port=port,
         mailbox=False,
+        network=os.getenv("CARTOGRAPHER_AGENT_NETWORK", "testnet"),
     )
 
     @agent.on_message(model=InvariantQuery, replies=InvariantGraph)
