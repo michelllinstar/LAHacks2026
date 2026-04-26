@@ -12,6 +12,9 @@ export interface RepoSummary {
   status: RepoStatus;
   git_url: string | null;
   local_path: string | null;
+  // Number of Layer 1 symbols indexed for this repo. 0 for newly-created /
+  // unindexed repos. Filled in by the backend in routes/repos.py.
+  symbol_count: number;
 }
 
 export interface RepoCreate {

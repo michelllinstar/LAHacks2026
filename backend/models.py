@@ -54,6 +54,11 @@ class RepoSummary(BaseModel):
     status: Literal["pending", "indexing", "ready", "stale"]
     git_url: Optional[str] = None
     local_path: Optional[str] = None
+    # Convenience field: number of Layer 1 symbols indexed for this repo.
+    # Surfaced so the dashboard can show "N symbols indexed" without needing
+    # a per-repo round trip to /api/repos/{hash}/index. Defaults to 0 for
+    # newly-created (un-indexed) repos.
+    symbol_count: int = 0
 
 
 class IndexJob(BaseModel):

@@ -83,6 +83,12 @@ export async function getRepo(hash: string): Promise<RepoSummary> {
   return res.data;
 }
 
+/** Wipe a repo's index store. Backend returns 204; the on-disk source tree is
+ *  not touched — only Cartographer's Mongo rows. */
+export async function deleteRepo(hash: string): Promise<void> {
+  await apiClient.delete(`/api/repos/${hash}`);
+}
+
 // ---------------------------------------------------------------------------
 // Indexing
 // ---------------------------------------------------------------------------

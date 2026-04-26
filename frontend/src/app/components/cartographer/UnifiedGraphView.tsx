@@ -12,12 +12,18 @@ function pickLayer(modes: Set<GraphMode>): LayerName {
   return 'symbol';
 }
 
-// Map a backend GraphNodeWire kind onto the local GraphNode.type discriminator.
-function mapKind(kind: string): GraphNode['type'] {
-  const k = kind.toLowerCase();
-  if (k.includes('class')) return 'class';
-  if (k.includes('interface')) return 'interface';
-  if (k.includes('module') || k.includes('file') || k.includes('package')) return 'module';
+// Map a backend symbol-kind string onto the local GraphNode.type discriminator.
+// The Layer 1 indexer emits one of: class, function, method, type, variable
+// (see backend/indexer/layer1_symbols.py). The graph projection wraps each
+// symbol with a constant top-level kind="symbol" and stashes the real kind
+// under ``metadata.symbol_kind`` — callers should pass that, not the wire
+// node's outer ``kind``.
+function mapKind(kind: string | undefined | null): GraphNode['type'] {
+  const k = (kind ?? '').toLowerCase();
+  if (k === 'class') return 'class';
+  if (k === 'interface' || k === 'type') return 'interface';
+  if (k === 'module' || k === 'file' || k === 'package') return 'module';
+  // function, method, variable, arrow_function, anything else → function
   return 'function';
 }
 
@@ -54,7 +60,9 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
     return {
       id: n.id,
       name: n.label,
-      type: mapKind(n.kind),
+      // Prefer the real symbol kind from metadata; fall back to the wire-node
+      // ``kind`` (which is ``"symbol"`` for layer 1 — uninformative).
+      type: mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind),
       cluster,
       methods,
       properties,
@@ -166,21 +174,12 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     [baseNodes, positionOverrides],
   );
 
-  // When the explorer scopes us to a file/folder, show ALL matching nodes.
-  // Otherwise cap the viewport to the 10 most-connected nodes so the canvas
-  // stays legible on large repos.
-  const MAX_VISIBLE = 10;
-  const filteredNodes = useMemo(
+  // Show every projected node. Use the explorer's path filter to narrow
+  // scope on large repos rather than an arbitrary global cap.
+  const nodes: GraphNode[] = useMemo(
     () => (pathFilter ? allNodes.filter((n) => matchesPathFilter(n, pathFilter)) : allNodes),
     [allNodes, pathFilter],
   );
-  const nodes: GraphNode[] = useMemo(() => {
-    if (pathFilter) return filteredNodes;
-    if (filteredNodes.length <= MAX_VISIBLE) return filteredNodes;
-    return [...filteredNodes]
-      .sort((a, b) => (b.dependencies?.length ?? 0) - (a.dependencies?.length ?? 0))
-      .slice(0, MAX_VISIBLE);
-  }, [filteredNodes, pathFilter]);
 
   // Setter shim so existing code that calls `setNodes(prev => ...)` still
   // works. Translates updates into position overrides since projection is

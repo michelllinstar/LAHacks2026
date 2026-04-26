@@ -1,11 +1,17 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Search, Grid, List, Clock, Users, Star, MoreVertical, Folder, GitBranch, HardDrive, Briefcase, User } from 'lucide-react';
+import { Plus, Search, Grid, List, Clock, Users, Star, MoreVertical, Folder, GitBranch, HardDrive, Briefcase, User, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { listRepos } from '../../../lib/api';
+import { deleteRepo, listRepos } from '../../../lib/api';
 import { useCartographerStore } from '../../../lib/store';
 import type { RepoSummary } from '../../../lib/types';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 
 type DomainType = 'personal' | 'work';
 
@@ -41,7 +47,11 @@ function repoToProject(repo: RepoSummary): Project {
     type: repo.git_url ? 'github' : 'local',
     domain: 'personal',
     lastModified: new Date(),
-    diagramCount: 0,
+    // ``diagramCount`` is the dashboard tile's "N symbols indexed" stat.
+    // Filled from the backend's RepoSummary.symbol_count (defaults to 0 for
+    // fresh / unindexed repos). Falls back to 0 if an older backend response
+    // is missing the field.
+    diagramCount: repo.symbol_count ?? 0,
     collaborators: 1,
     starred: false,
   };
@@ -81,6 +91,22 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
     setActiveRepoHash(hash);
     onOpenProject(hash);
     router.push(`/workspace/${hash}`);
+  };
+
+  const handleDelete = async (hash: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"? This wipes the index from Cartographer (your source files are not touched).`)) {
+      return;
+    }
+    try {
+      await deleteRepo(hash);
+      // Drop the repo from the in-memory store so the dashboard updates without
+      // a round-trip; refetch isn't strictly needed.
+      setRepos(repos.filter((r) => r.hash !== hash));
+      toast.success(`Deleted "${name}"`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to delete: ${msg}`);
+    }
   };
 
   const projects: Project[] = repos.map(repoToProject);
@@ -382,12 +408,33 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
                         <p className="text-xs text-gray-400 truncate">{project.description}</p>
                       </div>
                     </div>
-                    <button
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-1 hover:bg-white/5 rounded transition-colors ml-2"
-                    >
-                      <MoreVertical className="h-4 w-4 text-gray-400" />
-                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1 hover:bg-white/5 rounded transition-colors ml-2"
+                          aria-label="Project actions"
+                        >
+                          <MoreVertical className="h-4 w-4 text-gray-400" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <DropdownMenuItem
+                          className="text-red-400 focus:text-red-300 focus:bg-red-500/10"
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            handleDelete(project.id, project.name);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete repository
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
 
                   <div className="flex items-center gap-3 text-xs text-gray-400 mb-4">
@@ -452,9 +499,33 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
                     <div className="text-xs">{project.lastModified.toLocaleDateString()}</div>
                   </div>
 
-                  <button className="p-2 hover:bg-[#3a3a3a] rounded transition-colors">
-                    <MoreVertical className="h-4 w-4 text-gray-400" />
-                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-2 hover:bg-[#3a3a3a] rounded transition-colors"
+                        aria-label="Project actions"
+                      >
+                        <MoreVertical className="h-4 w-4 text-gray-400" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <DropdownMenuItem
+                        className="text-red-400 focus:text-red-300 focus:bg-red-500/10"
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          handleDelete(project.id, project.name);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete repository
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
             ))}
