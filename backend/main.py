@@ -48,4 +48,16 @@ def _on_startup() -> None:
 
 @app.get("/health")
 def health_check() -> dict:
-    return {"status": "ok"}
+    """Liveness + Mongo reachability probe.
+
+    Returns ``{"status": "ok", "mongo": "reachable"}`` when the DB is up,
+    or ``{"status": "ok", "mongo": "unreachable", "error": <msg>}`` so a
+    monitoring system can distinguish "process alive but DB down" from a
+    plain crash. The HTTP status stays 200 either way — clients should
+    inspect ``mongo`` to decide.
+    """
+    try:
+        get_db().command("ping")
+        return {"status": "ok", "mongo": "reachable"}
+    except Exception as exc:  # pragma: no cover
+        return {"status": "ok", "mongo": "unreachable", "error": str(exc)[:200]}
