@@ -717,13 +717,22 @@ def iter_flows(repo_hash: str) -> list[dict]:
 def flows_from_symbol(
     repo_hash: str, symbol_id: ObjectId, max_depth: int = 3
 ) -> list[dict]:
-    """Flows whose source is ``symbol_id`` and whose path length <= max_depth."""
+    """Flows whose source is ``symbol_id`` and whose **edge count** is at most
+    ``max_depth``.
+
+    The stored ``path`` field is intermediates-only (endpoints excluded), so a
+    flow with ``e`` edges has ``e - 1`` intermediates. The filter is therefore
+    ``$size <= max_depth - 1``. Audit found the previous formulation
+    (``$size <= max_depth``) was always satisfied because the builder caps at
+    ``max_depth=3`` and stores at most 2 intermediates.
+    """
     db = get_db()
+    intermediate_cap = max(0, int(max_depth) - 1)
     cursor = db["flows"].find(
         {
             "repo_hash": repo_hash,
             "source_symbol_id": symbol_id,
-            "$expr": {"$lte": [{"$size": {"$ifNull": ["$path", []]}}, max_depth]},
+            "$expr": {"$lte": [{"$size": "$path"}, intermediate_cap]},
         }
     )
     return list(cursor)
@@ -732,13 +741,16 @@ def flows_from_symbol(
 def flows_to_symbol(
     repo_hash: str, symbol_id: ObjectId, max_depth: int = 3
 ) -> list[dict]:
-    """Flows whose sink is ``symbol_id`` and whose path length <= max_depth."""
+    """Flows whose sink is ``symbol_id`` and whose **edge count** is at most
+    ``max_depth`` — see :func:`flows_from_symbol` for the path-vs-edge
+    accounting that justifies the ``- 1``."""
     db = get_db()
+    intermediate_cap = max(0, int(max_depth) - 1)
     cursor = db["flows"].find(
         {
             "repo_hash": repo_hash,
             "sink_symbol_id": symbol_id,
-            "$expr": {"$lte": [{"$size": {"$ifNull": ["$path", []]}}, max_depth]},
+            "$expr": {"$lte": [{"$size": "$path"}, intermediate_cap]},
         }
     )
     return list(cursor)

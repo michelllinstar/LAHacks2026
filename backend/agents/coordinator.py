@@ -70,6 +70,22 @@ def _symbol_ids_for_files(repo_hash: str, file_paths: list[str]) -> list[str]:
     return out
 
 
+def _symbol_ids_for_qnames(repo_hash: str, qnames: list[str]) -> list[str]:
+    """Resolve qualified names to stringified symbol ObjectIds. Flow query
+    payloads carry source/sink/path as qnames (per ``FlowPath`` wire shape),
+    but ``region_highlighted`` events have to reference the same node ids the
+    frontend graph store keys on — without this, flow highlights silently
+    no-op."""
+    if not qnames:
+        return []
+    wanted = set(qnames)
+    out: list[str] = []
+    for sym in db_store.iter_symbols(repo_hash):
+        if sym.get("qualified_name") in wanted:
+            out.append(str(sym["_id"]))
+    return out
+
+
 def _classify(question: str) -> str:
     q = (question or "").lower()
     # Order is by keyword specificity, most specific first:
@@ -206,26 +222,22 @@ def handle_user_query(query: UserQuery) -> UserResponse:
         payload = _extract_flow_payload(query)
         result = flow_analyst.handle_flow_query(query.repo_hash, payload)
         flows = list(result.get("flows", []))
-        symbol_ids: list[str] = []
+        # Collect every qname touched by the result so the Activity Log + the
+        # graph highlight reference the same nodes.
+        touched_qnames: list[str] = []
+        seen_qnames: set[str] = set()
         for flow in flows:
-            src = flow.get("source_symbol")
-            sink = flow.get("sink_symbol")
-            if src:
-                symbol_ids.append(src)
-            if sink:
-                symbol_ids.append(sink)
-            for inter in flow.get("path", []) or []:
-                if inter:
-                    symbol_ids.append(inter)
-        # De-dupe while preserving order so the Activity Log highlight matches
-        # the wire payload the consumer just saw.
-        seen: set[str] = set()
-        unique_ids: list[str] = []
-        for sid in symbol_ids:
-            if sid in seen:
-                continue
-            seen.add(sid)
-            unique_ids.append(sid)
+            for qname in (
+                flow.get("source_symbol"),
+                flow.get("sink_symbol"),
+                *(flow.get("path") or []),
+            ):
+                if qname and qname not in seen_qnames:
+                    seen_qnames.add(qname)
+                    touched_qnames.append(qname)
+        # Resolve qnames → stringified symbol ObjectIds for the highlight
+        # event; the frontend graph store keys nodes by id, not qname.
+        highlight_ids = _symbol_ids_for_qnames(query.repo_hash, touched_qnames)
         event_bus.publish(
             query.repo_hash,
             "agent_activity",
@@ -233,18 +245,19 @@ def handle_user_query(query: UserQuery) -> UserResponse:
                 "query_id": query_id,
                 "query_type": "trace_data_flow",
                 "cluster_id": None,
-                "symbol_ids": unique_ids,
+                "symbol_ids": highlight_ids,
+                "touched_qnames": touched_qnames,
                 "seed_symbol": payload.get("symbol"),
                 "direction": payload.get("direction"),
                 "flow_count": len(flows),
             },
         )
-        if unique_ids:
+        if highlight_ids:
             event_bus.publish(
                 query.repo_hash,
                 "region_highlighted",
                 {
-                    "node_ids": unique_ids,
+                    "node_ids": highlight_ids,
                     "color": "#ff6b6b",
                     "ttl_ms": 4000,
                 },

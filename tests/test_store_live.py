@@ -148,6 +148,49 @@ def test_flows_touching_symbols_or_query(_live_db):
     assert len(by_intermediate) == 1
 
 
+def test_flows_from_symbol_depth_filter(_live_db):
+    """``flows_from_symbol(max_depth=N)`` must filter by *edge count*, not by
+    raw intermediate count. A previous formulation compared ``$size <= N``
+    against an intermediates-only path field, which always passed because the
+    builder caps intermediates at ``max_depth - 1``. After the audit fix the
+    filter is ``$size <= max_depth - 1``: ``max_depth=1`` keeps only direct
+    edges (path=[]) and ``max_depth=2`` admits paths with one intermediate.
+    """
+    repo_hash = _fresh_repo_hash()
+    src = ObjectId()
+    sink_direct = ObjectId()
+    sink_via_one = ObjectId()
+    intermediate = ObjectId()
+    _live_db.bulk_insert_flows(repo_hash, [
+        # 1-edge direct call: intermediates = []
+        {
+            "source_symbol_id": src,
+            "sink_symbol_id": sink_direct,
+            "path": [],
+            "flow_kind": "call_chain",
+            "sensitivity": None,
+        },
+        # 2-edge call chain: intermediates = [one]
+        {
+            "source_symbol_id": src,
+            "sink_symbol_id": sink_via_one,
+            "path": [intermediate],
+            "flow_kind": "call_chain",
+            "sensitivity": None,
+        },
+    ])
+
+    depth1 = _live_db.flows_from_symbol(repo_hash, src, max_depth=1)
+    depth2 = _live_db.flows_from_symbol(repo_hash, src, max_depth=2)
+    depth3 = _live_db.flows_from_symbol(repo_hash, src, max_depth=3)
+
+    assert len(depth1) == 1, "depth=1 must keep only the direct call"
+    assert len(depth2) == 2, "depth=2 must include the 1-intermediate chain"
+    assert len(depth3) == 2, "depth=3 covers all builder-emitted flows"
+    # The kept depth-1 flow is the direct one, not the chain.
+    assert depth1[0]["sink_symbol_id"] == sink_direct
+
+
 def test_reset_layer1_wipes_collections(_live_db):
     """``reset_layer1`` removes symbols/refs/files/embeddings for the repo."""
     repo_hash = _fresh_repo_hash()
