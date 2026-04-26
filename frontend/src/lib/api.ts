@@ -67,11 +67,14 @@ export async function uploadRepo(name: string, files: File[]): Promise<RepoSumma
     const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
     fd.append('files', f, rel);
   }
-  // Don't set Content-Type — the browser/axios infers ``multipart/form-data;
-  // boundary=...`` from the FormData body. Overriding it strips the boundary
-  // and the backend can't parse the payload. ``maxBodyLength`` / ``maxContentLength``
-  // overrides axios's 10MB default for repo-sized uploads.
+  // The shared apiClient defaults to ``Content-Type: application/json``; for
+  // FormData we must clear it so the browser/axios fills in
+  // ``multipart/form-data; boundary=...`` from the FormData body. Without
+  // this, FastAPI can't parse the form fields and returns 422.
+  // ``maxBodyLength`` / ``maxContentLength`` overrides axios's 10MB default
+  // for repo-sized uploads.
   const res = await apiClient.post('/api/repos/upload', fd, {
+    headers: { 'Content-Type': undefined as unknown as string },
     maxBodyLength: Infinity,
     maxContentLength: Infinity,
   });

@@ -268,6 +268,17 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
               .then((s) => setIndex(projectId, s))
               .catch(() => {});
           }
+          // When a layer transitions to "done", refetch its projection.
+          // The per-node ``node_added`` events that ordinarily keep the
+          // projection in sync may have fired before the workspace mounted
+          // (small repos finish indexing in seconds), leaving the store
+          // empty. Refetching on "done" guarantees the projection matches
+          // what's in MongoDB regardless of SSE timing.
+          const layer = payload?.layer as LayerName | undefined;
+          const state = payload?.state as string | undefined;
+          if (layer && state === 'done') {
+            refetchLayer(layer);
+          }
           break;
         }
         case 'node_added':
