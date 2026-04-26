@@ -221,12 +221,7 @@ export function ContextsView({ repositoryId, onContextFocus }: ContextsViewProps
   };
 
   if (contexts.length === 0) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-[#1a1a1a] text-gray-500 text-sm px-8 text-center">
-        No bounded contexts available — the symbol projection has no cluster
-        metadata for this repository yet. The indexer may still be running.
-      </div>
-    );
+    return <EmptyContextsExample />;
   }
 
   const { positions, totalW, totalH } = layout;
@@ -265,9 +260,11 @@ export function ContextsView({ repositoryId, onContextFocus }: ContextsViewProps
   };
 
   return (
+    <div className="w-full h-full flex flex-col bg-[#1a1a1a]">
+      <ContextsHeader />
     <div
       ref={scrollRef}
-      className="w-full h-full overflow-auto bg-[#1a1a1a]"
+      className="flex-1 overflow-auto"
       style={{ cursor: isDragging ? 'grabbing' : 'grab', userSelect: isDragging ? 'none' : 'auto' }}
       onMouseDown={onScrollMouseDown}
       onMouseMove={onScrollMouseMove}
@@ -471,6 +468,141 @@ export function ContextsView({ repositoryId, onContextFocus }: ContextsViewProps
             </div>
           );
         })}
+      </div>
+    </div>
+    </div>
+  );
+}
+
+// Header explaining what bounded contexts are. Always shown at the top of the
+// Contexts view so the user sees the canonical definition before reading
+// their own contexts.
+function ContextsHeader() {
+  return (
+    <div className="px-5 py-3 border-b border-[#3e3e42] bg-gradient-to-r from-[#252526] to-[#1e1e1e]">
+      <div className="flex items-baseline gap-3 mb-1">
+        <h2 className="text-base font-bold text-white">Bounded contexts</h2>
+        <span className="text-[11px] text-gray-500 italic">
+          business-domain boundaries within a layer
+        </span>
+      </div>
+      <p className="text-xs text-gray-400 leading-relaxed max-w-4xl">
+        Contexts group classes that serve the same business concept and share a consistent vocabulary.
+        The same word can mean different things in different contexts — e.g.{' '}
+        <span className="text-[#FBBF24] font-mono">Customer</span> in{' '}
+        <span className="text-[#5EEAD4] font-mono">Ordering</span> carries shipping addresses, while{' '}
+        <span className="text-[#FBBF24] font-mono">Customer</span> in{' '}
+        <span className="text-[#5EEAD4] font-mono">Identity</span> carries authentication credentials.
+        The boundary keeps related classes close and limits the blast radius of a change.
+      </p>
+    </div>
+  );
+}
+
+// Example bounded contexts shown when the symbol projection has no cluster
+// metadata yet (e.g. on a freshly indexed small repo). Mirrors the canonical
+// e-commerce backend example from the doc-string above so the user
+// understands what the view is meant to render.
+const EXAMPLE_CONTEXTS: { name: string; tone: string; classes: string[]; description: string }[] = [
+  {
+    name: 'Ordering',
+    tone: '#5EEAD4',
+    description: 'cart → checkout → fulfillment',
+    classes: ['Order', 'Cart', 'LineItem', 'Customer'],
+  },
+  {
+    name: 'Catalog',
+    tone: '#34D399',
+    description: 'products, prices, search',
+    classes: ['Product', 'Variant', 'PriceList', 'Inventory'],
+  },
+  {
+    name: 'Payments',
+    tone: '#FBBF24',
+    description: 'capture, refund, settlement',
+    classes: ['Charge', 'Refund', 'PaymentMethod', 'Receipt'],
+  },
+  {
+    name: 'Shipping',
+    tone: '#F59E0B',
+    description: 'rate, label, tracking',
+    classes: ['Shipment', 'Carrier', 'Address', 'TrackingEvent'],
+  },
+  {
+    name: 'Identity',
+    tone: '#A78BFA',
+    description: 'auth, sessions, roles',
+    classes: ['Customer', 'Session', 'ApiKey', 'Role'],
+  },
+];
+
+const SHARED_TERMS = ['Customer'];
+
+function EmptyContextsExample() {
+  return (
+    <div className="w-full h-full flex flex-col bg-[#1a1a1a] overflow-auto">
+      <ContextsHeader />
+      <div className="flex-1 px-5 py-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">
+            Example — service layer of an e-commerce backend
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {EXAMPLE_CONTEXTS.map((c) => (
+              <div
+                key={c.name}
+                className="rounded-xl p-4 border"
+                style={{
+                  background: `${c.tone}14`,
+                  borderColor: `${c.tone}66`,
+                }}
+              >
+                <div className="flex items-baseline justify-between mb-1">
+                  <div className="text-base font-bold text-white">{c.name}</div>
+                  <div className="text-[10px] uppercase tracking-wide italic" style={{ color: c.tone }}>
+                    «context»
+                  </div>
+                </div>
+                <div className="text-[11px] text-gray-400 italic mb-3">{c.description}</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {c.classes.map((cls) => {
+                    const isShared = SHARED_TERMS.includes(cls);
+                    return (
+                      <span
+                        key={cls}
+                        className="px-2 py-0.5 rounded text-[11px] font-mono"
+                        style={
+                          isShared
+                            ? {
+                                background: '#1e1e1e',
+                                color: '#FBBF24',
+                                border: '1px dashed #FBBF24aa',
+                              }
+                            : {
+                                background: 'rgba(255,255,255,0.04)',
+                                color: '#e5e7eb',
+                                border: '1px solid rgba(255,255,255,0.10)',
+                              }
+                        }
+                        title={isShared ? 'Same name, different meaning per context' : undefined}
+                      >
+                        {cls}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-6 px-4 py-3 rounded-lg border border-[#3e3e42] bg-[#252526] text-[12px] text-gray-300 max-w-4xl">
+            <span className="text-[#FBBF24] font-mono">Customer</span> appears in two contexts above —
+            in <span className="text-[#5EEAD4]">Ordering</span> it carries shipping addresses, in{' '}
+            <span className="text-[#A78BFA]">Identity</span> it carries authentication credentials.
+            That ambiguity is fine because the context boundary tells each class which meaning applies.
+            Your own contexts will replace this example as soon as the indexer attaches{' '}
+            <span className="font-mono">cluster_id</span> metadata to the symbol projection.
+          </div>
+        </div>
       </div>
     </div>
   );
