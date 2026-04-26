@@ -43,14 +43,14 @@ interface ProjectsDashboardProps {
   };
 }
 
-function repoToProject(repo: RepoSummary): Project {
+function repoToProject(repo: RepoSummary, domain: DomainType = 'personal'): Project {
   const description = repo.local_path || repo.git_url || '';
   return {
     id: repo.hash,
     name: repo.name,
     description,
     type: repo.git_url ? 'github' : 'local',
-    domain: 'personal',
+    domain,
     lastModified: new Date(),
     // ``diagramCount`` is the dashboard tile's "N symbols indexed" stat.
     // Filled from the backend's RepoSummary.symbol_count (defaults to 0 for
@@ -75,9 +75,16 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
     onCreateProject?.();
   };
 
+  // The modal calls ``onCreate({…, domain})`` before ``onCreated(repo)``, but
+  // only the second callback knows the repo's hash. Stash the picked domain
+  // here so the create handler can apply it once the repo lands.
+  const pendingDomainRef = useRef<DomainType>('personal');
+
   const repos = useCartographerStore((s) => s.repos);
   const setRepos = useCartographerStore((s) => s.setRepos);
   const setActiveRepoHash = useCartographerStore((s) => s.setActiveRepoHash);
+  const repoDomains = useCartographerStore((s) => s.repoDomains);
+  const setRepoDomain = useCartographerStore((s) => s.setRepoDomain);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,7 +127,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
     }
   };
 
-  const projects: Project[] = repos.map(repoToProject);
+  const projects: Project[] = repos.map((r) => repoToProject(r, repoDomains[r.hash] ?? 'personal'));
 
   // Mock projects data - kept as a no-op fallback (unused; backed by real repos above)
   const _mockProjects: Project[] = ([
@@ -606,11 +613,19 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
         <CreateProjectModal
           onClose={() => setShowCreateModal(false)}
           onCreate={(p) => {
+            // Remember the domain choice for the upcoming onCreated callback;
+            // also flip the active toggle so the user sees their new repo on
+            // the right tab the moment it lands.
+            pendingDomainRef.current = p.domain;
+            setActiveDomain(p.domain);
             toast.success(`${p.domain === 'work' ? 'Work' : 'Personal'} project created`, {
               description: `${p.name} indexing started`,
             });
           }}
           onCreated={(repo) => {
+            // Persist the domain choice so the dashboard's Personal/Work
+            // toggle remembers it across reloads.
+            setRepoDomain(repo.hash, pendingDomainRef.current);
             // Add the new repo to the dashboard list, mark it active in the
             // store, close the modal, and jump straight into the workspace so
             // the user lands on their freshly-created project.

@@ -59,6 +59,12 @@ interface CartographerState {
   repos: RepoSummary[];
   setRepos: (repos: RepoSummary[]) => void;
 
+  // Per-repo domain (Personal / Work) chosen at create time. The backend
+  // doesn't persist this yet; we keep it in the client store + localStorage
+  // so the dashboard's Personal/Work toggle remembers the user's pick.
+  repoDomains: Record<string, 'personal' | 'work'>;
+  setRepoDomain: (hash: string, domain: 'personal' | 'work') => void;
+
   activeRepoHash: string | null;
   setActiveRepoHash: (hash: string | null) => void;
 
@@ -108,6 +114,28 @@ export const useCartographerStore = create<CartographerState>((set) => ({
 
   repos: [],
   setRepos: (repos) => set({ repos }),
+
+  repoDomains: (() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = window.localStorage.getItem('markcodepolo:repoDomains');
+      return raw ? (JSON.parse(raw) as Record<string, 'personal' | 'work'>) : {};
+    } catch {
+      return {};
+    }
+  })(),
+  setRepoDomain: (hash, domain) =>
+    set((state) => {
+      const next = { ...state.repoDomains, [hash]: domain };
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem('markcodepolo:repoDomains', JSON.stringify(next));
+        } catch {
+          /* swallow — storage full / private mode */
+        }
+      }
+      return { repoDomains: next };
+    }),
 
   activeRepoHash: null,
   setActiveRepoHash: (hash) => set({ activeRepoHash: hash }),

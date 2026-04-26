@@ -186,8 +186,11 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
      toast.error('Missing required fields', { description: msg });
      return;
    }
-   if (projectType === 'local' && !uploadedFiles) {
-     const msg = 'Choose a folder to upload.';
+   if (projectType === 'local' && (!uploadedFiles || uploadedFiles.length === 0)) {
+     // ``!uploadedFiles`` alone passes for an empty array (truthy in JS) —
+     // an empty folder pick would silently slip through and the backend
+     // would return 422 for the missing ``files`` form field.
+     const msg = 'Choose a folder or files to upload.';
      setValidationError(msg);
      toast.error('Missing required fields', { description: msg });
      return;
@@ -219,6 +222,16 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
          toast.warning(`Uploading all ${filtered.length} file${filtered.length === 1 ? '' : 's'} (no source files detected outside dependency dirs)`);
        } else {
          toast.info(`Uploading ${filtered.length} file${filtered.length === 1 ? '' : 's'}…`);
+       }
+       if (filtered.length === 0) {
+         // Defensive: if even the unfiltered list is empty (empty folder
+         // pick), fail fast with a clear message instead of letting the
+         // backend respond with a generic 422.
+         const msg = 'The selected folder has no files.';
+         setValidationError(msg);
+         toast.error('Nothing to upload', { description: msg });
+         setSubmitting(false);
+         return;
        }
        repo = await uploadRepo(name, filtered);
      } else {
@@ -276,46 +289,54 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
              <p className="text-base text-gray-400 mb-6">Choose how you want to connect your codebase</p>
 
 
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-2xl mx-auto items-stretch">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto items-stretch">
                {/* GitHub Option */}
                <button
                  onClick={() => handleTypeSelect('github')}
-                 className="glass-card px-10 py-12 rounded-2xl text-center group flex flex-col items-center gap-4 hover:border-[#2DD4BF]/40"
+                 className="glass-card rounded-2xl text-center group flex flex-col items-center px-8 py-10 hover:border-[#2DD4BF]/40 min-h-[320px]"
                >
-                 <div className="flex flex-col items-center">
-                   <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center mb-6 group-hover:bg-[#252526] group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
+                 <div className="flex flex-col items-center flex-1 w-full">
+                   <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center group-hover:bg-[#252526] group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
                      <GitBranch className="h-7 w-7 text-gray-400 group-hover:text-[#5EEAD4]" />
                    </div>
-                   <h3 className="text-2xl font-semibold text-white mb-4 text-center">Version Control</h3>
-                   <p className="text-base text-gray-400 text-center max-w-xs">
+                   <h3 className="text-xl font-semibold text-white mt-5 leading-tight">
+                     Version Control
+                   </h3>
+                   <p className="text-sm text-gray-400 mt-2 max-w-[16rem] leading-snug">
                      Connect your GitHub repository for automatic syncing and version tracking
                    </p>
                  </div>
-                 <GlassBubble tone="blue">
-                   <span>Get Started</span>
-                   <ArrowRight className="h-4 w-4" />
-                 </GlassBubble>
+                 <div className="mt-6">
+                   <GlassBubble tone="blue">
+                     <span>Get Started</span>
+                     <ArrowRight className="h-4 w-4" />
+                   </GlassBubble>
+                 </div>
                </button>
 
 
                {/* Local Option */}
                <button
                  onClick={() => handleTypeSelect('local')}
-                 className="glass-card px-10 py-12 rounded-2xl text-center group flex flex-col items-center gap-4 hover:border-purple-400/40"
+                 className="glass-card rounded-2xl text-center group flex flex-col items-center px-8 py-10 hover:border-purple-400/40 min-h-[320px]"
                >
-                 <div className="flex flex-col items-center">
-                   <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center mb-6 group-hover:bg-[#252526] group-hover:scale-110 group-hover:-rotate-3 transition-all duration-300">
+                 <div className="flex flex-col items-center flex-1 w-full">
+                   <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center group-hover:bg-[#252526] group-hover:scale-110 group-hover:-rotate-3 transition-all duration-300">
                      <HardDrive className="h-7 w-7 text-gray-400 group-hover:text-purple-400" />
                    </div>
-                   <h3 className="text-2xl font-semibold text-white mb-4 text-center">Local Files</h3>
-                   <p className="text-base text-gray-400 text-center max-w-xs">
+                   <h3 className="text-xl font-semibold text-white mt-5 leading-tight">
+                     Local Files
+                   </h3>
+                   <p className="text-sm text-gray-400 mt-2 max-w-[16rem] leading-snug">
                      Upload code files directly from your computer for quick analysis
                    </p>
                  </div>
-                 <GlassBubble tone="purple">
-                   <span>Get Started</span>
-                   <ArrowRight className="h-4 w-4" />
-                 </GlassBubble>
+                 <div className="mt-6">
+                   <GlassBubble tone="purple">
+                     <span>Get Started</span>
+                     <ArrowRight className="h-4 w-4" />
+                   </GlassBubble>
+                 </div>
                </button>
              </div>
 
@@ -460,12 +481,35 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                  <input
                    type="url"
                    value={repoUrl}
-                   onChange={(e) => setRepoUrl(e.target.value)}
+                   onChange={(e) => {
+                     const next = e.target.value;
+                     setRepoUrl(next);
+                     // Auto-fill the project name from the repo URL when the
+                     // user hasn't typed a name yet. Handles HTTPS, ssh, and
+                     // bare ``owner/repo`` forms; strips ``.git`` if present.
+                     if (!name) {
+                       const cleaned = next.trim().replace(/\.git$/i, '').replace(/\/$/, '');
+                       const seg = cleaned.split(/[/:]/).filter(Boolean).pop();
+                       if (seg) setName(seg);
+                     }
+                   }}
+                   onBlur={() => {
+                     // If the user pasted a URL and immediately blurred without
+                     // touching the name field, still derive a default.
+                     if (!name && repoUrl) {
+                       const cleaned = repoUrl.trim().replace(/\.git$/i, '').replace(/\/$/, '');
+                       const seg = cleaned.split(/[/:]/).filter(Boolean).pop();
+                       if (seg) setName(seg);
+                     }
+                   }}
                    placeholder="https://github.com/username/repository"
                    className="w-full px-5 py-3 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#2DD4BF] focus:border-transparent"
                  />
                  <p className="text-xs text-gray-500 mt-5">
-                   We'll need access to clone and analyze your repository
+                   We'll clone the repository into the workspace and run the
+                   Cartographer indexer on it — symbols, call flow, and
+                   architecture layers are all scraped automatically. Public
+                   GitHub repos work without authentication.
                  </p>
                </div>
              )}
