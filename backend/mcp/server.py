@@ -1,4 +1,4 @@
-"""MCP stdio server exposing the five Cartographer query tools.
+"""MCP stdio server exposing the Cartographer lifecycle + query tools.
 
 The MCP SDK is an optional dependency; when missing, ``main()`` exits with a
 clear message rather than crashing FastAPI imports of this module.
@@ -10,8 +10,12 @@ import asyncio
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
+from backend.db import store as db_store
+from backend.indexer.runner import run_index
+from backend.lib.repo_hash import hash_repo
 from backend.models import (
     ArchRequest,
     ExemplarRequest,
@@ -49,6 +53,48 @@ def _engine(repo_hash: str) -> QueryEngine:
 # ---------------------------------------------------------------------------
 
 
+def tool_index_directory(args: dict[str, Any]) -> dict[str, Any]:
+    """Index a local directory and return its repo_hash plus per-layer counts.
+
+    Synchronous: blocks until all four layers complete. The agent uses the
+    returned ``repo_hash`` for subsequent query tool calls. Re-indexing the
+    same path produces the same hash and overwrites prior state.
+    """
+    raw = args.get("path")
+    if not raw or not isinstance(raw, str):
+        return {"error": "path (string) is required"}
+    path = Path(raw).expanduser().resolve()
+    if not path.is_dir():
+        return {"error": f"not a directory: {path}"}
+
+    repo_hash = hash_repo(local_path=str(path))
+    db_store.upsert_repo(
+        hash=repo_hash,
+        name=path.name or repo_hash,
+        local_path=str(path),
+        status="pending",
+    )
+    progress: list[dict[str, Any]] = []
+
+    def _emit(event_type: str, payload: dict) -> None:
+        progress.append({"event": event_type, **payload})
+
+    run_index(repo_hash, str(path), _emit, job_id="mcp")
+
+    counts = {
+        "symbols": len(db_store.iter_symbols(repo_hash)),
+        "flows": db_store.count_flows(repo_hash),
+        "clusters": db_store.count_clusters(repo_hash),
+        "invariants": db_store.count_invariants(repo_hash),
+    }
+    return {
+        "repo_hash": repo_hash,
+        "name": path.name,
+        "local_path": str(path),
+        "counts": counts,
+    }
+
+
 def tool_find_relevant_context(args: dict[str, Any]) -> dict[str, Any]:
     req = FindContextRequest(**args)
     return _engine(req.repo_hash).find_relevant_context(req).model_dump()
@@ -75,6 +121,7 @@ def tool_find_exemplars(args: dict[str, Any]) -> dict[str, Any]:
 
 
 TOOLS = {
+    "index_directory": tool_index_directory,
     "find_relevant_context": tool_find_relevant_context,
     "trace_data_flow": tool_trace_data_flow,
     "find_invariants": tool_find_invariants,
