@@ -41,6 +41,7 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
 
   const activeRepoHash = useCartographerStore((s) => s.activeRepoHash);
   const pushActivity = useCartographerStore((s) => s.pushActivity);
+  const updateActivity = useCartographerStore((s) => s.updateActivity);
 
   // Fetch the registered set on mount. Defensive Array.isArray fallback in
   // case the backend ever returns a non-array shape (it currently doesn't,
@@ -101,6 +102,22 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
     if (!prompt || !prompt.trim()) return;
     const trimmed = prompt.trim();
     setRunningId(agent.agent_id);
+
+    // Push the entry IMMEDIATELY in 'running' state so the user sees the
+    // prompt land in Agent Activity right away — instead of waiting tens of
+    // seconds for the upstream call to return. The id is generated here so
+    // we can patch the same row in-place when the result arrives.
+    const entryId = newId();
+    pushActivity({
+      id: entryId,
+      query_type: `external:${agent.name}`,
+      task: trimmed,
+      cluster_id: null,
+      symbol_ids: [],
+      ts: Date.now(),
+      status: 'running',
+    });
+
     try {
       const result = await runExternalAgent(agent.agent_id, {
         prompt: trimmed,
@@ -108,21 +125,19 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
       });
       const summary = result.summary ?? '';
       toast.success(`${agent.name}: ${summary.slice(0, 80)}${summary.length > 80 ? '…' : ''}`);
-      // Mirror the backend's SSE event into the local activity store so the
-      // AgentActivityLog panel updates immediately, even before the SSE
-      // round-trip arrives.
-      pushActivity({
-        id: newId(),
-        query_type: `external:${agent.name}`,
-        task: trimmed,
-        cluster_id: null,
-        symbol_ids: result.citations || [],
-        ts: Date.now(),
+      updateActivity(entryId, {
+        status: 'done',
         summary,
+        symbol_ids: result.citations || [],
+        steps: result.steps || [],
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`${agent.name} failed`, { description: msg });
+      updateActivity(entryId, {
+        status: 'failed',
+        summary: `Error: ${msg}`,
+      });
     } finally {
       setRunningId(null);
     }

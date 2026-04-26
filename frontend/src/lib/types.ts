@@ -255,10 +255,19 @@ export interface CreateExternalAgentBody {
   auth_header?: string; // sent verbatim as the ``Authorization`` request header
 }
 
+export interface ReasoningStep {
+  kind: 'thought' | 'tool_call' | 'tool_result' | 'final';
+  text: string;
+  tool?: string | null;
+  citations?: string[];
+  ts_ms?: number | null;
+}
+
 export interface ExternalAgentResult {
   summary: string;
   citations?: string[];
   warnings?: string[];
+  steps?: ReasoningStep[];
 }
 
 export interface SseEvent<T = Record<string, unknown>> {

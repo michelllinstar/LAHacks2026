@@ -13,7 +13,7 @@ import { GraphInfoModal } from './GraphInfoModal';
 import { InvariantToolbar } from './InvariantToolbar';
 import { getGraph, getIndexStatus } from '../../../lib/api';
 import { useRepoStream } from '../../../lib/sse';
-import { useCartographerStore } from '../../../lib/store';
+import { useCartographerStore, type AgentActivity } from '../../../lib/store';
 import type { GraphProjection, IndexStatus, LayerName, SseEvent } from '../../../lib/types';
 
 interface CartographerWorkspaceProps {
@@ -163,6 +163,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
             symbol_ids: (payload.symbol_ids as string[] | undefined) ?? [],
             ts: Date.now(),
             summary: payload.summary as string | undefined,
+            steps: (payload.steps as AgentActivity['steps']) ?? [],
           });
           break;
         }

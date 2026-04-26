@@ -214,7 +214,19 @@ class ExternalAgentRunRequest(BaseModel):
     prompt: str
 
 
+class ReasoningStep(BaseModel):
+    """One entry in an external agent's chain of reasoning. Optional — agents
+    that don't supply steps still get a single-summary activity entry."""
+
+    kind: Literal["thought", "tool_call", "tool_result", "final"]
+    text: str
+    tool: Optional[str] = None
+    citations: list[str] = []
+    ts_ms: Optional[int] = None
+
+
 class ExternalAgentResult(BaseModel):
     summary: str
     citations: list[str] = []
     warnings: list[str] = []
+    steps: list[ReasoningStep] = []

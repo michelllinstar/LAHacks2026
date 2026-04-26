@@ -11,7 +11,18 @@ Cartographer website's "External agents" panel — backend will POST a
 ``{prompt, repo_hash, context_bundle}`` payload and expect this agent's
 reply to match Cartographer's wire contract:
 
-    response: {"summary": str, "citations": list[str], "warnings": list[str]}
+    response: {
+        "summary":   str,
+        "citations": list[str],
+        "warnings":  list[str],
+        "steps":     list[ReasoningStep],   # optional chain-of-reasoning
+    }
+
+A ``ReasoningStep`` is ``{kind, text, tool?, citations?, ts_ms?}`` where
+``kind`` is one of ``thought | tool_call | tool_result | final``. The
+website renders these as a collapsible thread under the activity entry.
+Steps are optional — agents that omit them still work, just without an
+expandable trace.
 
 The agent ALSO retains its full uAgents identity: it has a public
 ``agent1q...`` address, registers in the Almanac if a network is reachable,
@@ -39,6 +50,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import requests
+
 # uAgents 0.24+ ships @on_rest_post / @on_rest_get. Older releases need
 # pip install -U uagents. We pin a clear error if the import fails.
 try:
@@ -62,12 +75,28 @@ class CartographerRequest(Model):
     # loosely as a dict — the agent only needs to reach into a couple of
     # known keys to be useful.
     context_bundle: dict[str, Any]
+    # Optional callback channel. When the dispatcher is the Cartographer
+    # backend, these are populated so the agent can issue read-only queries
+    # back into the platform during its reasoning loop. Both are optional so
+    # the same agent can also be invoked from anywhere that doesn't have
+    # them.
+    cartographer_token: str | None = None
+    cartographer_base_url: str | None = None
+
+
+class ReasoningStep(Model):
+    kind: str  # thought | tool_call | tool_result | final
+    text: str
+    tool: str | None = None
+    citations: list[str] = []
+    ts_ms: int | None = None
 
 
 class CartographerResponse(Model):
     summary: str
     citations: list[str] = []
     warnings: list[str] = []
+    steps: list[ReasoningStep] = []
 
 
 # ---------------------------------------------------------------------------
@@ -134,10 +163,38 @@ def _summarize(req: CartographerRequest) -> CartographerResponse:
     if not syms:
         warnings.append("empty context_bundle.relevant_symbols")
 
+    # Synthetic reasoning trace so the website's Agent Activity panel has
+    # something to expand. Real LLM agents would emit one step per
+    # think/act/observe turn.
+    steps = [
+        ReasoningStep(
+            kind="thought",
+            text=(
+                f"Looking for symbols relevant to: {req.prompt!r}. "
+                f"Region role is {role!r}."
+            ),
+        ),
+        ReasoningStep(
+            kind="tool_result",
+            tool="find_relevant_context",
+            text=(
+                f"Bundle carried {len(syms)} ranked symbol(s); taking top "
+                f"{len(citations)}."
+            ),
+            citations=citations,
+        ),
+        ReasoningStep(
+            kind="final",
+            text=summary,
+            citations=citations,
+        ),
+    ]
+
     return CartographerResponse(
         summary=summary,
         citations=citations,
         warnings=warnings,
+        steps=steps,
     )
 
 

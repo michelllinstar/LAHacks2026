@@ -8,7 +8,16 @@
 // workspace doesn't need a context provider tree.
 
 import { create } from 'zustand';
-import type { AgentRunStatus, GraphProjection, IndexStatus, LayerName, RepoSummary } from './types';
+import type {
+  AgentRunStatus,
+  GraphProjection,
+  IndexStatus,
+  LayerName,
+  ReasoningStep,
+  RepoSummary,
+} from './types';
+
+export type AgentActivityStatus = 'running' | 'done' | 'failed';
 
 export interface AgentActivity {
   id: string;
@@ -17,10 +26,18 @@ export interface AgentActivity {
   cluster_id?: string | null;
   symbol_ids: string[];
   ts: number; // epoch ms
+  // Lifecycle of the entry. Defaults to 'done' for backward compatibility,
+  // so existing call sites that just push a finished entry keep working.
+  // External-agent dispatches push 'running' immediately on user submit so
+  // the prompt is visible without waiting for the upstream call to finish.
+  status?: AgentActivityStatus;
   // Optional natural-language summary the agent returned. Surfaced by the
   // AgentActivityLog under each entry. Built-in agents may omit it; external
   // agents always populate it from their response body's ``summary``.
   summary?: string;
+  // Optional chain-of-reasoning the external agent reported (think/act/observe
+  // turns). Rendered as a collapsible thread under the summary.
+  steps?: ReasoningStep[];
 }
 
 export interface RegionHighlight {
@@ -53,6 +70,10 @@ interface CartographerState {
 
   activity: AgentActivity[];
   pushActivity: (a: AgentActivity) => void;
+  // Patch an existing entry by id. No-op if the id isn't in the store.
+  // Used by the external-agents flow to flip an entry from 'running' →
+  // 'done' / 'failed' once the upstream call returns.
+  updateActivity: (id: string, patch: Partial<AgentActivity>) => void;
   clearActivity: () => void;
 
   // Live agent-run state, keyed by run_id. Mirrors backend/routes/agents.py.
@@ -143,6 +164,12 @@ export const useCartographerStore = create<CartographerState>((set) => ({
   activity: [],
   pushActivity: (a) =>
     set((state) => ({ activity: [a, ...state.activity].slice(0, 200) })),
+  updateActivity: (id, patch) =>
+    set((state) => ({
+      activity: state.activity.map((entry) =>
+        entry.id === id ? { ...entry, ...patch } : entry,
+      ),
+    })),
   clearActivity: () => set({ activity: [] }),
 
   agentRuns: {},

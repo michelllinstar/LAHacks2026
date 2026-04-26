@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from backend.db import store as db_store
 from backend.lib import events as event_bus
+from backend.lib.agent_token import mint as mint_agent_token
 from backend.lib.auth_guard import require_session
 from backend.models import (
     ExternalAgentCreate,
@@ -131,10 +132,23 @@ def run_agent(agent_id: str, req: ExternalAgentRunRequest) -> ExternalAgentResul
         FindContextRequest(task=req.prompt, repo_hash=req.repo_hash)
     )
 
+    # Mint a short-lived read token + advertise the callback base URL so the
+    # agent can issue follow-up reads against /api/agent-query/* during its
+    # reasoning loop. Token expires in 5 min — well past the 30 s outer
+    # timeout below — and is bound to this single repo_hash.
+    callback_token = mint_agent_token(req.repo_hash)
+    callback_base = os.getenv(
+        "CARTOGRAPHER_PUBLIC_BASE_URL", "http://localhost:4000"
+    )
+
     body = {
         "prompt": req.prompt,
         "repo_hash": req.repo_hash,
         "context_bundle": bundle.model_dump(),
+        # Optional callback channel — agents that want to do more than skim
+        # the pre-fetched bundle use these to call read tools themselves.
+        "cartographer_token": callback_token,
+        "cartographer_base_url": callback_base,
     }
     headers = {"Content-Type": "application/json"}
     if agent.get("auth_header"):
@@ -177,6 +191,36 @@ def run_agent(agent_id: str, req: ExternalAgentRunRequest) -> ExternalAgentResul
             detail="external agent response 'citations'/'warnings' must be lists",
         )
 
+    # Reasoning steps are optional and best-effort: drop malformed entries
+    # rather than rejecting the whole reply, since they come from third-party
+    # code we don't control.
+    raw_steps = payload.get("steps") or []
+    steps: list[dict] = []
+    if isinstance(raw_steps, list):
+        for entry in raw_steps:
+            if not isinstance(entry, dict):
+                continue
+            kind = entry.get("kind")
+            text = entry.get("text")
+            if kind not in {"thought", "tool_call", "tool_result", "final"}:
+                continue
+            if not isinstance(text, str):
+                continue
+            step_citations = entry.get("citations") or []
+            if not isinstance(step_citations, list):
+                step_citations = []
+            steps.append(
+                {
+                    "kind": kind,
+                    "text": text,
+                    "tool": entry.get("tool") if isinstance(entry.get("tool"), str) else None,
+                    "citations": [c for c in step_citations if isinstance(c, str)],
+                    "ts_ms": entry.get("ts_ms") if isinstance(entry.get("ts_ms"), int) else None,
+                }
+            )
+    if raw_steps and not steps:
+        warnings = list(warnings) + ["dropped malformed 'steps' entries"]
+
     emit = event_bus.make_emitter(req.repo_hash)
     emit(
         "agent_activity",
@@ -188,6 +232,8 @@ def run_agent(agent_id: str, req: ExternalAgentRunRequest) -> ExternalAgentResul
             # Carry the agent's natural-language reply so the frontend's
             # AgentActivityLog can render it directly under the entry.
             "summary": payload["summary"],
+            "steps": steps,
+            "warnings": warnings,
         },
     )
 
@@ -195,4 +241,5 @@ def run_agent(agent_id: str, req: ExternalAgentRunRequest) -> ExternalAgentResul
         summary=payload["summary"],
         citations=citations,
         warnings=warnings,
+        steps=steps,
     )

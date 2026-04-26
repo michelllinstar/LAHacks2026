@@ -38,7 +38,9 @@ import shutil
 import socket
 import subprocess
 import sys
-from typing import Any
+import tempfile
+from pathlib import Path
+from typing import Any, Optional
 
 try:
     from flask import Flask, jsonify, request
@@ -97,12 +99,24 @@ def _name_for_port(port: int, base: int = DEFAULT_PORT) -> str:
     return f"{DEFAULT_NAMES[idx]}-{cycle + 1}" if offset >= 0 else f"Agent-{port}"
 
 
-def _format_prompt(user_task: str, bundle: dict[str, Any]) -> str:
+def _format_prompt(
+    user_task: str,
+    bundle: dict[str, Any],
+    *,
+    write: bool,
+    repo_root: Optional[str],
+    mcp_enabled: bool,
+) -> str:
     """Build a Claude Code prompt from the user's task + Cartographer bundle.
 
     Bundle shape comes from backend/models.py::ContextBundle. We surface the
     region role, top-ranked symbols, exemplars, and any notes — enough for
     Claude to reason about the request without re-querying.
+
+    When ``write`` is True, append an instruction telling Claude that it has
+    filesystem access at ``repo_root`` and is expected to apply edits using
+    its native ``Read`` / ``Edit`` / ``Write`` tools instead of describing
+    them in prose.
     """
     region = bundle.get("region") or {}
     role = region.get("role") or "(role not inferred)"
@@ -125,6 +139,37 @@ def _format_prompt(user_task: str, bundle: dict[str, Any]) -> str:
     notes_block = "\n".join(f"- {n}" for n in notes) or "(none)"
     conv_block = json.dumps(conventions, indent=2) if conventions else "(none)"
 
+    mcp_block = (
+        "\nCartographer MCP tools (call them whenever you want more context):\n"
+        "  - mcp__cartographer__find_relevant_context(task, repo_hash) — re-rank\n"
+        "  - mcp__cartographer__trace_data_flow(symbol, direction, depth, repo_hash)\n"
+        "  - mcp__cartographer__find_invariants(symbol|cluster_id, repo_hash)\n"
+        "  - mcp__cartographer__describe_architecture(path|cluster_id, repo_hash)\n"
+        "  - mcp__cartographer__find_exemplars(task, cluster_id, repo_hash)\n"
+        "Use them to verify invariants, trace flows, or check architecture\n"
+        "before editing — the bundle above is a starting point, not the only\n"
+        "context available.\n"
+    ) if mcp_enabled else ""
+
+    if write:
+        closing = (
+            f"You have read+write access to the repository at: {repo_root}\n"
+            f"Use your Read / Edit / Write / Bash tools to inspect the actual\n"
+            f"source files (the bundle above is a guide, not the source) and\n"
+            f"apply the change the user is asking for. After editing, reply\n"
+            f"with a 2-4 sentence summary of WHAT you changed and a bulleted\n"
+            f"list of the file paths you modified. Cite Cartographer symbols\n"
+            f"by qualified name where relevant."
+        )
+    else:
+        closing = (
+            "Reply with a 2-4 sentence plan or summary. Cite symbols by their\n"
+            "qualified name where relevant. Do not write code unless the task\n"
+            "explicitly asks for it."
+        )
+
+    closing = f"{mcp_block}{closing}" if mcp_block else closing
+
     return f"""You are an external coding agent invoked by the Codebase Cartographer.
 You have been given a focused context bundle that was already resolved by
 Cartographer's Query Engine — you do NOT need to re-query.
@@ -146,36 +191,125 @@ Exemplar files to model after:
 Notes / caveats from Cartographer:
 {notes_block}
 
-Reply with a 2-4 sentence plan or summary. Cite symbols by their qualified
-name where relevant. Do not write code unless the task explicitly asks for it.
+{closing}
 """
 
 
-def _run_claude(prompt: str, *, claude_bin: str, timeout: float) -> str:
-    """Shell out to Claude Code in headless print mode and capture stdout."""
+def _build_mcp_config(cartographer_root: str) -> dict:
+    """Build the MCP-config JSON Claude Code consumes via ``--mcp-config``.
+
+    Wires Cartographer's stdio MCP server (``backend/mcp/server.py``) so the
+    agent can call Cartographer's 5 query tools in addition to its native
+    Read/Edit/Write/Bash. Env vars the MCP server needs are read from the
+    wrapper's own environment and forwarded explicitly so they reach the
+    subprocess regardless of Claude Code's env-sanitization defaults.
+    """
+    forwarded_env: dict[str, str] = {}
+    for key in (
+        "MONGODB_URI", "MONGODB_DB_NAME",
+        "MCP_SHARED_SECRET",
+        "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_EMBEDDING_MODEL",
+        "GOOGLE_API_KEY",
+        "CARTOGRAPHER_WORKSPACE_ROOT",
+    ):
+        val = os.environ.get(key)
+        if val:
+            forwarded_env[key] = val
+    return {
+        "mcpServers": {
+            "cartographer": {
+                "command": sys.executable,  # the same python that's running the wrapper
+                "args": ["-m", "backend.mcp.server"],
+                "cwd": cartographer_root,
+                "env": forwarded_env,
+            }
+        }
+    }
+
+
+def _default_cartographer_root() -> str:
+    """The repo root, derived from the wrapper's own location.
+
+    ``examples/external_agents/claude_code.py`` → 3 levels up = repo root.
+    """
+    return str(Path(__file__).resolve().parent.parent.parent)
+
+
+def _run_claude(
+    prompt: str,
+    *,
+    claude_bin: str,
+    timeout: float,
+    cwd: Optional[str] = None,
+    write: bool = False,
+    mcp_config: Optional[dict] = None,
+) -> str:
+    """Shell out to Claude Code in headless print mode and capture stdout.
+
+    ``cwd`` sets the directory Claude treats as its working tree (and the
+    only place its Read/Edit/Write tools are scoped to). ``write=True`` adds
+    ``--permission-mode acceptEdits`` so file edits go through without
+    per-action confirmation prompts that would block in headless mode.
+    ``mcp_config``, when non-None, is written to a tempfile and passed as
+    ``--mcp-config <path>``; tools registered in it (e.g. cartographer's 5
+    query tools) become available to Claude alongside its built-ins.
+    """
     cmd = [claude_bin, "-p", prompt]
-    logger.info("invoking %s (prompt %d chars, timeout %.0fs)", claude_bin, len(prompt), timeout)
+    if write:
+        cmd += ["--permission-mode", "acceptEdits"]
+
+    mcp_config_path: Optional[str] = None
+    if mcp_config is not None:
+        # Tempfile lifetime spans the subprocess; we delete it in `finally`.
+        fd, mcp_config_path = tempfile.mkstemp(prefix="cc-mcp-", suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            json.dump(mcp_config, f)
+        cmd += ["--mcp-config", mcp_config_path]
+
+    logger.info(
+        "invoking %s (prompt %d chars, timeout %.0fs, cwd=%s, write=%s, mcp=%s)",
+        claude_bin, len(prompt), timeout, cwd or "(parent)", write,
+        bool(mcp_config),
+    )
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(f"claude CLI exceeded {timeout:.0f}s")
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()[:400]
-        raise RuntimeError(f"claude CLI exit {proc.returncode}: {stderr}")
-    out = (proc.stdout or "").strip()
-    if not out:
-        raise RuntimeError("claude CLI returned empty stdout")
-    return out
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                cwd=cwd,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"claude CLI exceeded {timeout:.0f}s")
+        if proc.returncode != 0:
+            stderr = (proc.stderr or "").strip()[:400]
+            raise RuntimeError(f"claude CLI exit {proc.returncode}: {stderr}")
+        out = (proc.stdout or "").strip()
+        if not out:
+            raise RuntimeError("claude CLI returned empty stdout")
+        return out
+    finally:
+        if mcp_config_path:
+            try:
+                os.unlink(mcp_config_path)
+            except OSError:
+                pass
 
 
-def make_app(*, name: str, claude_bin: str, timeout: float, stub: bool) -> Flask:
+def make_app(
+    *,
+    name: str,
+    claude_bin: str,
+    timeout: float,
+    stub: bool,
+    repo_root: Optional[str] = None,
+    write: bool = False,
+    mcp_config: Optional[dict] = None,
+) -> Flask:
     app = Flask(__name__)
+    mcp_enabled = mcp_config is not None
 
     @app.get("/health")
     def health():
@@ -184,6 +318,9 @@ def make_app(*, name: str, claude_bin: str, timeout: float, stub: bool) -> Flask
                 "status": "ok",
                 "name": name,
                 "stub": stub,
+                "write": write,
+                "repo_root": repo_root,
+                "mcp": mcp_enabled,
                 "claude_bin": claude_bin if not stub else None,
                 "claude_resolved": shutil.which(claude_bin) is not None if not stub else None,
             }
@@ -200,20 +337,32 @@ def make_app(*, name: str, claude_bin: str, timeout: float, stub: bool) -> Flask
         if not prompt:
             return jsonify({"summary": "", "warnings": ["empty prompt"]}), 400
 
-        full = _format_prompt(prompt, bundle)
+        full = _format_prompt(
+            prompt, bundle, write=write, repo_root=repo_root, mcp_enabled=mcp_enabled,
+        )
         symbols = bundle.get("relevant_symbols") or []
         citations = [s.get("qualified_name") for s in symbols[:5] if s.get("qualified_name")]
 
         if stub:
             n = len(symbols)
+            mode = "edit" if write else "summarize"
+            mcp_tag = "+mcp" if mcp_enabled else ""
             summary = (
-                f"[stub] Would have asked Claude Code to handle '{prompt}'. "
+                f"[stub:{mode}{mcp_tag}] Would have asked Claude Code to handle '{prompt}'. "
                 f"Saw {n} ranked symbols in the bundle."
+                + (f" repo_root={repo_root}" if write else "")
             )
             return jsonify({"summary": summary, "citations": citations, "warnings": ["stub mode — no real Claude call"]})
 
         try:
-            summary = _run_claude(full, claude_bin=claude_bin, timeout=timeout)
+            summary = _run_claude(
+                full,
+                claude_bin=claude_bin,
+                timeout=timeout,
+                cwd=repo_root,
+                write=write,
+                mcp_config=mcp_config,
+            )
         except RuntimeError as exc:
             logger.warning("claude invocation failed: %s", exc)
             return jsonify({"summary": "", "warnings": [str(exc)]}), 502
@@ -241,7 +390,82 @@ def main() -> None:
     )
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument("--stub", action="store_true", help="don't invoke claude; return a fake summary")
+    parser.add_argument(
+        "--repo-root",
+        default=os.getenv("CLAUDE_AGENT_REPO_ROOT"),
+        help=(
+            "directory the agent can read/write (default: $CLAUDE_AGENT_REPO_ROOT). "
+            "Required when --write is set."
+        ),
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help=(
+            "let Claude Code edit files under --repo-root using its Read/Edit/Write/Bash "
+            "tools (passes --permission-mode acceptEdits). DEFAULT: read-only summaries."
+        ),
+    )
+    parser.add_argument(
+        "--no-mcp",
+        action="store_true",
+        help=(
+            "disable Cartographer MCP integration (Claude won't have the 5 query tools). "
+            "DEFAULT: enabled — gives the agent access to find_relevant_context, "
+            "trace_data_flow, find_invariants, describe_architecture, find_exemplars."
+        ),
+    )
+    parser.add_argument(
+        "--cartographer-root",
+        default=None,
+        help=(
+            "path to the Cartographer repo (parent of backend/) for the MCP server's cwd. "
+            "Default: derived from the wrapper's own location."
+        ),
+    )
     args = parser.parse_args()
+
+    # Validate write mode: needs a real directory to operate on.
+    repo_root: Optional[str] = None
+    if args.write:
+        if not args.repo_root:
+            logger.error(
+                "--write requires --repo-root <path> (or CLAUDE_AGENT_REPO_ROOT env var)"
+            )
+            raise SystemExit(2)
+        p = Path(args.repo_root).expanduser().resolve()
+        if not p.is_dir():
+            logger.error("--repo-root is not a directory: %s", p)
+            raise SystemExit(2)
+        repo_root = str(p)
+    elif args.repo_root:
+        # User passed --repo-root without --write: harmless, just log.
+        logger.info(
+            "--repo-root %s ignored (no --write); pass --write to enable edits",
+            args.repo_root,
+        )
+
+    # MCP wiring: on by default. Resolves the Cartographer repo root either
+    # from --cartographer-root or by deriving from this wrapper's location.
+    mcp_config: Optional[dict] = None
+    cartographer_root_used: Optional[str] = None
+    if not args.no_mcp:
+        cart_root = (
+            args.cartographer_root
+            if args.cartographer_root
+            else _default_cartographer_root()
+        )
+        cart_path = Path(cart_root).expanduser().resolve()
+        # Sanity-check: we expect a backend/mcp/server.py under it.
+        if not (cart_path / "backend" / "mcp" / "server.py").is_file():
+            logger.warning(
+                "Cartographer MCP server not found at %s/backend/mcp/server.py — "
+                "disabling MCP. Pass --cartographer-root <path> to override.",
+                cart_path,
+            )
+        else:
+            cartographer_root_used = str(cart_path)
+            mcp_config = _build_mcp_config(cartographer_root_used)
 
     # Pick port: explicit --port wins; otherwise probe upward from DEFAULT_PORT
     # so each terminal session gets a unique slot without manual coordination.
@@ -270,13 +494,28 @@ def main() -> None:
         else:
             logger.info("claude CLI resolved to %s", resolved)
 
-    app = make_app(name=name, claude_bin=args.bin, timeout=args.timeout, stub=args.stub)
+    app = make_app(
+        name=name,
+        claude_bin=args.bin,
+        timeout=args.timeout,
+        stub=args.stub,
+        repo_root=repo_root,
+        write=args.write,
+        mcp_config=mcp_config,
+    )
 
     # Banner: print the name + registration URL prominently so the user can
     # copy them straight into the Agents panel without hunting through log
     # lines.
     url = f"http://{args.host}:{port}"
-    mode = " (stub mode — no real Claude calls)" if args.stub else ""
+    parts: list[str] = []
+    if args.stub:
+        parts.append("stub mode")
+    if args.write:
+        parts.append("WRITE MODE")
+    if mcp_config:
+        parts.append("MCP")
+    mode = f" ({' · '.join(parts)})" if parts else ""
     bar = "─" * 60
     print()
     print(f"  {bar}")
@@ -284,6 +523,11 @@ def main() -> None:
     print()
     print(f"    Suggested name:  {name}")
     print(f"    Endpoint URL:    {url}")
+    if args.write:
+        print(f"    Repo root:       {repo_root}")
+        print(f"    ⚠ Claude can edit files under that path.")
+    if mcp_config:
+        print(f"    MCP cartographer: {cartographer_root_used} (5 query tools attached)")
     print()
     print(f"    Paste those into the website's Agents panel:")
     print(f"      Agents tab → fill Name + Endpoint URL → Register")
