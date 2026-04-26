@@ -64,7 +64,7 @@ def build_agent(seed: Optional[str] = None, port: int = 8005):
         seed=seed
         or os.getenv("ARCH_ANALYST_SEED", "cartographer-architecture-analyst-seed"),
         port=port,
-        mailbox=True,
+        mailbox=False,
     )
 
     @agent.on_message(model=ArchQuery, replies=ArchGraph)

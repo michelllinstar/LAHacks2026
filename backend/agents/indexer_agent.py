@@ -21,7 +21,7 @@ def build_agent(seed: Optional[str] = None, port: int = 8003):
         name="cartographer_indexer",
         seed=seed or os.getenv("INDEXER_SEED", "cartographer-indexer-seed"),
         port=port,
-        mailbox=True,
+        mailbox=False,
     )
 
     @agent.on_message(model=IndexRepo, replies=IndexProgress)

@@ -54,7 +54,7 @@ def build_agent(seed: Optional[str] = None, port: int = 8004):
         name="cartographer_flow_analyst",
         seed=seed or os.getenv("FLOW_ANALYST_SEED", "cartographer-flow-analyst-seed"),
         port=port,
-        mailbox=True,
+        mailbox=False,
     )
 
     @agent.on_message(model=FlowQuery, replies=FlowGraph)

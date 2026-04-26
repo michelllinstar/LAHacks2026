@@ -369,24 +369,140 @@ def handle_user_query(query: UserQuery) -> UserResponse:
     # All other types currently degrade to empty responses for the MVP.
     return UserResponse(bundle={"query_type": query_type, "result": None})
 
-
+# Agent description used by Agentverse for ASI:One keyword routing (SPEC §7.2.4).
+# The keywords make this agent discoverable when a user asks about code/codebase.
+_AGENT_DESCRIPTION = (
+    "Codebase Cartographer Coordinator. Answers questions about any indexed "
+    "source repository: relevant symbols for a task, data-flow traces, "
+    "architectural conventions, and implicit invariants. Keywords: code, "
+    "codebase, repository, architecture, convention, invariant, flow, symbol."
+)
+ 
+ 
 def build_agent(seed: Optional[str] = None, port: int = 8001):
     from uagents import Agent, Context  # type: ignore
-
+ 
+    # FIX: import Chat Protocol models. The uagents_ai_engine package ships
+    # these; fall back to a minimal inline shim so the module still imports
+    # when only the base uagents SDK is installed.
+    try:
+        from uagents_ai_engine import (  # type: ignore
+            UAgentResponse,
+            UAgentResponseType,
+        )
+        from uagents.experimental.dialogs import ChatMessage  # type: ignore
+ 
+        _HAVE_CHAT_PROTO = True
+    except ImportError:
+        _HAVE_CHAT_PROTO = False
+        logger.warning(
+            "uagents_ai_engine or chat protocol not installed; "
+            "Chat Protocol handler will be skipped. "
+            "Run: pip install uagents-ai-engine"
+        )
+ 
     agent = Agent(
         name="cartographer_coordinator",
         seed=seed or os.getenv("COORDINATOR_SEED", "cartographer-coordinator-seed"),
         port=port,
+        # FIX: mailbox=True is correct; also supply the Agentverse API key so
+        # the agent can register its mailbox on startup.
         mailbox=True,
+        agentverse={
+            "api_key": os.getenv("AGENTVERSE_API_KEY", ""),
+        },
     )
-
+ 
+    # ------------------------------------------------------------------
+    # FIX: Chat Protocol handler — this is what ASI:One and OmegaClaw
+    # send when they discover and invoke the agent through Agentverse.
+    # The format expected by uagents_ai_engine is:
+    #   request:  ChatMessage  (content[0].text = JSON with repo_hash + question)
+    #   response: UAgentResponse (message = serialised bundle JSON)
+    # ------------------------------------------------------------------
+    if _HAVE_CHAT_PROTO:
+        import json
+ 
+        @agent.on_message(model=ChatMessage)  # type: ignore[arg-type]
+        async def _on_chat(ctx: Context, sender: str, msg: "ChatMessage") -> None:  # type: ignore[name-defined]
+            try:
+                # OmegaClaw / ASI:One passes a JSON string as the chat text.
+                # Expected shape: {"repo_hash": "...", "question": "..."}
+                # Fall back to treating the whole text as the question so a
+                # plain-text prompt still gets a useful error response.
+                raw = msg.content[0].text if msg.content else ""
+                try:
+                    payload = json.loads(raw)
+                    repo_hash = payload.get("repo_hash", "")
+                    question = payload.get("question", raw)
+                except (json.JSONDecodeError, AttributeError):
+                    repo_hash = ""
+                    question = raw
+ 
+                if not repo_hash:
+                    response_text = (
+                        "Please provide a repo_hash. "
+                        'Send JSON: {"repo_hash": "<hash>", "question": "<question>"}'
+                    )
+                else:
+                    result = handle_user_query(
+                        UserQuery(repo_hash=repo_hash, question=question)
+                    )
+                    response_text = json.dumps(result.bundle)
+ 
+                await ctx.send(
+                    sender,
+                    UAgentResponse(  # type: ignore[call-arg]
+                        message=response_text,
+                        type=UAgentResponseType.FINAL,
+                    ),
+                )
+            except Exception as exc:
+                logger.exception("Coordinator Chat Protocol error: %s", exc)
+                await ctx.send(
+                    sender,
+                    UAgentResponse(  # type: ignore[call-arg]
+                        message=f"Error: {exc}",
+                        type=UAgentResponseType.ERROR,
+                    ),
+                )
+ 
+    # ------------------------------------------------------------------
+    # Keep the original UserQuery handler for internal mesh calls
+    # (Symbol Analyst, Flow Analyst, etc. still use this path).
+    # ------------------------------------------------------------------
     @agent.on_message(model=UserQuery, replies=UserResponse)
     async def _on_query(ctx: Context, sender: str, msg: UserQuery) -> None:
         try:
             reply = handle_user_query(msg)
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc:
             logger.exception("Coordinator error: %s", exc)
             reply = UserResponse(bundle={"error": str(exc)})
         await ctx.send(sender, reply)
-
+ 
     return agent
+ 
+
+
+# def build_agent(seed: Optional[str] = None, port: int = 8001):
+#     from uagents import Agent, Context  # type: ignore
+
+#     agent = Agent(
+#         name="cartographer_coordinator",
+#         seed=seed or os.getenv("COORDINATOR_SEED", "cartographer-coordinator-seed"),
+#         port=port,
+#         mailbox=True,
+#         readme_path="README.md",
+#         publish_agent_details=True
+#     )
+
+#     @agent.on_message(model=UserQuery, replies=UserResponse)
+#     async def _on_query(ctx: Context, sender: str, msg: UserQuery) -> None:
+#         try:
+#             reply = handle_user_query(msg)
+#         except Exception as exc:  # pragma: no cover
+#             logger.exception("Coordinator error: %s", exc)
+#             reply = UserResponse(bundle={"error": str(exc)})
+#         await ctx.send(sender, reply)
+
+#     return agent
