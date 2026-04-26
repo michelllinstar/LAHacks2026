@@ -18,30 +18,33 @@ export function LandingPage() {
           backgroundSize: '50px 50px',
         }} />
 
-        {/* Top Navigation */}
-        <nav className="relative z-10 border-b border-gray-800 bg-[#1e1e1e]/80 backdrop-blur-sm">
-          <div className="max-w-7xl mx-auto px-5 py-4">
+        {/* Top Navigation — mirrors ProfilePage / ProjectsDashboard exactly */}
+        <nav className="relative z-10 bg-[#2d2d2d] border-b border-gray-800">
+          <div className="px-[100px] py-2">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-5">
-                <AnimatedLogo size={44} />
-                <div>
-                  <h1 className="font-bold text-white text-xl">MarkCodePolo</h1>
-                  <p className="text-xs text-gray-400">Visualize your codebase</p>
+              <Link href="/" className="flex items-center gap-4">
+                <AnimatedLogo size={40} />
+                <div className="text-left">
+                  <h1 className="text-3xl font-bold text-white leading-tight">MarkCodePolo</h1>
+                  <p className="text-[10px] text-gray-400 leading-tight">markcodepolo</p>
                 </div>
-              </div>
+              </Link>
 
-              <div className="flex items-center gap-6">
-                <a href="#features" className="text-gray-300 hover:text-white transition-colors">Features</a>
+              <div className="flex items-center gap-3">
+                <a href="#features" className="px-6 py-3 text-base text-gray-300 hover:text-white transition-colors">
+                  Features
+                </a>
                 <Link
                   href="/login?mode=signin"
-                  className="px-5 py-2 text-gray-300 hover:text-white transition-colors"
+                  className="px-6 py-3 text-base text-gray-300 hover:text-white transition-colors"
                 >
                   Sign In
                 </Link>
-                <Link href="/login?mode=signup" className="group">
-                  <GlassBubble tone="blue" size="sm">
-                    Get Started
-                  </GlassBubble>
+                <Link
+                  href="/login?mode=signup"
+                  className="px-7 py-3 text-base font-medium text-white border-2 border-white/30 hover:border-white/60 hover:bg-white/5 rounded-lg transition-all bg-transparent"
+                >
+                  Get Started
                 </Link>
               </div>
             </div>

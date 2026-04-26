@@ -247,11 +247,11 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
             <div>
               <p className="text-base text-gray-400 mb-6">Choose how you want to connect your codebase</p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-2xl mx-auto items-stretch">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-10 max-w-5xl mx-auto items-stretch">
                 {/* GitHub Option */}
                 <button
                   onClick={() => handleTypeSelect('github')}
-                  className="glass-card px-10 py-12 rounded-2xl text-center group flex flex-col items-center gap-4 hover:border-[#2DD4BF]/40"
+                  className="glass-card px-20 py-24 min-h-[420px] rounded-2xl text-center group flex flex-col items-center justify-center gap-6 hover:border-[#2DD4BF]/40"
                 >
                   <div className="flex flex-col items-center">
                     <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center mb-6 group-hover:bg-[#252526] group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
@@ -271,7 +271,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                 {/* Local Option */}
                 <button
                   onClick={() => handleTypeSelect('local')}
-                  className="glass-card px-10 py-12 rounded-2xl text-center group flex flex-col items-center gap-4 hover:border-purple-400/40"
+                  className="glass-card px-20 py-24 min-h-[420px] rounded-2xl text-center group flex flex-col items-center justify-center gap-6 hover:border-purple-400/40"
                 >
                   <div className="flex flex-col items-center">
                     <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center mb-6 group-hover:bg-[#252526] group-hover:scale-110 group-hover:-rotate-3 transition-all duration-300">
