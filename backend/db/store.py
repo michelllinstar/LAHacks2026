@@ -148,9 +148,15 @@ def _ensure_repo_indexes(db: Database) -> None:
     db["symbol_embeddings"].create_index(
         [("symbol_id", ASCENDING)], unique=True, name="symbol_embeddings_symbol_unique"
     )
-    db["symbol_embeddings"].create_index(
-        [("repo_hash", ASCENDING)], name="symbol_embeddings_repo"
-    )
+    # symbol_embeddings_repo (single-field on repo_hash) was redundant: every
+    # access path joins via the unique symbol_id index. Drop it defensively
+    # on existing deployments so the orphan doesn't keep getting maintained.
+    try:
+        db["symbol_embeddings"].drop_index("symbol_embeddings_repo")
+    except OperationFailure:
+        pass
+    except Exception:
+        pass
 
     try:
         db["flows"].drop_index("flows_repo")
@@ -446,10 +452,23 @@ def bulk_upsert_symbols(
     if ops:
         db["symbols"].bulk_write(ops, ordered=False)
 
+    # Reconciliation filter narrowed to the same 4-tuple set used in upsert.
+    # ``qualified_name`` alone over-fetched: a qname shared across files (e.g.
+    # ``__init__`` on two classes) returned every doc with that name. Adding
+    # file_path and line_start as additional ``$in`` clauses keeps the index
+    # path on ``symbols_unique`` and prunes the cross-product server-side; the
+    # ``by_key`` dict still pins the final alignment.
     qnames = list({row["qualified_name"] for row in rows})
+    file_paths = list({row["file_path"] for row in rows})
+    line_starts = list({int(row["line_start"]) for row in rows})
     by_key: dict[tuple[str, str, int], ObjectId] = {}
     cursor = db["symbols"].find(
-        {"repo_hash": repo_hash, "qualified_name": {"$in": qnames}},
+        {
+            "repo_hash": repo_hash,
+            "qualified_name": {"$in": qnames},
+            "file_path": {"$in": file_paths},
+            "line_start": {"$in": line_starts},
+        },
         {"_id": 1, "qualified_name": 1, "file_path": 1, "line_start": 1},
     )
     for doc in cursor:
@@ -725,27 +744,12 @@ def flows_to_symbol(
     return list(cursor)
 
 
-def flows_through_symbol(repo_hash: str, symbol_id: ObjectId) -> list[dict]:
-    """Flows where ``symbol_id`` appears anywhere in the path or as endpoint."""
-    db = get_db()
-    return list(
-        db["flows"].find(
-            {
-                "repo_hash": repo_hash,
-                "$or": [
-                    {"source_symbol_id": symbol_id},
-                    {"sink_symbol_id": symbol_id},
-                    {"path": symbol_id},
-                ],
-            }
-        )
-    )
-
-
 def flows_touching_symbols(
     repo_hash: str, symbol_ids: Sequence[ObjectId]
 ) -> list[dict]:
-    """Batch version of :func:`flows_through_symbol` over many symbol ids."""
+    """Flows where any of ``symbol_ids`` appears as source, sink, or anywhere
+    in the intermediate path. Single $or query — see ``flows_repo_source``,
+    ``flows_repo_sink``, and the multikey ``flows_repo_path`` indexes."""
     if not symbol_ids:
         return []
     db = get_db()
@@ -819,14 +823,10 @@ def fetch_cluster(repo_hash: str, cluster_id: ObjectId) -> Optional[dict]:
 
 
 def fetch_cluster_member_files(repo_hash: str, cluster_id: ObjectId) -> list[str]:
-    """Files assigned to a cluster; still supported, prefer ``cluster_member_files``."""
-    db = get_db()
-    return [
-        doc["file_path"]
-        for doc in db["files"]
-        .find({"repo_hash": repo_hash, "cluster_id": cluster_id})
-        .sort("file_path", 1)
-    ]
+    """Deprecated alias kept for one release; new code uses
+    :func:`cluster_member_files`. Will be removed once external callers
+    are migrated."""
+    return cluster_member_files(repo_hash, cluster_id)
 
 
 def bulk_insert_clusters(repo_hash: str, rows: Sequence[dict]) -> list[ObjectId]:
@@ -951,8 +951,15 @@ def clusters_for_files(
 
 
 def cluster_member_files(repo_hash: str, cluster_id: ObjectId) -> list[str]:
-    """Alias for :func:`fetch_cluster_member_files`."""
-    return fetch_cluster_member_files(repo_hash, cluster_id)
+    """Files assigned to ``cluster_id``, sorted by path. Uses the sparse
+    ``files_repo_cluster`` index."""
+    db = get_db()
+    return [
+        doc["file_path"]
+        for doc in db["files"]
+        .find({"repo_hash": repo_hash, "cluster_id": cluster_id})
+        .sort("file_path", 1)
+    ]
 
 
 def cluster_member_symbols(
