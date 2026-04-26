@@ -11,6 +11,9 @@ export interface AgentQuery {
   cluster: string;
   symbolsReturned: number;
   tokensSaved: number;
+  // The agent's natural-language summary, if it returned one. Rendered under
+  // the query line in the activity card.
+  summary?: string;
 }
 
 // Rough token-savings heuristic: each symbol the engine answered with stands
@@ -60,6 +63,7 @@ export function AgentActivityLog({ onCollapse, onHighlight, highlightedQueryId }
         cluster: a.cluster_id ?? '—',
         symbolsReturned: a.symbol_ids.length,
         tokensSaved: a.symbol_ids.length * TOKENS_PER_SYMBOL,
+        summary: a.summary,
       })),
     [activity],
   );
@@ -132,10 +136,19 @@ export function AgentActivityLog({ onCollapse, onHighlight, highlightedQueryId }
                   </div>
                 </div>
 
+                {query.summary && (
+                  <div className="mt-1 mb-2 bg-[#1e1e1e] rounded-[5px] p-2 border border-[#3e3e42]">
+                    <div className="text-gray-500 text-[10px] uppercase tracking-wide mb-1">Output</div>
+                    <div className="text-xs text-gray-200 whitespace-pre-wrap break-words leading-relaxed">
+                      {query.summary}
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="bg-[#1e1e1e] rounded-[5px] p-2 border border-[#3e3e42]">
                     <div className="text-gray-500 mb-0.5">Cluster</div>
-                    <div className="text-white font-medium">{query.cluster}</div>
+                    <div className="text-white font-medium truncate">{query.cluster}</div>
                   </div>
                   <div className="bg-[#1e1e1e] rounded-[5px] p-2 border border-[#3e3e42]">
                     <div className="text-gray-500 mb-0.5">Symbols</div>

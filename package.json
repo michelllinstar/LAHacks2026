@@ -9,6 +9,7 @@
     "backend": "uvicorn backend.main:app --reload --port 4000",
     "agents": "python -m backend.agents.runtime",
     "mcp": "python -m backend.mcp.server",
+    "claude-agent": "python -m examples.external_agents.claude_code",
     "demo": "python scripts/run_demo.py",
     "lint": "eslint . --ext .js,.jsx"
   },

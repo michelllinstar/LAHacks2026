@@ -18,6 +18,15 @@ export default function WorkspaceRoute() {
   const projectName = useCartographerStore((s) =>
     s.repos.find((r) => r.hash === hash)?.name ?? 'Repository',
   );
+  const setActiveRepoHash = useCartographerStore((s) => s.setActiveRepoHash);
+
+  // Mirror the URL's hash into the store as the active repo. Without this,
+  // arriving via refresh / deep-link / direct navigation leaves
+  // ``activeRepoHash`` null, and components that gate on it (Agents panel
+  // Run button, ChatAgent dispatch) think no project is open.
+  useEffect(() => {
+    if (hash) setActiveRepoHash(hash);
+  }, [hash, setActiveRepoHash]);
 
   useEffect(() => {
     let cancelled = false;

@@ -162,6 +162,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
             cluster_id: (payload.cluster_id as string | null | undefined) ?? null,
             symbol_ids: (payload.symbol_ids as string[] | undefined) ?? [],
             ts: Date.now(),
+            summary: payload.summary as string | undefined,
           });
           break;
         }

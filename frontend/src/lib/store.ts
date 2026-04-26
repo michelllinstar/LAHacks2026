@@ -17,6 +17,10 @@ export interface AgentActivity {
   cluster_id?: string | null;
   symbol_ids: string[];
   ts: number; // epoch ms
+  // Optional natural-language summary the agent returned. Surfaced by the
+  // AgentActivityLog under each entry. Built-in agents may omit it; external
+  // agents always populate it from their response body's ``summary``.
+  summary?: string;
 }
 
 export interface RegionHighlight {

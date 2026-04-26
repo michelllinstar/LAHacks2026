@@ -185,6 +185,9 @@ def run_agent(agent_id: str, req: ExternalAgentRunRequest) -> ExternalAgentResul
             "task": req.prompt,
             "cluster_id": bundle.region.cluster_id,
             "symbol_ids": citations,
+            # Carry the agent's natural-language reply so the frontend's
+            # AgentActivityLog can render it directly under the entry.
+            "summary": payload["summary"],
         },
     )
 
