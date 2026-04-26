@@ -224,10 +224,10 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4 aurora-bg"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-[#2d2d2d] rounded-2xl border border-gray-800 w-full max-w-3xl max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
+      <div className="glass-panel rounded-3xl w-full max-w-3xl max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden anim-fade-up">
         {/* Header */}
         <div className="flex items-center justify-between px-10 py-8 border-b border-gray-800">
           <h2 className="text-2xl font-bold text-white">Create New Project</h2>
@@ -249,10 +249,10 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                 {/* GitHub Option */}
                 <button
                   onClick={() => handleTypeSelect('github')}
-                  className="px-12 py-16 bg-[#1e1e1e] border border-gray-700 hover:border-[#2DD4BF] rounded-xl transition-all text-center group flex flex-col items-center min-h-[360px]"
+                  className="glass-card px-12 py-16 rounded-2xl text-center group flex flex-col items-center min-h-[360px] hover:border-[#2DD4BF]/40"
                 >
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-lg flex items-center justify-center mb-6 group-hover:bg-[#252526] transition-colors">
-                    <GitBranch className="h-6 w-6 text-gray-400 group-hover:text-[#5EEAD4]" />
+                  <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center mb-6 group-hover:bg-[#252526] group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
+                    <GitBranch className="h-7 w-7 text-gray-400 group-hover:text-[#5EEAD4]" />
                   </div>
                   <h3 className="text-2xl font-semibold text-white mb-4 text-center">Version Control</h3>
                   <p className="text-base text-gray-400 mb-6 text-center max-w-xs">
@@ -267,10 +267,10 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                 {/* Local Option */}
                 <button
                   onClick={() => handleTypeSelect('local')}
-                  className="px-12 py-16 bg-[#1e1e1e] border border-gray-700 hover:border-purple-500 rounded-xl transition-all text-center group flex flex-col items-center min-h-[360px]"
+                  className="glass-card px-12 py-16 rounded-2xl text-center group flex flex-col items-center min-h-[360px] hover:border-purple-400/40"
                 >
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-lg flex items-center justify-center mb-6 group-hover:bg-[#252526] transition-colors">
-                    <HardDrive className="h-6 w-6 text-gray-400 group-hover:text-purple-400" />
+                  <div className="w-14 h-14 bg-[#2d2d2d] rounded-xl flex items-center justify-center mb-6 group-hover:bg-[#252526] group-hover:scale-110 group-hover:-rotate-3 transition-all duration-300">
+                    <HardDrive className="h-7 w-7 text-gray-400 group-hover:text-purple-400" />
                   </div>
                   <h3 className="text-2xl font-semibold text-white mb-4 text-center">Local Files</h3>
                   <p className="text-base text-gray-400 mb-6 text-center max-w-xs">

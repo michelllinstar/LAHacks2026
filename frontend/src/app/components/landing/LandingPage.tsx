@@ -7,9 +7,9 @@ export function LandingPage() {
   return (
     <div className="min-h-screen bg-[#1e1e1e]">
       {/* Hero Section - Adobe Cloud Style */}
-      <div className="relative overflow-hidden">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#2DD4BF]/20 via-purple-600/20 to-pink-600/20" />
+      <div className="relative overflow-hidden aurora-bg">
+        {/* Background gradient — kept neutral; aurora handles the motion accent */}
+        <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent" />
 
         {/* Grid pattern overlay */}
         <div className="absolute inset-0 opacity-10" style={{
@@ -22,7 +22,7 @@ export function LandingPage() {
           <div className="max-w-7xl mx-auto px-5 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-5">
-                <div className="p-2 bg-gradient-to-br from-[#34D399] to-[#F59E0B] rounded-lg">
+                <div className="p-2 rounded-lg border border-white/10 bg-white/[0.03] hover-glow">
                   <Code2 className="h-6 w-6 text-white" />
                 </div>
                 <div>
@@ -54,38 +54,38 @@ export function LandingPage() {
         {/* Hero Content */}
         <div className="relative z-10 max-w-7xl mx-auto px-5 pt-20 pb-32">
           <div className="text-center max-w-4xl mx-auto">
-            <div className="inline-flex items-center gap-5 px-5 py-2 bg-blue-500/10 border border-[#2DD4BF]/20 rounded-full mb-8">
-              <Sparkles className="h-4 w-4 text-[#5EEAD4]" />
-              <span className="text-base text-[#5EEAD4]">Powered by AI & Cloudinary</span>
+            <div className="inline-flex items-center gap-5 px-5 py-2 bg-white/[0.03] border border-white/10 rounded-full mb-8 anim-fade-up anim-breathe">
+              <Sparkles className="h-4 w-4 text-white/80" />
+              <span className="text-base text-white/80">Powered by AI & Cloudinary</span>
             </div>
 
-            <h2 className="text-6xl font-bold text-white mb-6 leading-tight">
+            <h2 className="text-6xl font-bold text-white mb-6 leading-tight anim-fade-up-delay-1">
               Transform Code into
               <span
-                className="bg-clip-text text-transparent"
+                className="bg-clip-text text-transparent anim-gradient-text"
                 style={{
                   backgroundImage:
-                    'radial-gradient(ellipse at center, #5EEAD4 0%, #34D399 35%, #FBBF24 70%, #F59E0B 100%)',
+                    'linear-gradient(110deg, #ffffff 0%, #B7553A 50%, #ffffff 100%)',
                 }}
               > Beautiful Architecture</span>
             </h2>
 
-            <p className="text-2xl text-gray-300 mb-10 leading-relaxed">
+            <p className="text-2xl text-gray-300 mb-10 leading-relaxed anim-fade-up-delay-2">
               AI-powered UML diagrams from your codebase. Connect GitHub, visualize architecture,
               and collaborate with your team—all optimized with Cloudinary's global CDN.
             </p>
 
-            <div className="flex items-center justify-center gap-5">
+            <div className="flex items-center justify-center gap-5 anim-fade-up-delay-3">
               <Link
                 href="/login"
-                className="px-8 py-4 bg-gradient-to-r from-[#34D399] to-[#F59E0B] hover:from-[#2DD4BF] hover:to-[#FBBF24] text-white font-semibold rounded-lg transition-all transform hover:scale-105 flex items-center gap-5"
+                className="hover-glow px-10 py-5 bg-white/[0.04] border border-white/10 text-white font-semibold rounded-xl transition-all flex items-center gap-5"
               >
                 Start Free Trial
                 <ArrowRight className="h-5 w-5" />
               </Link>
               <a
                 href="#demo"
-                className="px-8 py-4 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-semibold rounded-lg transition-all"
+                className="glass-card px-10 py-5 text-white font-semibold rounded-xl"
               >
                 Watch Demo
               </a>
@@ -97,9 +97,9 @@ export function LandingPage() {
           </div>
 
           {/* Hero Image/Demo */}
-          <div className="mt-16 relative">
+          <div className="mt-16 relative anim-float">
             <div className="absolute inset-0 bg-gradient-to-t from-[#1e1e1e] via-transparent to-transparent z-10 pointer-events-none" />
-            <div className="bg-[#2d2d2d] rounded-2xl border border-gray-800 overflow-hidden shadow-2xl">
+            <div className="glass-panel rounded-2xl overflow-hidden">
               <div className="bg-[#1e1e1e] px-5 py-3 border-b border-gray-800 flex items-center gap-5">
                 <div className="w-3 h-3 rounded-full bg-red-500" />
                 <div className="w-3 h-3 rounded-full bg-yellow-500" />
@@ -108,9 +108,9 @@ export function LandingPage() {
               <div className="p-8 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
                 <div className="grid grid-cols-2 gap-6 opacity-80">
                   <div className="space-y-5">
-                    <div className="h-4 bg-blue-500/30 rounded w-3/4" />
-                    <div className="h-4 bg-purple-500/30 rounded w-full" />
-                    <div className="h-4 bg-pink-500/30 rounded w-5/6" />
+                    <div className="h-4 bg-white/10 rounded w-3/4" />
+                    <div className="h-4 bg-white/10 rounded w-full" />
+                    <div className="h-4 bg-white/10 rounded w-5/6" />
                   </div>
                   <div className="flex items-center justify-center">
                     <div className="w-48 h-48 border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center">
@@ -187,13 +187,13 @@ export function LandingPage() {
             ].map((feature) => (
               <div
                 key={feature.title}
-                className="p-6 bg-[#2d2d2d] rounded-xl border border-gray-800 hover:border-gray-700 transition-all group"
+                className="glass-card p-8 rounded-2xl group"
               >
-                <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${feature.color} p-3 mb-5 group-hover:scale-110 transition-transform`}>
-                  <feature.icon className="h-full w-full text-white" />
+                <div className="w-14 h-14 rounded-xl bg-white/[0.03] border border-white/10 p-3 mb-6 group-hover:scale-110 group-hover:rotate-3 group-hover:border-white/30 group-hover:shadow-[0_0_24px_rgba(255,255,255,0.18)] transition-all duration-300">
+                  <feature.icon className="h-full w-full text-white/80 group-hover:text-white transition-colors" />
                 </div>
-                <h4 className="font-semibold text-white mb-5">{feature.title}</h4>
-                <p className="text-base text-gray-400">{feature.description}</p>
+                <h4 className="font-semibold text-white mb-3 text-lg">{feature.title}</h4>
+                <p className="text-base text-gray-400 leading-relaxed">{feature.description}</p>
               </div>
             ))}
           </div>
@@ -210,14 +210,8 @@ export function LandingPage() {
               { value: '99.9%', label: 'Uptime SLA' },
               { value: '70%', label: 'Faster Loading' },
             ].map((stat) => (
-              <div key={stat.label} className="text-center">
-                <div
-                  className="text-5xl font-bold bg-clip-text text-transparent mb-5"
-                  style={{
-                    backgroundImage:
-                      'radial-gradient(ellipse at center, #5EEAD4 0%, #2DD4BF 50%, #FBBF24 100%)',
-                  }}
-                >
+              <div key={stat.label} className="text-center group">
+                <div className="text-5xl font-bold text-white mb-5 transition-all duration-300 group-hover:text-[#B7553A] group-hover:[text-shadow:_0_0_24px_rgba(255,255,255,0.25)]">
                   {stat.value}
                 </div>
                 <div className="text-gray-400">{stat.label}</div>
@@ -228,7 +222,7 @@ export function LandingPage() {
       </div>
 
       {/* CTA Section */}
-      <div className="py-24 bg-gradient-to-br from-[#2DD4BF]/10 via-purple-600/10 to-pink-600/10">
+      <div className="py-24 aurora-bg">
         <div className="max-w-4xl mx-auto px-5 text-center">
           <h3 className="text-4xl font-bold text-white mb-6">
             Ready to visualize your architecture?
@@ -251,7 +245,7 @@ export function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
               <div className="flex items-center gap-5 mb-5">
-                <div className="p-1.5 bg-gradient-to-br from-[#34D399] to-[#F59E0B] rounded">
+                <div className="p-1.5 rounded border border-white/10 bg-white/[0.03]">
                   <Code2 className="h-4 w-4 text-white" />
                 </div>
                 <span className="font-bold text-white">MarkCodePolo</span>

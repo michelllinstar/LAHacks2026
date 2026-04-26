@@ -9,10 +9,13 @@ interface GlassBubbleProps extends React.HTMLAttributes<HTMLSpanElement> {
   as?: 'span' | 'div';
 }
 
+// All tones collapse to one minimal look: neutral white on a glass surface,
+// burnt sienna + white glow only emerges on hover. Keeping the tone prop so
+// existing call sites still type-check.
 const TONE_CLASS: Record<Tone, string> = {
-  blue: 'text-[#5EEAD4] shadow-[0_4px_24px_rgba(59,130,246,0.18)] group-hover:border-blue-400/40',
-  purple: 'text-purple-400 shadow-[0_4px_24px_rgba(251,191,36,0.18)] group-hover:border-purple-400/40',
-  neutral: 'text-white shadow-[0_4px_24px_rgba(255,255,255,0.10)] group-hover:border-white/30',
+  blue:    'text-white/90 hover:text-white',
+  purple:  'text-white/90 hover:text-white',
+  neutral: 'text-white/90 hover:text-white',
 };
 
 const SIZE_CLASS: Record<NonNullable<GlassBubbleProps['size']>, string> = {
@@ -35,8 +38,10 @@ export function GlassBubble({
       {...rest}
       className={[
         'inline-flex items-center justify-center rounded-full',
-        'bg-white/5 backdrop-blur-md border border-white/10',
-        'transition-all hover:bg-white/10',
+        'bg-white/[0.04] backdrop-blur-md border border-white/10',
+        'transition-all duration-300',
+        'hover:bg-white/[0.08] hover:border-white/30',
+        'hover:shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_28px_rgba(255,255,255,0.18),0_10px_36px_rgba(183,85,58,0.32)]',
         SIZE_CLASS[size],
         TONE_CLASS[tone],
         className,
