@@ -7,29 +7,17 @@ from backend.models import LoginPayload
 
 router = APIRouter()
 
-USERS = [
-    {
-        'id': 'u1',
-        'email': 'admin@agentverse.app',
-        'password': 'password123',
-        'name': 'Agentverse Admin'
-    }
-]
-
 @router.post('/login')
 def login(payload: LoginPayload, response: Response):
-    user = next((u for u in USERS if u['email'] == payload.email and u['password'] == payload.password), None)
-    if not user:
-        raise HTTPException(status_code=401, detail='Invalid credentials')
+    # Demo mode: accept any non-empty email/password pair.
+    if not payload.email or not payload.password:
+        raise HTTPException(status_code=401, detail='Email and password required')
 
-    # ``exp`` matches the cookie max_age below so the JWT and the HTTP
-    # cookie expire together. PyJWT defaults to no expiry, which would
-    # leave the JWT valid after the cookie is purged — a quiet mismatch.
     token = jwt.encode(
         {
-            'sub': user['id'],
-            'email': user['email'],
-            'name': user['name'],
+            'sub': payload.email,
+            'email': payload.email,
+            'name': payload.email.split('@')[0] or payload.email,
             'exp': int(time.time()) + 8 * 60 * 60,
         },
         _secret(),

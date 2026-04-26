@@ -12,7 +12,6 @@ import type {
   ContextBundle,
   DispatchRequest,
   DispatchResponse,
-  Exemplar,
   ExemplarRequest,
   ExemplarResponse,
   FindContextRequest,
@@ -141,7 +140,7 @@ export async function isAuthenticated(): Promise<boolean> {
   try {
     await apiClient.get('/api/repos');
     return true;
-  } catch (err: unknown) {
+  } catch {
     return false;
   }
 }
