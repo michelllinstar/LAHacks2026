@@ -26,12 +26,17 @@ interface TreeNode {
 function buildTree(filePaths: string[]): TreeNode {
   const root: TreeNode = { name: '', path: '', kind: 'folder', children: new Map() };
   for (const fp of filePaths) {
+    // Preserve a leading "/" for absolute paths so the leaf node's `path`
+    // matches the symbol projection's `file_path` exactly. Without this, the
+    // path filter wired up by the workspace finds zero nodes and the canvas
+    // shows "Nothing to render" when an absolute-path file is clicked.
+    const isAbs = fp.startsWith('/');
     const parts = fp.split('/').filter(Boolean);
     let cur = root;
     let acc = '';
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      acc = acc ? `${acc}/${part}` : part;
+      acc = i === 0 ? (isAbs ? `/${part}` : part) : `${acc}/${part}`;
       const isLeaf = i === parts.length - 1;
       let child = cur.children.get(part);
       if (!child) {
@@ -76,7 +81,11 @@ function TreeRow({ node, depth, expanded, onToggle, onPick, selectedPath }: Tree
     const isSel = selectedPath === node.path;
     return (
       <div
-        onClick={() => onPick({ path: node.path, kind: 'file', name: node.name })}
+        onClick={() =>
+          // Toggle: re-clicking the active file clears the selection so the
+          // graph drops back to the full unfiltered projection.
+          onPick(isSel ? null : { path: node.path, kind: 'file', name: node.name })
+        }
         className={`flex items-center gap-2 py-1.5 text-xs cursor-pointer transition-colors ${
           isSel ? 'bg-[#094771] text-white' : 'text-gray-300 hover:text-white hover:bg-[#2d2d2d]'
         }`}
