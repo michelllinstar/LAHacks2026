@@ -197,23 +197,20 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
 
   return (
     <div className="min-h-screen bg-[#1e1e1e]">
-      {/* Top Navigation */}
+      {/* Top Navigation — mirrors ProfilePage exactly */}
       <nav className="bg-[#2d2d2d] border-b border-gray-800">
         <div className="px-[100px] py-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => router.push('/dashboard')}
-                className="flex items-center gap-4 group"
-                title="Back to dashboard"
-              >
-                <AnimatedLogo size={40} />
-                <div className="text-left">
-                  <h1 className="text-3xl font-bold text-white leading-tight">Repositories</h1>
-                  <p className="text-[10px] text-gray-400 leading-tight">markcodepolo</p>
-                </div>
-              </button>
-            </div>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="flex items-center gap-4"
+            >
+              <AnimatedLogo size={40} />
+              <div className="text-left">
+                <h1 className="text-3xl font-bold text-white leading-tight">Repositories</h1>
+                <p className="text-[10px] text-gray-400 leading-tight">markcodepolo</p>
+              </div>
+            </button>
 
             <div className="flex items-center gap-3">
               <button
