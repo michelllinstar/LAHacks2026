@@ -72,7 +72,7 @@ interface TreeRowProps {
   depth: number;
   expanded: Record<string, boolean>;
   onToggle: (path: string) => void;
-  onPick: (item: SelectedPath) => void;
+  onPick: (item: SelectedPath | null) => void;
   selectedPath: string | null;
 }
 
@@ -225,20 +225,74 @@ export function FilesPanel({ repositoryId, selected, onFileSelect, onCollapse }:
         )}
       </div>
 
-      <div className="border-t border-[#1e1e1e] px-2 py-2 flex-shrink-0">
-        <div className="text-xs text-gray-300 font-medium mb-1.5">Legend</div>
-        <div className="flex flex-col gap-1">
-          {LEGEND_ITEMS.map(({ type, color }) => (
-            <div key={type} className="flex items-center gap-2">
-              <span
-                className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-                style={{ background: color }}
-              />
-              <span className="text-xs text-gray-300 font-medium capitalize">{type}</span>
+      <LegendDrawer />
+    </div>
+  );
+}
+
+// Collapsible legend pinned to the bottom of the explorer panel. The user
+// has to click the header to reveal the full color/edge legend — keeping
+// it folded by default avoids stealing vertical space from the file tree.
+function LegendDrawer() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-t border-[#1e1e1e] flex-shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-2 py-2 hover:bg-[#2d2d2d] transition-colors"
+        aria-expanded={open}
+        title={open ? 'Hide legend' : 'Show legend'}
+      >
+        <span className="text-xs text-gray-300 font-medium">Legend</span>
+        {open ? (
+          <ChevronDown className="h-3 w-3 text-gray-400" />
+        ) : (
+          <ChevronRight className="h-3 w-3 text-gray-400" />
+        )}
+      </button>
+      {open && (
+        <div className="px-2 pb-3 space-y-3">
+          {/* Node-type swatches — mirror the canvas card style (left stripe
+              + dot) so each row visually matches the class card it labels. */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Nodes</div>
+            <div className="flex flex-col gap-1">
+              {LEGEND_ITEMS.map(({ type, color }) => (
+                <div
+                  key={type}
+                  className="flex items-center gap-2 rounded overflow-hidden"
+                  style={{ background: '#1e1e1e', border: `1px solid ${color}aa` }}
+                >
+                  <span style={{ display: 'inline-block', width: 4, height: 18, background: color }} />
+                  <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 999, background: color, marginLeft: 2 }} />
+                  <span className="text-[11px] text-gray-200 capitalize pr-2 py-0.5">{type}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+
+          {/* UML edge styles — solid/dashed line + arrowhead key the
+              relationship per UML 2.5. */}
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">UML edges</div>
+            <div className="flex flex-col gap-1">
+              {EDGE_ITEMS.map((e) => (
+                <div key={e.label} className="flex items-center gap-2">
+                  <svg width="56" height="14" viewBox="0 0 56 14">
+                    <line x1="2" y1="7" x2="42" y2="7" stroke="#cbd5e1" strokeWidth="1.4" strokeDasharray={e.dashed ? '4 3' : undefined} />
+                    {e.kind === 'open' && <path d="M50 7 L42 3 M50 7 L42 11" stroke="#cbd5e1" strokeWidth="1.4" fill="none" />}
+                    {e.kind === 'triangle' && <path d="M42 2 L54 7 L42 12 z" fill="#1a1a1a" stroke="#cbd5e1" strokeWidth="1.2" />}
+                    {e.kind === 'diamondH' && <path d="M42 7 L48 2 L54 7 L48 12 z" fill="#1a1a1a" stroke="#cbd5e1" strokeWidth="1.2" />}
+                    {e.kind === 'diamondF' && <path d="M42 7 L48 2 L54 7 L48 12 z" fill="#cbd5e1" stroke="#cbd5e1" strokeWidth="1.2" />}
+                  </svg>
+                  <span className="text-[11px] text-gray-200">{e.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -249,4 +303,13 @@ const LEGEND_ITEMS: { type: string; color: string }[] = [
   { type: 'function', color: '#22c55e' },
   { type: 'module', color: '#f59e0b' },
   { type: 'variable', color: '#6b7280' },
+];
+
+const EDGE_ITEMS: Array<{ kind: 'open' | 'triangle' | 'diamondH' | 'diamondF'; dashed: boolean; label: string }> = [
+  { kind: 'open',     dashed: false, label: 'Association' },
+  { kind: 'diamondH', dashed: false, label: 'Aggregation' },
+  { kind: 'diamondF', dashed: false, label: 'Composition' },
+  { kind: 'triangle', dashed: false, label: 'Inheritance' },
+  { kind: 'triangle', dashed: true,  label: 'Realization' },
+  { kind: 'open',     dashed: true,  label: 'Dependency' },
 ];

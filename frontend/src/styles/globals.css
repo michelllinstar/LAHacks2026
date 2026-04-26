@@ -444,10 +444,11 @@ select {
 }
 
 .glass-input {
-  /* Warm dark gray for the input fields — matches the panel/branding tone
-     without the glassy translucency. Border keeps the near-white treatment
-     used by surrounding card borders. */
-  background: rgb(43, 39, 34);
+  /* Use a transparent fill so the input blends with whatever surface it
+     sits on (e.g. the surrounding glass-panel) — no stand-out dark patch
+     inside a lighter panel. Border keeps the near-white treatment used by
+     surrounding card borders. */
+  background: transparent;
   border: 1px solid #b8b3ae;
   transition: border-color 220ms ease, box-shadow 220ms ease, background 220ms ease;
 }
@@ -458,15 +459,15 @@ select {
 .glass-input input:-webkit-autofill:hover,
 .glass-input input:-webkit-autofill:focus,
 .glass-input input:-webkit-autofill:active {
-  -webkit-box-shadow: 0 0 0 1000px rgb(43, 39, 34) inset !important;
-  box-shadow: 0 0 0 1000px rgb(43, 39, 34) inset !important;
+  -webkit-box-shadow: 0 0 0 1000px rgba(255, 255, 255, 0.03) inset !important;
+  box-shadow: 0 0 0 1000px rgba(255, 255, 255, 0.03) inset !important;
   -webkit-text-fill-color: #ffffff !important;
   caret-color: #ffffff !important;
   border-radius: inherit;
   transition: background-color 9999s ease-out 0s;
 }
 .glass-input:focus-within {
-  background: rgb(43, 39, 34);
+  background: rgba(255, 255, 255, 0.04);
   border-color: #d6d2cd;
   box-shadow:
     0 0 0 3px rgba(255,255,255,0.20),

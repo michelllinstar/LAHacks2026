@@ -192,7 +192,9 @@ def _safe_dir_name(raw: str) -> str:
 @router.post("/upload", response_model=RepoSummary)
 async def upload_repo(
     name: str = Form(...),
-    files: list[UploadFile] = File(...),
+    # ``default=[]`` so a missing ``files`` field returns our 400 below
+    # ("no files uploaded") instead of FastAPI's opaque auto-422.
+    files: list[UploadFile] = File(default=[]),
 ) -> RepoSummary:
     """Materialize an uploaded folder under the workspace root and register it.
 

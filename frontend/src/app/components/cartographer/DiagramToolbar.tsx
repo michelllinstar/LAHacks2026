@@ -1,14 +1,12 @@
 'use client';
-import { Boxes, GitMerge, Layers3, Database, FileCode } from 'lucide-react';
-import type { GraphMode, GraphDensity } from './UnifiedGraphView';
+import { Boxes, GitMerge, Layers3 } from 'lucide-react';
+import type { GraphMode } from './UnifiedGraphView';
 
 interface DiagramToolbarProps {
   /** Set of currently-active overlay modes. Multi-select: any combination
    *  of symbol/flow/architecture can be on simultaneously. */
   activeLayers: Set<GraphMode>;
   onToggleLayer: (layer: GraphMode) => void;
-  density: GraphDensity;
-  onDensityChange: (density: GraphDensity) => void;
 }
 
 interface LayerDef {
@@ -43,7 +41,7 @@ const LAYERS: LayerDef[] = [
   },
 ];
 
-export function DiagramToolbar({ activeLayers, onToggleLayer, density, onDensityChange }: DiagramToolbarProps) {
+export function DiagramToolbar({ activeLayers, onToggleLayer }: DiagramToolbarProps) {
   const enabled = LAYERS.filter((l) => activeLayers.has(l.id));
   const summary =
     enabled.length === 0
@@ -95,50 +93,6 @@ export function DiagramToolbar({ activeLayers, onToggleLayer, density, onDensity
             — overlays active
           </span>
         )}
-      </div>
-      <div className="w-px bg-[#3e3e42] my-2" />
-      <div
-        className="relative flex items-center gap-1 m-2 rounded-md border border-white/10"
-        style={{
-          background: 'rgba(255,255,255,0.04)',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-        }}
-      >
-        <span
-          aria-hidden
-          className="absolute top-0.5 bottom-0.5 w-[104px] rounded border border-white/15 transition-transform duration-300 ease-out"
-          style={{
-            left: 2,
-            background: 'linear-gradient(135deg, rgba(255,255,255,0.18), rgba(255,255,255,0.05))',
-            boxShadow: '0 1px 6px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)',
-            transform: density === 'detailed' ? 'translateX(0)' : 'translateX(104px)',
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => onDensityChange('detailed')}
-          style={{ width: 104 }}
-          className={`relative z-10 flex items-center justify-center gap-1.5 py-1.5 rounded text-sm transition-colors ${
-            density === 'detailed' ? 'text-white' : 'text-gray-400 hover:text-white'
-          }`}
-          title="Show full class cards (best for small repos)"
-        >
-          <FileCode className="h-3.5 w-3.5" />
-          <span>Files</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => onDensityChange('compact')}
-          style={{ width: 104 }}
-          className={`relative z-10 flex items-center justify-center gap-1.5 py-1.5 rounded text-sm transition-colors ${
-            density === 'compact' ? 'text-white' : 'text-gray-400 hover:text-white'
-          }`}
-          title="Show one node per class (best for large repos)"
-        >
-          <Database className="h-3.5 w-3.5" />
-          <span>Database</span>
-        </button>
       </div>
     </div>
   );

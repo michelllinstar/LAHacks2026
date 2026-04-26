@@ -71,8 +71,10 @@ def start_index(repo_hash: str, background_tasks: BackgroundTasks) -> IndexJob:
    repo_path = row["local_path"]
    git_url = row.get("git_url")
 
-
-   if not repo_path:
+   # Re-clone if: path was never set, OR the source tree was purged after a
+   # previous successful index (_purge_source_tree removes it on completion).
+   path_missing = not repo_path or not Path(repo_path).expanduser().exists()
+   if path_missing:
        if not git_url:
            raise HTTPException(
                status_code=400,

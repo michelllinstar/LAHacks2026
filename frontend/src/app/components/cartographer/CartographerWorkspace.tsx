@@ -790,7 +790,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
           <button
             onClick={() => setShowInfoModal(true)}
             className="w-12 h-12 flex items-center justify-center transition-colors relative text-gray-400 hover:text-white"
-            title="Graph Controls & Help"
+            title="Workspace help"
           >
             <Info className="h-6 w-6" />
           </button>
@@ -890,8 +890,6 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                 <DiagramToolbar
                   activeLayers={diagramLayers}
                   onToggleLayer={toggleDiagramLayer}
-                  density={diagramDensity}
-                  onDensityChange={setDiagramDensity}
                 />
               )}
             </>

@@ -43,14 +43,14 @@ interface ProjectsDashboardProps {
   };
 }
 
-function repoToProject(repo: RepoSummary): Project {
+function repoToProject(repo: RepoSummary, domain: DomainType = 'personal'): Project {
   const description = repo.local_path || repo.git_url || '';
   return {
     id: repo.hash,
     name: repo.name,
     description,
     type: repo.git_url ? 'github' : 'local',
-    domain: 'personal',
+    domain,
     lastModified: new Date(),
     // ``diagramCount`` is the dashboard tile's "N symbols indexed" stat.
     // Filled from the backend's RepoSummary.symbol_count (defaults to 0 for
@@ -75,9 +75,16 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
     onCreateProject?.();
   };
 
+  // The modal calls ``onCreate({…, domain})`` before ``onCreated(repo)``, but
+  // only the second callback knows the repo's hash. Stash the picked domain
+  // here so the create handler can apply it once the repo lands.
+  const pendingDomainRef = useRef<DomainType>('personal');
+
   const repos = useCartographerStore((s) => s.repos);
   const setRepos = useCartographerStore((s) => s.setRepos);
   const setActiveRepoHash = useCartographerStore((s) => s.setActiveRepoHash);
+  const repoDomains = useCartographerStore((s) => s.repoDomains);
+  const setRepoDomain = useCartographerStore((s) => s.setRepoDomain);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,7 +127,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
     }
   };
 
-  const projects: Project[] = repos.map(repoToProject);
+  const projects: Project[] = repos.map((r) => repoToProject(r, repoDomains[r.hash] ?? 'personal'));
 
   // Mock projects data - kept as a no-op fallback (unused; backed by real repos above)
   const _mockProjects: Project[] = ([
@@ -215,11 +222,25 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
             <div className="flex items-center gap-3">
               <button
                 onClick={() => router.push('/profile')}
-                className="flex items-center gap-3 hover:bg-[#252526] rounded-md px-3 py-1.5 transition-colors"
+                className="flex items-center gap-3 hover:bg-[#252526] rounded-md px-3 py-1.5 transition-colors group"
+                title="Open profile"
               >
-                <div className="w-9 h-9 bg-gradient-to-br from-[#5EEAD4] to-[#FBBF24] rounded-full flex items-center justify-center">
-                  <span className="text-white text-base font-semibold">
-                    {user.name.charAt(0)}
+                <div className="relative w-9 h-9 bg-gradient-to-br from-[#5EEAD4] to-[#FBBF24] rounded-full flex items-center justify-center shadow-sm ring-1 ring-white/15">
+                  {/* Initial in the center; the User glyph sits underneath as a
+                      silhouette so the avatar still reads as a profile when
+                      the name is empty. */}
+                  {user.name ? (
+                    <span className="text-white text-base font-semibold">
+                      {user.name.charAt(0).toUpperCase()}
+                    </span>
+                  ) : (
+                    <User className="h-5 w-5 text-white" />
+                  )}
+                  {/* Small profile-icon badge — anchors the avatar to the
+                      "profile" affordance and brightens on hover so the
+                      whole button reads as clickable. */}
+                  <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-[#1e1e1e] border border-white/20 flex items-center justify-center group-hover:border-white/40 transition-colors">
+                    <User className="h-2.5 w-2.5 text-gray-200" />
                   </span>
                 </div>
                 <div className="hidden md:block leading-tight text-left">
@@ -606,11 +627,19 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
         <CreateProjectModal
           onClose={() => setShowCreateModal(false)}
           onCreate={(p) => {
+            // Remember the domain choice for the upcoming onCreated callback;
+            // also flip the active toggle so the user sees their new repo on
+            // the right tab the moment it lands.
+            pendingDomainRef.current = p.domain;
+            setActiveDomain(p.domain);
             toast.success(`${p.domain === 'work' ? 'Work' : 'Personal'} project created`, {
               description: `${p.name} indexing started`,
             });
           }}
           onCreated={(repo) => {
+            // Persist the domain choice so the dashboard's Personal/Work
+            // toggle remembers it across reloads.
+            setRepoDomain(repo.hash, pendingDomainRef.current);
             // Add the new repo to the dashboard list, mark it active in the
             // store, close the modal, and jump straight into the workspace so
             // the user lands on their freshly-created project.
