@@ -53,10 +53,10 @@ export function GraphToolbar({ activeModes, onToggleMode, zoomLevel, onZoomChang
               ? 'bg-[#2DD4BF] text-white'
               : 'text-gray-300 hover:bg-[#252526]'
           }`}
-          title="Toggle Architecture View"
+          title="Toggle Cluster Tint — colors each file by its majority Layer 3 cluster"
         >
           <Boxes className="h-3 w-3" />
-          Architecture
+          Cluster Tint
         </button>
       </div>
 

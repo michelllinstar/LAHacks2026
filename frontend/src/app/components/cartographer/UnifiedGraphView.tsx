@@ -29,23 +29,38 @@ function mapKind(kind: string | undefined | null): GraphNode['type'] {
   return 'function';
 }
 
-// Cluster region returned alongside layout-positioned nodes so the renderer
-// can draw a labeled background for every Layer 3 cluster the symbol set
-// belongs to. Clicking a region surfaces the cluster in the right panel.
+// Region returned alongside layout-positioned nodes so the renderer can draw
+// a labeled background per file. The (optional) cluster fields drive the
+// architecture overlay: each file region is tinted with the colour of the
+// Layer 3 cluster the majority of its symbols belong to.
 export interface ClusterRegion {
-  id: string;            // cluster ObjectId, or '__unclustered__' for the bucket
-  shortName: string;     // short upper-snake tag (e.g. AUTH, USERS) for the badge
-  role: string;          // full human-readable role description (may be empty)
-  x: number;             // top-left of the region (canvas coords)
+  id: string;                    // file path, or '__unclustered__' for the bucket
+  shortName: string;             // basename of the file (or 'OTHER')
+  role: string;                  // dirname / full path tooltip
+  x: number;                     // top-left of the region (canvas coords)
   y: number;
   w: number;
   h: number;
   nodeCount: number;
+  // Architecture overlay metadata (per-file majority cluster).
+  clusterId?: string | null;     // majority cluster ObjectId, null when none
+  clusterShort?: string | null;  // short tag, e.g. AUTH
+  clusterRole?: string | null;   // human-readable role
+  mixed?: boolean;               // top cluster < 60% of file's symbols
+  mixedClusters?: Array<{ id: string; short: string; count: number }>;
 }
 
 const REGION_PAD = 36;
 const REGION_HEADER_H = 32;
 const UNCLUSTERED_ID = '__unclustered__';
+
+// Stable hash → HSL hue so each cluster gets a consistent accent across
+// re-renders. Used by the architecture overlay to tint file regions.
+function clusterColor(clusterId: string): string {
+  let h = 0;
+  for (let i = 0; i < clusterId.length; i++) h = (h * 31 + clusterId.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360}, 65%, 60%)`;
+}
 
 // Hoisted to module scope so both the cluster-grouped layout (early branch)
 // and the per-type-grid fallback (later branch) can reference the same
@@ -180,36 +195,26 @@ function projectionToNodes(
   const visibleNodes = graph.nodes.filter((n) => !absorbed.has(n.id));
 
   // ---------------------------------------------------------------------
-  // Cluster-grouped layout — when ≥60% of visible nodes carry a
-  // ``metadata.cluster_id`` (i.e. Layer 3 ran for this repo), bucket nodes
-  // by cluster and lay each cluster as its own grid block, packed across
-  // the canvas. Each cluster also gets a labeled background region (drawn
-  // by the renderer) so the user sees architectural grouping at a glance.
+  // File-grouped layout — bucket nodes by their source ``file_path`` and
+  // lay each file out as its own grid block. The architecture cluster a
+  // file belongs to is computed by majority vote across its symbols and
+  // attached to the region so the renderer can tint the file accordingly
+  // when the architecture overlay is on.
   // ---------------------------------------------------------------------
-  let clusteredCount = 0;
+  let withFile = 0;
   for (const n of visibleNodes) {
-    if (n.metadata?.cluster_id) clusteredCount++;
+    if (n.metadata?.file_path) withFile++;
   }
-  if (visibleNodes.length > 0 && clusteredCount / visibleNodes.length >= 0.6) {
+  if (visibleNodes.length > 0 && withFile / visibleNodes.length >= 0.6) {
     const buckets = new Map<string, typeof graph.nodes>();
-    const roleByCluster = new Map<string, string>();
-    const shortByCluster = new Map<string, string>();
     for (const n of visibleNodes) {
-      const cid = (n.metadata?.cluster_id as string | undefined) ?? UNCLUSTERED_ID;
-      if (!buckets.has(cid)) buckets.set(cid, []);
-      buckets.get(cid)!.push(n);
-      const role = n.metadata?.cluster_role as string | undefined;
-      if (cid !== UNCLUSTERED_ID && role && !roleByCluster.has(cid)) {
-        roleByCluster.set(cid, role);
-      }
-      const short = n.metadata?.cluster_short as string | undefined;
-      if (cid !== UNCLUSTERED_ID && short && !shortByCluster.has(cid)) {
-        shortByCluster.set(cid, short);
-      }
+      const fp = (n.metadata?.file_path as string | undefined) ?? UNCLUSTERED_ID;
+      if (!buckets.has(fp)) buckets.set(fp, []);
+      buckets.get(fp)!.push(n);
     }
 
-    // Sort within each cluster: classes first, then functions, alphabetical
-    // within each type. Stable + cheap.
+    // Sort within each file: classes first, then functions, alphabetical
+    // within each type.
     for (const [, list] of buckets) {
       list.sort((a, b) => {
         const ta = mapKind((a.metadata?.symbol_kind as string | undefined) ?? a.kind);
@@ -221,73 +226,127 @@ function projectionToNodes(
       });
     }
 
-    // Lay clusters out in a wrapping row. Bigger clusters first so the row
-    // budget gets used efficiently; "Unclustered" sinks to the end.
-    const clusterIds = [...buckets.keys()].sort((a, b) => {
+    // Per-file majority cluster (architecture overlay metadata). Tie-breaker:
+    // highest count, then lexicographic cluster_id. ``mixed`` flags files
+    // whose top cluster covers < 60% of the file's symbols.
+    type ClusterMeta = {
+      id: string | null;
+      short: string | null;
+      role: string | null;
+      mixed: boolean;
+      mixedClusters: Array<{ id: string; short: string; count: number }>;
+    };
+    const clusterMetaForFile = (list: typeof graph.nodes): ClusterMeta => {
+      const counts = new Map<string, { count: number; short: string; role: string }>();
+      for (const n of list) {
+        const cid = n.metadata?.cluster_id as string | undefined;
+        if (!cid) continue;
+        const short = (n.metadata?.cluster_short as string | undefined) ?? 'CLUSTER';
+        const role = (n.metadata?.cluster_role as string | undefined) ?? '';
+        const cur = counts.get(cid);
+        if (cur) cur.count += 1;
+        else counts.set(cid, { count: 1, short, role });
+      }
+      if (counts.size === 0) {
+        return { id: null, short: null, role: null, mixed: false, mixedClusters: [] };
+      }
+      const ranked = [...counts.entries()].sort((a, b) => {
+        if (b[1].count !== a[1].count) return b[1].count - a[1].count;
+        return a[0].localeCompare(b[0]);
+      });
+      const total = list.length;
+      const [topId, topMeta] = ranked[0];
+      const mixed = topMeta.count / Math.max(1, total) < 0.6 && ranked.length > 1;
+      return {
+        id: topId,
+        short: topMeta.short,
+        role: topMeta.role,
+        mixed,
+        mixedClusters: ranked.map(([id, m]) => ({ id, short: m.short, count: m.count })),
+      };
+    };
+
+    const fileMeta = new Map<string, ClusterMeta>();
+    for (const [fp, list] of buckets) fileMeta.set(fp, clusterMetaForFile(list));
+
+    // Order regions: group files that share a (majority) cluster so they sit
+    // adjacent. Within a cluster, larger files first. Files with no cluster
+    // sink toward the end; the unclustered bucket is last.
+    const fileIds = [...buckets.keys()].sort((a, b) => {
       if (a === UNCLUSTERED_ID) return 1;
       if (b === UNCLUSTERED_ID) return -1;
+      const ca = fileMeta.get(a)?.id ?? '~';
+      const cb = fileMeta.get(b)?.id ?? '~';
+      if (ca !== cb) return ca.localeCompare(cb);
       return buckets.get(b)!.length - buckets.get(a)!.length;
     });
 
-    // Spacing — generous so individual nodes and whole clusters both have
-    // breathing room. Bumped from the earlier compact values; the canvas
-    // pans/zooms so making it bigger doesn't cost anything.
-    const innerColW = cardW + cardW * 0.6;      // node-to-node horizontal gap inside a cluster
-    const innerRowH = cardH + cardH * 0.7;      // node-to-node vertical gap inside a cluster
-    const clusterGapX = 140;                    // gap between adjacent cluster regions on a row
-    const clusterGapY = 140;                    // gap between cluster rows
-    const ROW_BUDGET = 2800;                    // approx canvas width at zoom 100
+    // Spacing — generous so individual nodes and whole files both have
+    // breathing room. The canvas pans/zooms so making it bigger is fine.
+    const innerColW = cardW + cardW * 0.6;
+    const innerRowH = cardH + cardH * 0.7;
+    const fileGapX = 140;
+    const fileGapY = 140;
+    const ROW_BUDGET = 2800;
 
     const positionsMap = new Map<string, { x: number; y: number; cluster: string }>();
     const clusterRegions: ClusterRegion[] = [];
 
     let cursorX = 0;
     let cursorY = 0;
-    let rowMaxH = 0;
     let cursorRowMaxBottomY = 0;
 
-    for (const cid of clusterIds) {
-      const list = buckets.get(cid)!;
-      const colCount = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(list.length))));
+    for (const fp of fileIds) {
+      const list = buckets.get(fp)!;
+      // Cap at 8 cols so very large files own their row instead of becoming
+      // a thin tall strip; tiny files collapse to a 1-cell grid.
+      const colCount = Math.max(1, Math.min(8, Math.ceil(Math.sqrt(list.length))));
       const rowCount = Math.ceil(list.length / colCount);
       const innerW = colCount * cardW + (colCount - 1) * (innerColW - cardW);
       const innerH = rowCount * cardH + (rowCount - 1) * (innerRowH - cardH);
       const regionW = innerW + REGION_PAD * 2;
       const regionH = innerH + REGION_PAD * 2 + REGION_HEADER_H;
 
-      // Wrap to a new row if this cluster wouldn't fit on the current one.
       if (cursorX > 0 && cursorX + regionW > ROW_BUDGET) {
         cursorX = 0;
-        cursorY = cursorRowMaxBottomY + clusterGapY;
-        rowMaxH = 0;
+        cursorY = cursorRowMaxBottomY + fileGapY;
       }
 
       const regionX = cursorX;
       const regionY = cursorY;
+      const meta = fileMeta.get(fp)!;
+      const lastSlash = fp === UNCLUSTERED_ID ? -1 : fp.lastIndexOf('/');
+      const basename = fp === UNCLUSTERED_ID
+        ? 'OTHER'
+        : (lastSlash >= 0 ? fp.slice(lastSlash + 1) : fp);
+      const dirname = fp === UNCLUSTERED_ID
+        ? 'No file path'
+        : (lastSlash >= 0 ? fp.slice(0, lastSlash) : '');
       clusterRegions.push({
-        id: cid,
-        shortName: cid === UNCLUSTERED_ID
-          ? 'OTHER'
-          : (shortByCluster.get(cid) || 'CLUSTER'),
-        role: cid === UNCLUSTERED_ID ? 'Unclustered' : (roleByCluster.get(cid) || 'Cluster'),
+        id: fp,
+        shortName: basename,
+        role: dirname || fp,
         x: regionX,
         y: regionY,
         w: regionW,
         h: regionH,
         nodeCount: list.length,
+        clusterId: meta.id,
+        clusterShort: meta.short,
+        clusterRole: meta.role,
+        mixed: meta.mixed,
+        mixedClusters: meta.mixedClusters,
       });
 
-      // Place each node in the cluster's interior grid.
       list.forEach((n, i) => {
         const r = Math.floor(i / colCount);
         const c = i % colCount;
         const x = regionX + REGION_PAD + cardW / 2 + c * innerColW;
         const y = regionY + REGION_HEADER_H + REGION_PAD + cardH / 2 + r * innerRowH;
-        positionsMap.set(n.id, { x, y, cluster: cid });
+        positionsMap.set(n.id, { x, y, cluster: fp });
       });
 
-      cursorX += regionW + clusterGapX;
-      rowMaxH = Math.max(rowMaxH, regionH);
+      cursorX += regionW + fileGapX;
       cursorRowMaxBottomY = Math.max(cursorRowMaxBottomY, regionY + regionH);
     }
 
@@ -1137,50 +1196,93 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             transition: isDragging ? 'none' : 'transform 0.2s ease-out',
           }}
         >
-          {/* Cluster regions — drawn beneath the SVG/nodes so they read as
-              grouping backgrounds. All grey for now; click handlers on the
-              header bubble fire ``onClusterSelect`` for the right panel.
-              ``pointer-events`` is scoped to the header so clicks anywhere
-              else on the region pass through to the canvas pan/zoom. */}
-          {clusterRegions.map((r) => (
-            <div
-              key={`cluster-region-${r.id}`}
-              className="absolute"
-              style={{
-                left: r.x,
-                top: r.y,
-                width: r.w,
-                height: r.h,
-                background: 'rgba(255,255,255,0.025)',
-                border: '1px solid rgba(255,255,255,0.10)',
-                borderRadius: 12,
-                pointerEvents: 'none',
-                zIndex: 0,
-              }}
-            >
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClusterSelect?.(r);
-                }}
-                className="text-left px-3 text-[12px] font-bold uppercase tracking-wider text-gray-200 hover:text-white hover:bg-white/[0.05] transition-colors"
+          {/* File regions — primary grouping. Each region is a single source
+              file; symbols inside are laid out as a grid. When the
+              Architecture overlay is on AND the file's symbols carry Layer 3
+              cluster metadata, the region is tinted with a colour derived
+              from the file's majority cluster (striped border for files
+              whose top cluster covers <60% of symbols). ``pointer-events``
+              is scoped to the header so clicks anywhere else on the region
+              pass through to the canvas pan/zoom. */}
+          {clusterRegions.map((r) => {
+            const archOn = activeModes.has('architecture');
+            const accent = archOn && r.clusterId ? clusterColor(r.clusterId) : null;
+            const baseBg = accent
+              ? `linear-gradient(135deg, ${accent}26, ${accent}0d)`
+              : 'rgba(255,255,255,0.025)';
+            const baseBorder = accent
+              ? `2px solid ${accent}66`
+              : '1px solid rgba(255,255,255,0.10)';
+            const headerBg = '#1a1a1a';
+            const headerColor = accent ?? '#e5e7eb';
+            const headerBorder = accent ? `1px solid ${accent}66` : '1px solid #3e3e42';
+            const tagText = r.clusterShort
+              ? (r.mixed ? `${r.clusterShort}*` : r.clusterShort)
+              : null;
+            const tagTitle = r.mixed && r.mixedClusters && r.mixedClusters.length > 1
+              ? `Mixed clusters: ${r.mixedClusters.map((m) => `${m.short} (${m.count})`).join(', ')}`
+              : (r.clusterRole || r.clusterShort || '');
+            return (
+              <div
+                key={`file-region-${r.id}`}
+                className="absolute"
                 style={{
-                  pointerEvents: 'auto',
-                  display: 'block',
-                  width: '100%',
-                  height: REGION_HEADER_H,
-                  lineHeight: `${REGION_HEADER_H}px`,
-                  borderTopLeftRadius: 12,
-                  borderTopRightRadius: 12,
+                  left: r.x,
+                  top: r.y,
+                  width: r.w,
+                  height: r.h,
+                  background: baseBg,
+                  border: baseBorder,
+                  borderStyle: archOn && r.mixed ? 'dashed' : undefined,
+                  borderRadius: 12,
+                  boxShadow: accent ? `inset 0 0 60px ${accent}1a` : undefined,
+                  pointerEvents: 'none',
+                  zIndex: 0,
+                  transition: 'background 0.2s, border-color 0.2s',
                 }}
-                title={r.role}
               >
-                <span className="align-middle">{r.shortName}</span>
-                <span className="ml-2 text-gray-500 font-normal text-[11px]">· {r.nodeCount}</span>
-              </button>
-            </div>
-          ))}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClusterSelect?.(r);
+                  }}
+                  className="text-left px-3 text-[12px] font-semibold tracking-wide text-gray-200 hover:text-white hover:bg-white/[0.05] transition-colors flex items-center gap-2"
+                  style={{
+                    pointerEvents: 'auto',
+                    width: '100%',
+                    height: REGION_HEADER_H,
+                    lineHeight: `${REGION_HEADER_H}px`,
+                    borderTopLeftRadius: 12,
+                    borderTopRightRadius: 12,
+                  }}
+                  title={r.role}
+                >
+                  <span className="align-middle truncate" style={{ maxWidth: '60%' }}>{r.shortName}</span>
+                  <span className="text-gray-500 font-normal text-[11px]">· {r.nodeCount}</span>
+                  {archOn && tagText && (
+                    <span
+                      className="ml-auto px-1.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1"
+                      style={{
+                        background: headerBg,
+                        color: headerColor,
+                        border: headerBorder,
+                        lineHeight: '16px',
+                        height: 18,
+                      }}
+                      title={tagTitle}
+                    >
+                      <span
+                        className="inline-block w-1.5 h-1.5 rounded-full"
+                        style={{ background: accent ?? '#888' }}
+                      />
+                      {tagText}
+                    </span>
+                  )}
+                </button>
+              </div>
+            );
+          })}
 
           {/* Connection Lines — overflow:visible lets edges extend beyond SVG bounds */}
           <svg
@@ -1472,63 +1574,9 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             </div>
           ))}
 
-          {/* Folder Backgrounds (Architecture overlay) — group nodes by the
-              parent directory of their source file so the user sees how
-              classes are bundled on disk. */}
-          {activeModes.has('architecture') && (() => {
-            const folderOf = (n: GraphNode): string => {
-              const fp = n.filePath ?? '';
-              if (!fp) return '(root)';
-              const idx = fp.lastIndexOf('/');
-              return idx >= 0 ? fp.slice(0, idx) : '(root)';
-            };
-            const folderColor = (folder: string): string => {
-              // Stable hash → hue so each folder gets a consistent accent.
-              let h = 0;
-              for (let i = 0; i < folder.length; i++) h = (h * 31 + folder.charCodeAt(i)) >>> 0;
-              const hue = h % 360;
-              return `hsl(${hue}, 65%, 60%)`;
-            };
-            const folders = Array.from(new Set(nodes.map(folderOf)));
-            return folders.map((folder) => {
-              const members = nodes.filter((n) => folderOf(n) === folder);
-              if (members.length === 0) return null;
-              const padding = 24;
-              const minX = Math.min(...members.map((n) => n.x)) - padding;
-              const minY = Math.min(...members.map((n) => n.y)) - padding;
-              const maxX = Math.max(...members.map((n) => n.x + cardW + 20)) + padding;
-              const maxY = Math.max(...members.map((n) => n.y + cardH + 20)) + padding;
-              const accent = folderColor(folder);
-              const shortName = folder.split('/').slice(-2).join('/') || folder;
-              return (
-                <div
-                  key={folder}
-                  className="absolute rounded-2xl"
-                  style={{
-                    left: minX,
-                    top: minY,
-                    width: maxX - minX,
-                    height: maxY - minY,
-                    background: `linear-gradient(135deg, ${accent}26, ${accent}0d)`,
-                    border: `2px solid ${accent}66`,
-                    boxShadow: `inset 0 0 60px ${accent}1a`,
-                    transition: draggingNodeId ? 'none' : 'all 0.2s ease-out',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  <div
-                    className="absolute -top-3 left-3 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide flex items-center gap-1.5"
-                    style={{ background: '#1a1a1a', color: accent, border: `1px solid ${accent}66` }}
-                    title={folder}
-                  >
-                    <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: accent }} />
-                    {shortName}
-                    <span className="text-gray-500">· {members.length}</span>
-                  </div>
-                </div>
-              );
-            });
-          })()}
+          {/* Architecture overlay is now applied directly on file regions
+              above (per-file majority-cluster tint). No separate folder
+              bounding boxes here. */}
 
           {/* Graph Nodes */}
           {nodes.map((node) => {

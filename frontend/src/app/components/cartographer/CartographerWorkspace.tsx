@@ -162,11 +162,14 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   // bounded-context decomposition). Surfaced as faded breadcrumb stubs.
   const [skippedLevels, setSkippedLevels] = useState<Set<ViewLevel>>(() => new Set());
   const [selectedPath, setSelectedPath] = useState<SelectedPath | null>(null);
-  // File click in the explorer panel keeps the row highlighted, but no longer
-  // narrows the graph projection — the path filter behaviour was disorienting
-  // when users just wanted to peek at a file. Selecting an explorer row is now
-  // purely a visual cue.
-  const pathFilter: PathFilter | null = null;
+  // Selecting a file in the explorer scopes the graph to symbols in that
+  // file (folder selection is intentionally ignored — folders span too many
+  // symbols to make a useful filter). handleFileSelect also jumps to the
+  // Classes view level so the user sees the symbols, not the cluster boxes.
+  const pathFilter: PathFilter | null =
+    selectedPath && selectedPath.kind === 'file'
+      ? { path: selectedPath.path, kind: 'file' }
+      : null;
 
   // ``activeModes`` is just the user's diagram-toolbar selection. The toolbar
   // is a 3-way switch over Cartographer's actual projections (symbol / flow /
@@ -608,6 +611,15 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
 
   const handleFileSelect = (item: SelectedPath | null) => {
     setSelectedPath(item);
+    // File click → drop straight to the Classes level so the user lands on
+    // the symbols inside the file (the path filter wired above narrows the
+    // canvas to only that file's nodes). Folder clicks just update the row
+    // highlight without changing the view.
+    if (item && item.kind === 'file') {
+      setViewLevel('classes');
+      setFocusPath([]);
+      setSkippedLevels(new Set());
+    }
   };
 
   return (
