@@ -1,0 +1,417 @@
+/**
+ * Adobe Design System
+ * Design tokens and variables inspired by Adobe Creative Cloud
+ */
+
+:root {
+  /* ============================================
+     COLOR SYSTEM - Adobe Spectrum
+     ============================================ */
+
+  /* Backgrounds - Dark Theme */
+  --adobe-gray-50: #fafafa;
+  --adobe-gray-75: #f5f5f5;
+  --adobe-gray-100: #e8e8e8;
+  --adobe-gray-200: #d3d3d3;
+  --adobe-gray-300: #bcbcbc;
+  --adobe-gray-400: #a0a0a0;
+  --adobe-gray-500: #7f7f7f;
+  --adobe-gray-600: #6a6a6a;
+  --adobe-gray-700: #4a4a4a;
+  --adobe-gray-800: #2d2d2d;
+  --adobe-gray-900: #1e1e1e;
+  --adobe-gray-950: #1a1a1a;
+
+  /* Semantic Backgrounds */
+  --adobe-bg-base: var(--adobe-gray-900);
+  --adobe-bg-layer-1: var(--adobe-gray-800);
+  --adobe-bg-layer-2: var(--adobe-gray-700);
+  --adobe-bg-hover: #3a3a3a;
+  --adobe-bg-active: #424242;
+  --adobe-bg-input: var(--adobe-gray-900);
+  --adobe-bg-overlay: rgba(0, 0, 0, 0.8);
+
+  /* Text Colors */
+  --adobe-text-primary: #ffffff;
+  --adobe-text-secondary: #d1d1d1;
+  --adobe-text-tertiary: #9ca3af;
+  --adobe-text-quaternary: #6b7280;
+  --adobe-text-disabled: #4b5563;
+  --adobe-text-inverse: #000000;
+
+  /* Border Colors */
+  --adobe-border-default: #374151;
+  --adobe-border-medium: #4b5563;
+  --adobe-border-strong: #6b7280;
+  --adobe-border-inverse: #ffffff;
+  --adobe-border-focus: var(--adobe-blue-500);
+
+  /* Brand Colors - Adobe Blue */
+  --adobe-blue-50: #e6f0ff;
+  --adobe-blue-100: #b3d4ff;
+  --adobe-blue-200: #80b8ff;
+  --adobe-blue-300: #4d9cff;
+  --adobe-blue-400: #1a80ff;
+  --adobe-blue-500: #0d66d0;
+  --adobe-blue-600: #095aad;
+  --adobe-blue-700: #064e8a;
+  --adobe-blue-800: #034267;
+  --adobe-blue-900: #013544;
+
+  /* Accent Colors */
+  --adobe-purple-500: #9333ea;
+  --adobe-purple-600: #7e22ce;
+  --adobe-pink-500: #ec4899;
+  --adobe-pink-600: #db2777;
+
+  /* Semantic Colors */
+  --adobe-success-500: #10b981;
+  --adobe-success-600: #059669;
+  --adobe-warning-500: #f59e0b;
+  --adobe-warning-600: #d97706;
+  --adobe-error-500: #ef4444;
+  --adobe-error-600: #dc2626;
+  --adobe-info-500: #3b82f6;
+  --adobe-info-600: #2563eb;
+
+  /* Gradients */
+  --adobe-gradient-primary: linear-gradient(135deg, #3b82f6 0%, #9333ea 100%);
+  --adobe-gradient-secondary: linear-gradient(135deg, #9333ea 0%, #ec4899 100%);
+  --adobe-gradient-hero: linear-gradient(135deg,
+    rgba(59, 130, 246, 0.2) 0%,
+    rgba(147, 51, 234, 0.2) 50%,
+    rgba(236, 72, 153, 0.2) 100%
+  );
+
+  /* ============================================
+     TYPOGRAPHY SYSTEM
+     ============================================ */
+
+  /* Font Families */
+  --adobe-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                     "Helvetica Neue", Arial, sans-serif;
+  --adobe-font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono",
+                     Consolas, "Courier New", monospace;
+
+  /* Font Sizes */
+  --adobe-text-xs: 0.75rem;      /* 12px */
+  --adobe-text-sm: 0.875rem;     /* 14px */
+  --adobe-text-base: 1rem;       /* 16px */
+  --adobe-text-lg: 1.125rem;     /* 18px */
+  --adobe-text-xl: 1.25rem;      /* 20px */
+  --adobe-text-2xl: 1.5rem;      /* 24px */
+  --adobe-text-3xl: 1.875rem;    /* 30px */
+  --adobe-text-4xl: 2.25rem;     /* 36px */
+  --adobe-text-5xl: 3rem;        /* 48px */
+  --adobe-text-6xl: 3.75rem;     /* 60px */
+
+  /* Font Weights */
+  --adobe-font-normal: 400;
+  --adobe-font-medium: 500;
+  --adobe-font-semibold: 600;
+  --adobe-font-bold: 700;
+
+  /* Line Heights */
+  --adobe-leading-tight: 1.25;
+  --adobe-leading-normal: 1.5;
+  --adobe-leading-relaxed: 1.75;
+
+  /* ============================================
+     SPACING SYSTEM
+     ============================================ */
+
+  --adobe-space-1: 0.25rem;   /* 4px */
+  --adobe-space-2: 0.5rem;    /* 8px */
+  --adobe-space-3: 0.75rem;   /* 12px */
+  --adobe-space-4: 1rem;      /* 16px */
+  --adobe-space-5: 1.25rem;   /* 20px */
+  --adobe-space-6: 1.5rem;    /* 24px */
+  --adobe-space-8: 2rem;      /* 32px */
+  --adobe-space-10: 2.5rem;   /* 40px */
+  --adobe-space-12: 3rem;     /* 48px */
+  --adobe-space-16: 4rem;     /* 64px */
+  --adobe-space-20: 5rem;     /* 80px */
+  --adobe-space-24: 6rem;     /* 96px */
+
+  /* ============================================
+     BORDER RADIUS
+     ============================================ */
+
+  --adobe-radius-sm: 0.25rem;   /* 4px */
+  --adobe-radius-md: 0.5rem;    /* 8px */
+  --adobe-radius-lg: 0.75rem;   /* 12px */
+  --adobe-radius-xl: 1rem;      /* 16px */
+  --adobe-radius-2xl: 1.5rem;   /* 24px */
+  --adobe-radius-full: 9999px;
+
+  /* ============================================
+     SHADOWS
+     ============================================ */
+
+  --adobe-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --adobe-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4),
+                     0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --adobe-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5),
+                     0 4px 6px -2px rgba(0, 0, 0, 0.3);
+  --adobe-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6),
+                     0 10px 10px -5px rgba(0, 0, 0, 0.4);
+  --adobe-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+
+  /* Focus Ring */
+  --adobe-ring-width: 2px;
+  --adobe-ring-color: var(--adobe-blue-500);
+  --adobe-ring-offset: 2px;
+
+  /* ============================================
+     Z-INDEX SCALE
+     ============================================ */
+
+  --adobe-z-base: 0;
+  --adobe-z-dropdown: 1000;
+  --adobe-z-sticky: 1020;
+  --adobe-z-fixed: 1030;
+  --adobe-z-modal-backdrop: 1040;
+  --adobe-z-modal: 1050;
+  --adobe-z-popover: 1060;
+  --adobe-z-tooltip: 1070;
+
+  /* ============================================
+     TRANSITIONS
+     ============================================ */
+
+  --adobe-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --adobe-transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --adobe-transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --adobe-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --adobe-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --adobe-ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /* ============================================
+     COMPONENT-SPECIFIC TOKENS
+     ============================================ */
+
+  /* Buttons */
+  --adobe-button-padding-sm: var(--adobe-space-2) var(--adobe-space-3);
+  --adobe-button-padding-md: var(--adobe-space-2) var(--adobe-space-4);
+  --adobe-button-padding-lg: var(--adobe-space-3) var(--adobe-space-6);
+  --adobe-button-radius: var(--adobe-radius-lg);
+
+  /* Inputs */
+  --adobe-input-padding: var(--adobe-space-3) var(--adobe-space-4);
+  --adobe-input-radius: var(--adobe-radius-lg);
+  --adobe-input-border: var(--adobe-border-default);
+  --adobe-input-focus: var(--adobe-border-focus);
+
+  /* Cards */
+  --adobe-card-padding: var(--adobe-space-6);
+  --adobe-card-radius: var(--adobe-radius-xl);
+  --adobe-card-border: var(--adobe-border-default);
+
+  /* Modals */
+  --adobe-modal-radius: var(--adobe-radius-2xl);
+  --adobe-modal-padding: var(--adobe-space-6);
+
+  /* Navigation */
+  --adobe-nav-height: 60px;
+  --adobe-sidebar-width: 320px;
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+/* Background Utilities */
+.adobe-bg-base { background-color: var(--adobe-bg-base); }
+.adobe-bg-layer-1 { background-color: var(--adobe-bg-layer-1); }
+.adobe-bg-layer-2 { background-color: var(--adobe-bg-layer-2); }
+.adobe-bg-hover { background-color: var(--adobe-bg-hover); }
+
+/* Text Utilities */
+.adobe-text-primary { color: var(--adobe-text-primary); }
+.adobe-text-secondary { color: var(--adobe-text-secondary); }
+.adobe-text-tertiary { color: var(--adobe-text-tertiary); }
+
+/* Gradient Utilities */
+.adobe-gradient-primary { background: var(--adobe-gradient-primary); }
+.adobe-gradient-secondary { background: var(--adobe-gradient-secondary); }
+.adobe-gradient-text {
+  background: var(--adobe-gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Border Utilities */
+.adobe-border { border-color: var(--adobe-border-default); }
+.adobe-border-medium { border-color: var(--adobe-border-medium); }
+
+/* Shadow Utilities */
+.adobe-shadow-sm { box-shadow: var(--adobe-shadow-sm); }
+.adobe-shadow-md { box-shadow: var(--adobe-shadow-md); }
+.adobe-shadow-lg { box-shadow: var(--adobe-shadow-lg); }
+
+/* Focus Ring */
+.adobe-focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 var(--adobe-ring-width) var(--adobe-ring-color);
+}
+
+/* Transition Utilities */
+.adobe-transition { transition: all var(--adobe-transition-base) var(--adobe-ease-in-out); }
+.adobe-transition-fast { transition: all var(--adobe-transition-fast) var(--adobe-ease-in-out); }
+.adobe-transition-slow { transition: all var(--adobe-transition-slow) var(--adobe-ease-in-out); }
+
+/* ============================================
+   COMPONENT PATTERNS
+   ============================================ */
+
+/* Adobe Button Primary */
+.adobe-btn-primary {
+  padding: var(--adobe-button-padding-md);
+  background: var(--adobe-gradient-primary);
+  color: var(--adobe-text-primary);
+  border-radius: var(--adobe-button-radius);
+  font-weight: var(--adobe-font-medium);
+  transition: var(--adobe-transition-base);
+  border: none;
+  cursor: pointer;
+}
+
+.adobe-btn-primary:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.adobe-btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Adobe Button Secondary */
+.adobe-btn-secondary {
+  padding: var(--adobe-button-padding-md);
+  background-color: var(--adobe-bg-layer-1);
+  color: var(--adobe-text-primary);
+  border-radius: var(--adobe-button-radius);
+  border: 1px solid var(--adobe-border-default);
+  font-weight: var(--adobe-font-medium);
+  transition: var(--adobe-transition-base);
+  cursor: pointer;
+}
+
+.adobe-btn-secondary:hover {
+  background-color: var(--adobe-bg-hover);
+  border-color: var(--adobe-border-medium);
+}
+
+/* Adobe Input */
+.adobe-input {
+  padding: var(--adobe-input-padding);
+  background-color: var(--adobe-bg-input);
+  color: var(--adobe-text-primary);
+  border: 1px solid var(--adobe-input-border);
+  border-radius: var(--adobe-input-radius);
+  font-size: var(--adobe-text-base);
+  transition: var(--adobe-transition-base);
+  width: 100%;
+}
+
+.adobe-input:focus {
+  outline: none;
+  border-color: var(--adobe-input-focus);
+  box-shadow: 0 0 0 var(--adobe-ring-width) rgba(59, 130, 246, 0.2);
+}
+
+.adobe-input::placeholder {
+  color: var(--adobe-text-quaternary);
+}
+
+/* Adobe Card */
+.adobe-card {
+  background-color: var(--adobe-bg-layer-1);
+  border: 1px solid var(--adobe-card-border);
+  border-radius: var(--adobe-card-radius);
+  padding: var(--adobe-card-padding);
+  transition: var(--adobe-transition-base);
+}
+
+.adobe-card:hover {
+  border-color: var(--adobe-border-medium);
+  box-shadow: var(--adobe-shadow-md);
+}
+
+/* Adobe Modal */
+.adobe-modal {
+  background-color: var(--adobe-bg-layer-1);
+  border: 1px solid var(--adobe-border-default);
+  border-radius: var(--adobe-modal-radius);
+  box-shadow: var(--adobe-shadow-2xl);
+  padding: var(--adobe-modal-padding);
+}
+
+/* Adobe Sidebar */
+.adobe-sidebar {
+  width: var(--adobe-sidebar-width);
+  background-color: var(--adobe-bg-base);
+  border-right: 1px solid var(--adobe-border-default);
+  height: 100%;
+}
+
+/* Adobe Navbar */
+.adobe-navbar {
+  height: var(--adobe-nav-height);
+  background-color: var(--adobe-bg-layer-1);
+  border-bottom: 1px solid var(--adobe-border-default);
+}
+
+/* ============================================
+   TYPOGRAPHY CLASSES
+   ============================================ */
+
+.adobe-heading-1 {
+  font-size: var(--adobe-text-6xl);
+  font-weight: var(--adobe-font-bold);
+  line-height: var(--adobe-leading-tight);
+  color: var(--adobe-text-primary);
+}
+
+.adobe-heading-2 {
+  font-size: var(--adobe-text-4xl);
+  font-weight: var(--adobe-font-bold);
+  line-height: var(--adobe-leading-tight);
+  color: var(--adobe-text-primary);
+}
+
+.adobe-heading-3 {
+  font-size: var(--adobe-text-2xl);
+  font-weight: var(--adobe-font-semibold);
+  line-height: var(--adobe-leading-normal);
+  color: var(--adobe-text-primary);
+}
+
+.adobe-body-large {
+  font-size: var(--adobe-text-lg);
+  font-weight: var(--adobe-font-normal);
+  line-height: var(--adobe-leading-relaxed);
+  color: var(--adobe-text-secondary);
+}
+
+.adobe-body {
+  font-size: var(--adobe-text-base);
+  font-weight: var(--adobe-font-normal);
+  line-height: var(--adobe-leading-normal);
+  color: var(--adobe-text-secondary);
+}
+
+.adobe-body-small {
+  font-size: var(--adobe-text-sm);
+  font-weight: var(--adobe-font-normal);
+  line-height: var(--adobe-leading-normal);
+  color: var(--adobe-text-tertiary);
+}
+
+.adobe-caption {
+  font-size: var(--adobe-text-xs);
+  font-weight: var(--adobe-font-normal);
+  line-height: var(--adobe-leading-normal);
+  color: var(--adobe-text-quaternary);
+}
