@@ -24,11 +24,18 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
-# Load env from the repo-root .env.local so CLI/agent processes get the same
-# configuration the FastAPI app uses.
-_ROOT_ENV = Path(__file__).resolve().parent.parent.parent / ".env.local"
-if _ROOT_ENV.exists():
-    load_dotenv(_ROOT_ENV)
+# Load env from the repo root so CLI / agent / FastAPI processes share the
+# same configuration. Precedence (highest wins): OS env > .env.local > .env.
+# We load with ``override=False`` and process .env.local FIRST so values it
+# sets are never replaced by the .env load that follows. This also means
+# anything already in os.environ (e.g. an explicit ``MONGODB_URI=...`` set
+# by a shell or by pytest's conftest) wins over both files — which is what
+# the test suite's sentinel relies on.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+for _name in (".env.local", ".env"):
+    _path = _REPO_ROOT / _name
+    if _path.exists():
+        load_dotenv(_path, override=False)
 
 
 # ---------------------------------------------------------------------------

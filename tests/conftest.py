@@ -24,7 +24,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 # Force a deterministic Mongo URI / db name so accidental real connections
-# fail fast instead of hanging on default discovery.
+# fail fast instead of hanging on default discovery. To run the live-Mongo
+# tests, override at the shell:
+#     MONGODB_URI=mongodb://localhost:27017 pytest tests/test_store_live.py
+# The explicit env var wins because ``setdefault`` only sets when missing.
 os.environ.setdefault("MONGODB_URI", "mongodb://localhost:0")
 os.environ.setdefault("MONGODB_DB_NAME", "cartographer_test")
 
