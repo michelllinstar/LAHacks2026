@@ -7,8 +7,11 @@ target qualified names is best-effort and static-only.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -78,11 +81,26 @@ def extract_symbols(
     Layer 2/3/4 builders are language-agnostic.
     """
     if tree is None:
+        logger.debug("extract_symbols: tree is None path=%s", file_path)
         return [], []
     lower = file_path.lower()
     if lower.endswith((".ts", ".tsx")):
-        return _extract_symbols_typescript(file_path, source_bytes, tree, module_qname)
-    return _extract_symbols_python(file_path, source_bytes, tree, module_qname)
+        symbols, refs = _extract_symbols_typescript(file_path, source_bytes, tree, module_qname)
+        logger.debug(
+            "extract_symbols: language=typescript path=%s symbols=%d refs=%d",
+            file_path,
+            len(symbols),
+            len(refs),
+        )
+        return symbols, refs
+    symbols, refs = _extract_symbols_python(file_path, source_bytes, tree, module_qname)
+    logger.debug(
+        "extract_symbols: language=python path=%s symbols=%d refs=%d",
+        file_path,
+        len(symbols),
+        len(refs),
+    )
+    return symbols, refs
 
 
 def _extract_symbols_python(
@@ -185,6 +203,11 @@ def _walk(node: Any, source: bytes, state: _ScopeState, parent_qname: str) -> No
 def _emit_function(node: Any, source: bytes, state: _ScopeState, parent_qname: str) -> None:
     name_node = _child_by_field(node, "name")
     if name_node is None:
+        logger.debug(
+            "_emit_function: dropping function with no name path=%s line=%d",
+            state.file_path,
+            node.start_point[0] + 1,
+        )
         return
     name = _node_text(name_node, source)
     qname = _qualified(parent_qname, name)
@@ -210,6 +233,11 @@ def _emit_function(node: Any, source: bytes, state: _ScopeState, parent_qname: s
 def _emit_class(node: Any, source: bytes, state: _ScopeState, parent_qname: str) -> None:
     name_node = _child_by_field(node, "name")
     if name_node is None:
+        logger.debug(
+            "_emit_class: dropping class with no name path=%s line=%d",
+            state.file_path,
+            node.start_point[0] + 1,
+        )
         return
     name = _node_text(name_node, source)
     qname = _qualified(parent_qname, name)
@@ -411,7 +439,18 @@ def _emit_ts_function(
             if c.type == "identifier":
                 name_node = c
                 break
+        if name_node is not None:
+            logger.debug(
+                "_emit_ts_function: used identifier-fallback for name path=%s line=%d",
+                state.file_path,
+                node.start_point[0] + 1,
+            )
     if name_node is None:
+        logger.debug(
+            "_emit_ts_function: dropping function with no name path=%s line=%d",
+            state.file_path,
+            node.start_point[0] + 1,
+        )
         return
     name = _node_text(name_node, source)
     qname = _qualified(parent_qname, name)
@@ -444,7 +483,18 @@ def _emit_ts_class(
             if c.type == "type_identifier":
                 name_node = c
                 break
+        if name_node is not None:
+            logger.debug(
+                "_emit_ts_class: used type_identifier-fallback for name path=%s line=%d",
+                state.file_path,
+                node.start_point[0] + 1,
+            )
     if name_node is None:
+        logger.debug(
+            "_emit_ts_class: dropping class with no name path=%s line=%d",
+            state.file_path,
+            node.start_point[0] + 1,
+        )
         return
     name = _node_text(name_node, source)
     qname = _qualified(parent_qname, name)

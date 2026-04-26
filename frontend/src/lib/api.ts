@@ -55,6 +55,29 @@ export async function createRepo(body: RepoCreate): Promise<RepoSummary> {
   return res.data;
 }
 
+/**
+ * Upload a folder picked via ``<input webkitdirectory>``. Each File's
+ * ``webkitRelativePath`` is preserved as the ``filename`` so the backend can
+ * reconstruct the directory tree under the workspace root.
+ */
+export async function uploadRepo(name: string, files: File[]): Promise<RepoSummary> {
+  const fd = new FormData();
+  fd.append('name', name);
+  for (const f of files) {
+    const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+    fd.append('files', f, rel);
+  }
+  // Don't set Content-Type — the browser/axios infers ``multipart/form-data;
+  // boundary=...`` from the FormData body. Overriding it strips the boundary
+  // and the backend can't parse the payload. ``maxBodyLength`` / ``maxContentLength``
+  // overrides axios's 10MB default for repo-sized uploads.
+  const res = await apiClient.post('/api/repos/upload', fd, {
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  });
+  return res.data;
+}
+
 export async function getRepo(hash: string): Promise<RepoSummary> {
   const res = await apiClient.get(`/api/repos/${hash}`);
   return res.data;

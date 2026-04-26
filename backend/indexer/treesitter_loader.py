@@ -39,9 +39,14 @@ def _try_get_parser(language: str) -> Optional[Any]:
         else:
             return None
         parser = Parser(lang)
+        logger.info("tree-sitter parser loaded language=%s", language)
         return parser
     except Exception as exc:
-        logger.warning("tree-sitter parser unavailable for %s (%s); indexing disabled", language, exc)
+        logger.warning(
+            "tree-sitter parser unavailable language=%s reason=%s; indexing disabled for this language",
+            language,
+            exc,
+        )
         return None
 
 
@@ -91,4 +96,5 @@ def get_parser_for(file_path: str):
         return get_tsx_parser()
     if ext == "ts":
         return get_typescript_parser()
+    logger.debug("get_parser_for: no parser for extension ext=%s path=%s", ext, file_path)
     return None

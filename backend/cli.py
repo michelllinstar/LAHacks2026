@@ -28,6 +28,7 @@ load_dotenv(_REPO_ROOT / ".env.local", override=True)
 from backend.db import store as db_store  # noqa: E402
 from backend.indexer.runner import run_index  # noqa: E402
 from backend.lib.repo_hash import hash_repo  # noqa: E402
+from backend.main import configure_logging  # noqa: E402
 from backend.models import FindContextRequest  # noqa: E402
 from backend.query.engine import QueryEngine  # noqa: E402
 
@@ -103,6 +104,7 @@ def cmd_query(task: str) -> None:
 
 
 def main() -> None:
+    configure_logging()
     parser = argparse.ArgumentParser(prog="cartographer")
     sub = parser.add_subparsers(dest="cmd", required=True)
 

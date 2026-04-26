@@ -14,6 +14,7 @@ import logging
 import math
 import os
 import re
+import time
 from collections import Counter
 from typing import Any, Callable, Optional
 
@@ -47,12 +48,22 @@ def build(repo_hash: str, *, emit: Optional[EmitFn] = None) -> dict:
     ``K`` is the count of clusters whose role was returned from a real
     LLM call (the rest used the heuristic fallback).
     """
+    logger.info("layer 3: clustering started repo=%s", repo_hash)
+    t_start = time.monotonic()
     files = list(db_store.iter_files(repo_hash))
     if not files:
+        logger.warning("layer 3: no files found repo=%s; skipping", repo_hash)
         return {"clusters": 0, "dependencies": 0, "annotated": 0}
 
     symbols = list(db_store.iter_symbols(repo_hash))
     refs = list(db_store.iter_refs(repo_hash))
+    logger.info(
+        "layer 3: inputs loaded repo=%s files=%d symbols=%d refs=%d",
+        repo_hash,
+        len(files),
+        len(symbols),
+        len(refs),
+    )
 
     file_paths = sorted({f["file_path"] for f in files})
     symbols_by_file: dict[str, list[dict]] = {}
@@ -83,6 +94,16 @@ def build(repo_hash: str, *, emit: Optional[EmitFn] = None) -> dict:
     # Cluster
     # ------------------------------------------------------------------
     if len(file_paths) >= 2 and len(file_paths) <= LARGE_REPO_FILE_LIMIT:
+        logger.info(
+            "layer 3: clustering algorithm=agglomerative repo=%s files=%d threshold=%.2f weights=(dir=%.2f,name=%.2f,imp=%.2f,struct=%.2f)",
+            repo_hash,
+            len(file_paths),
+            D_THRESHOLD,
+            DIST_W_DIR,
+            DIST_W_NAME,
+            DIST_W_IMP,
+            DIST_W_STRUCT,
+        )
         clusters = _agglomerative_cluster(
             file_paths,
             symbols_by_file=symbols_by_file,
@@ -90,14 +111,30 @@ def build(repo_hash: str, *, emit: Optional[EmitFn] = None) -> dict:
         )
     elif len(file_paths) > LARGE_REPO_FILE_LIMIT:
         logger.warning(
-            "layer 3 degraded: %d files exceed %d, falling back to per-directory clustering",
+            "layer 3 degraded: repo=%s %d files exceed %d, falling back to per-directory clustering",
+            repo_hash,
             len(file_paths),
             LARGE_REPO_FILE_LIMIT,
         )
         clusters = _directory_cluster(file_paths)
     else:
         # Singleton — every file is its own cluster (here only one file).
+        logger.info("layer 3: clustering algorithm=singleton repo=%s files=%d", repo_hash, len(file_paths))
         clusters = [list(file_paths)]
+
+    if clusters:
+        sizes = sorted(len(c) for c in clusters)
+        median = sizes[len(sizes) // 2]
+        logger.info(
+            "layer 3: cluster sizes repo=%s clusters=%d min=%d median=%d max=%d",
+            repo_hash,
+            len(clusters),
+            sizes[0],
+            median,
+            sizes[-1],
+        )
+    else:
+        logger.warning("layer 3: empty cluster result repo=%s", repo_hash)
 
     # ------------------------------------------------------------------
     # Annotate + persist
@@ -106,17 +143,39 @@ def build(repo_hash: str, *, emit: Optional[EmitFn] = None) -> dict:
 
     cluster_rows: list[dict] = []
     annotation_sources: list[str] = []
-    for member_files in clusters:
+    for cluster_idx, member_files in enumerate(clusters):
         annotation, source = _annotate_cluster(
             member_files,
             symbols_by_file=symbols_by_file,
             incoming_refs_by_file=incoming_refs_by_file,
+            repo_hash=repo_hash,
+            cluster_idx=cluster_idx,
         )
         cluster_rows.append(annotation)
         annotation_sources.append(source)
+        logger.debug(
+            "layer 3: cluster %d annotated repo=%s members=%d source=%s role=%r naming=%r",
+            cluster_idx,
+            repo_hash,
+            len(member_files),
+            source,
+            annotation.get("role_description"),
+            annotation.get("naming_convention"),
+        )
 
     if not cluster_rows:
+        logger.warning("layer 3: no cluster rows produced repo=%s", repo_hash)
         return {"clusters": 0, "dependencies": 0, "annotated": 0}
+
+    llm_count = sum(1 for s in annotation_sources if s == "llm")
+    heuristic_count = len(annotation_sources) - llm_count
+    logger.info(
+        "layer 3: annotations complete repo=%s total=%d llm=%d heuristic=%d",
+        repo_hash,
+        len(annotation_sources),
+        llm_count,
+        heuristic_count,
+    )
 
     cluster_ids = db_store.bulk_insert_clusters(repo_hash, cluster_rows)
 
@@ -189,6 +248,15 @@ def build(repo_hash: str, *, emit: Optional[EmitFn] = None) -> dict:
                 )
 
     annotated_count = sum(1 for s in annotation_sources if s == "llm")
+    elapsed = time.monotonic() - t_start
+    logger.info(
+        "layer 3: done repo=%s clusters=%d dependencies=%d annotated_llm=%d elapsed_sec=%.3f",
+        repo_hash,
+        len(cluster_ids),
+        dependency_count,
+        annotated_count,
+        elapsed,
+    )
     return {
         "clusters": len(cluster_ids),
         "dependencies": dependency_count,
@@ -571,9 +639,12 @@ def _annotate_cluster(
     *,
     symbols_by_file: dict[str, list[dict]],
     incoming_refs_by_file: dict[str, int],
+    repo_hash: str = "",
+    cluster_idx: int = -1,
 ) -> tuple[dict, str]:
     """Return ``(row, source)`` where ``source`` is ``"llm"`` or ``"heuristic"``."""
     if not file_paths:
+        logger.warning("layer 3: annotating empty cluster repo=%s idx=%d", repo_hash, cluster_idx)
         return (
             {
                 "role_description": "empty cluster",
@@ -584,20 +655,37 @@ def _annotate_cluster(
         )
 
     if not (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")):
+        logger.warning(
+            "layer 3: GEMINI/GOOGLE API key missing repo=%s idx=%d; using heuristic annotation (fallback)",
+            repo_hash,
+            cluster_idx,
+        )
         return _heuristic_annotation(file_paths, symbols_by_file), "heuristic"
 
     selected = _select_central_files(file_paths, incoming_refs_by_file, limit=5)
+    logger.debug(
+        "layer 3: cluster %d exemplars selected repo=%s members=%d exemplars=%d",
+        cluster_idx,
+        repo_hash,
+        len(file_paths),
+        len(selected),
+    )
     system, user = _build_llm_prompt(selected, symbols_by_file)
 
     raw = ""
     try:
         raw = llm_lib.complete(system=system, user=user, max_tokens=512)
     except Exception as exc:
-        logger.warning("layer 3 LLM call failed: %s", exc)
+        logger.warning("layer 3: LLM call failed repo=%s idx=%d: %s", repo_hash, cluster_idx, exc)
         raw = ""
 
     parsed = _parse_llm_json(raw) if raw else None
     if not parsed or not isinstance(parsed, dict) or not parsed.get("role"):
+        logger.warning(
+            "layer 3: LLM annotation unparseable or missing role repo=%s idx=%d; using heuristic (fallback)",
+            repo_hash,
+            cluster_idx,
+        )
         return _heuristic_annotation(file_paths, symbols_by_file), "heuristic"
 
     role = str(parsed.get("role") or "").strip() or "unnamed cluster"
@@ -616,6 +704,20 @@ def _annotate_cluster(
     forbidden = parsed.get("forbidden_dependencies")
     if isinstance(forbidden, list) and forbidden:
         code_shape["forbidden_dependencies"] = [str(x) for x in forbidden if x]
+        logger.debug(
+            "layer 3: cluster %d conventions extracted repo=%s patterns=%d forbidden=%d",
+            cluster_idx,
+            repo_hash,
+            len(patterns),
+            len(code_shape["forbidden_dependencies"]),
+        )
+    else:
+        logger.debug(
+            "layer 3: cluster %d conventions extracted repo=%s patterns=%d forbidden=0",
+            cluster_idx,
+            repo_hash,
+            len(patterns),
+        )
 
     return (
         {

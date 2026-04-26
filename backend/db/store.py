@@ -12,10 +12,13 @@ on first use so importing this module never touches the network.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
+
+logger = logging.getLogger(__name__)
 
 from bson import Binary, ObjectId
 from dotenv import load_dotenv
@@ -58,7 +61,20 @@ def get_client() -> MongoClient:
     """Return a process-wide cached :class:`MongoClient`."""
     global _client
     if _client is None:
-        _client = MongoClient(_mongo_uri(), serverSelectionTimeoutMS=5000)
+        # Log the host:port portion only — never the full URI, which can
+        # carry credentials in the userinfo segment.
+        uri = _mongo_uri()
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(uri)
+            host_disp = parsed.hostname or "unknown"
+            if parsed.port:
+                host_disp = "%s:%d" % (host_disp, parsed.port)
+        except Exception:
+            host_disp = "unknown"
+        logger.info("mongo: initialising client host=%s db=%s", host_disp, _db_name())
+        _client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     return _client
 
 
@@ -219,6 +235,7 @@ def _ensure_repo_indexes(db: Database) -> None:
 
 def init_control_db() -> None:
     """Idempotently create control-plane indexes."""
+    logger.info("mongo: ensuring control-plane indexes db=%s", _db_name())
     _ensure_control_indexes(get_db())
 
 
@@ -228,6 +245,7 @@ def init_repo_db(repo_hash: str) -> None:
     All repos share collections; ``repo_hash`` is here for API compatibility
     with the previous SQLite store.
     """
+    logger.debug("mongo: ensuring per-repo indexes repo=%s", repo_hash)
     _ensure_repo_indexes(get_db())
 
 
