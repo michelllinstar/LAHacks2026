@@ -29,11 +29,38 @@ function mapKind(kind: string | undefined | null): GraphNode['type'] {
   return 'function';
 }
 
+// Cluster region returned alongside layout-positioned nodes so the renderer
+// can draw a labeled background for every Layer 3 cluster the symbol set
+// belongs to. Clicking a region surfaces the cluster in the right panel.
+export interface ClusterRegion {
+  id: string;            // cluster ObjectId, or '__unclustered__' for the bucket
+  shortName: string;     // short upper-snake tag (e.g. AUTH, USERS) for the badge
+  role: string;          // full human-readable role description (may be empty)
+  x: number;             // top-left of the region (canvas coords)
+  y: number;
+  w: number;
+  h: number;
+  nodeCount: number;
+}
+
+const REGION_PAD = 36;
+const REGION_HEADER_H = 32;
+const UNCLUSTERED_ID = '__unclustered__';
+
+// Hoisted to module scope so both the cluster-grouped layout (early branch)
+// and the per-type-grid fallback (later branch) can reference the same
+// canonical ordering without TDZ issues.
+const TYPE_ORDER: GraphNode['type'][] = ['class', 'interface', 'function', 'module'];
+
 // Group nodes by their legend type (class / interface / function / module /
 // variable) and lay each type out in its own grid block. Same-type nodes
 // stay visually together so the legend doubles as a cluster map.
-function projectionToNodes(graph: GraphProjection | undefined, cardW: number, cardH: number): GraphNode[] {
-  if (!graph) return [];
+function projectionToNodes(
+  graph: GraphProjection | undefined,
+  cardW: number,
+  cardH: number,
+): { nodes: GraphNode[]; clusterRegions: ClusterRegion[] } {
+  if (!graph) return { nodes: [], clusterRegions: [] };
   const adjacency = new Map<string, string[]>();
   for (const n of graph.nodes) adjacency.set(n.id, []);
   for (const e of graph.edges) {
@@ -116,9 +143,156 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
     }
   }
 
+  // Helper used by every layout path to materialize the final GraphNode shape
+  // from a positioned (x, y, cluster) entry. Hoisted so the cluster-grouped
+  // path can reuse the same return logic the topological/grid paths use.
+  const buildNodes = (
+    visible: typeof graph.nodes,
+    positionsMap: Map<string, { x: number; y: number; cluster: string }>,
+  ): GraphNode[] => visible.map((n) => {
+    const placed = positionsMap.get(n.id);
+    const fallbackCluster = (n.metadata?.cluster_id as string | undefined)
+      ?? (n.metadata?.cluster as string | undefined)
+      ?? 'Unclustered';
+    const baseMethods = (n.metadata?.methods as string[] | undefined) ?? [];
+    const rolled = rolledMethods.get(n.label) ?? [];
+    const methods = Array.from(new Set([...baseMethods, ...rolled]));
+    const properties = (n.metadata?.properties as string[] | undefined) ?? [];
+    const filePath = (n.metadata?.file_path as string | undefined) ?? null;
+    const stereotype = (n.metadata?.stereotype as string | undefined) ?? null;
+    return {
+      id: n.id,
+      name: n.label,
+      type: mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind),
+      cluster: placed?.cluster ?? fallbackCluster,
+      stereotype,
+      methods,
+      properties,
+      filePath,
+      dependencies: (adjacency.get(n.id) ?? []).map((tid) => idToName.get(tid) ?? tid),
+      x: (placed?.x ?? 600) - cardW / 2,
+      y: (placed?.y ?? 350) - cardH / 2,
+    };
+  });
+
   // Visible nodes only — methods absorbed above are hidden from the canvas
   // because they now live inside the class card's method list.
   const visibleNodes = graph.nodes.filter((n) => !absorbed.has(n.id));
+
+  // ---------------------------------------------------------------------
+  // Cluster-grouped layout — when ≥60% of visible nodes carry a
+  // ``metadata.cluster_id`` (i.e. Layer 3 ran for this repo), bucket nodes
+  // by cluster and lay each cluster as its own grid block, packed across
+  // the canvas. Each cluster also gets a labeled background region (drawn
+  // by the renderer) so the user sees architectural grouping at a glance.
+  // ---------------------------------------------------------------------
+  let clusteredCount = 0;
+  for (const n of visibleNodes) {
+    if (n.metadata?.cluster_id) clusteredCount++;
+  }
+  if (visibleNodes.length > 0 && clusteredCount / visibleNodes.length >= 0.6) {
+    const buckets = new Map<string, typeof graph.nodes>();
+    const roleByCluster = new Map<string, string>();
+    const shortByCluster = new Map<string, string>();
+    for (const n of visibleNodes) {
+      const cid = (n.metadata?.cluster_id as string | undefined) ?? UNCLUSTERED_ID;
+      if (!buckets.has(cid)) buckets.set(cid, []);
+      buckets.get(cid)!.push(n);
+      const role = n.metadata?.cluster_role as string | undefined;
+      if (cid !== UNCLUSTERED_ID && role && !roleByCluster.has(cid)) {
+        roleByCluster.set(cid, role);
+      }
+      const short = n.metadata?.cluster_short as string | undefined;
+      if (cid !== UNCLUSTERED_ID && short && !shortByCluster.has(cid)) {
+        shortByCluster.set(cid, short);
+      }
+    }
+
+    // Sort within each cluster: classes first, then functions, alphabetical
+    // within each type. Stable + cheap.
+    for (const [, list] of buckets) {
+      list.sort((a, b) => {
+        const ta = mapKind((a.metadata?.symbol_kind as string | undefined) ?? a.kind);
+        const tb = mapKind((b.metadata?.symbol_kind as string | undefined) ?? b.kind);
+        const ra = TYPE_ORDER.indexOf(ta);
+        const rb = TYPE_ORDER.indexOf(tb);
+        if (ra !== rb) return ra - rb;
+        return a.label.localeCompare(b.label);
+      });
+    }
+
+    // Lay clusters out in a wrapping row. Bigger clusters first so the row
+    // budget gets used efficiently; "Unclustered" sinks to the end.
+    const clusterIds = [...buckets.keys()].sort((a, b) => {
+      if (a === UNCLUSTERED_ID) return 1;
+      if (b === UNCLUSTERED_ID) return -1;
+      return buckets.get(b)!.length - buckets.get(a)!.length;
+    });
+
+    // Spacing — generous so individual nodes and whole clusters both have
+    // breathing room. Bumped from the earlier compact values; the canvas
+    // pans/zooms so making it bigger doesn't cost anything.
+    const innerColW = cardW + cardW * 0.6;      // node-to-node horizontal gap inside a cluster
+    const innerRowH = cardH + cardH * 0.7;      // node-to-node vertical gap inside a cluster
+    const clusterGapX = 140;                    // gap between adjacent cluster regions on a row
+    const clusterGapY = 140;                    // gap between cluster rows
+    const ROW_BUDGET = 2800;                    // approx canvas width at zoom 100
+
+    const positionsMap = new Map<string, { x: number; y: number; cluster: string }>();
+    const clusterRegions: ClusterRegion[] = [];
+
+    let cursorX = 0;
+    let cursorY = 0;
+    let rowMaxH = 0;
+    let cursorRowMaxBottomY = 0;
+
+    for (const cid of clusterIds) {
+      const list = buckets.get(cid)!;
+      const colCount = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(list.length))));
+      const rowCount = Math.ceil(list.length / colCount);
+      const innerW = colCount * cardW + (colCount - 1) * (innerColW - cardW);
+      const innerH = rowCount * cardH + (rowCount - 1) * (innerRowH - cardH);
+      const regionW = innerW + REGION_PAD * 2;
+      const regionH = innerH + REGION_PAD * 2 + REGION_HEADER_H;
+
+      // Wrap to a new row if this cluster wouldn't fit on the current one.
+      if (cursorX > 0 && cursorX + regionW > ROW_BUDGET) {
+        cursorX = 0;
+        cursorY = cursorRowMaxBottomY + clusterGapY;
+        rowMaxH = 0;
+      }
+
+      const regionX = cursorX;
+      const regionY = cursorY;
+      clusterRegions.push({
+        id: cid,
+        shortName: cid === UNCLUSTERED_ID
+          ? 'OTHER'
+          : (shortByCluster.get(cid) || 'CLUSTER'),
+        role: cid === UNCLUSTERED_ID ? 'Unclustered' : (roleByCluster.get(cid) || 'Cluster'),
+        x: regionX,
+        y: regionY,
+        w: regionW,
+        h: regionH,
+        nodeCount: list.length,
+      });
+
+      // Place each node in the cluster's interior grid.
+      list.forEach((n, i) => {
+        const r = Math.floor(i / colCount);
+        const c = i % colCount;
+        const x = regionX + REGION_PAD + cardW / 2 + c * innerColW;
+        const y = regionY + REGION_HEADER_H + REGION_PAD + cardH / 2 + r * innerRowH;
+        positionsMap.set(n.id, { x, y, cluster: cid });
+      });
+
+      cursorX += regionW + clusterGapX;
+      rowMaxH = Math.max(rowMaxH, regionH);
+      cursorRowMaxBottomY = Math.max(cursorRowMaxBottomY, regionY + regionH);
+    }
+
+    return { nodes: buildNodes(visibleNodes, positionsMap), clusterRegions };
+  }
 
   // ---------------------------------------------------------------------
   // Layered (topological) layout — assign each visible node a "layer index"
@@ -170,7 +344,6 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
 
   // Group nodes by layer, then sort each layer by legend type so same-kind
   // nodes still cluster vertically within a column.
-  const TYPE_ORDER: GraphNode['type'][] = ['class', 'interface', 'function', 'module'];
   const typeRank = (n: typeof graph.nodes[number]) => {
     const t = mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind);
     const idx = TYPE_ORDER.indexOf(t);
@@ -252,32 +425,9 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
     });
   }
 
-  return visibleNodes.map((n) => {
-    const placed = positioned.get(n.id);
-    const fallbackCluster = (n.metadata?.cluster_id as string | undefined)
-      ?? (n.metadata?.cluster as string | undefined)
-      ?? 'Unclustered';
-    const baseMethods = (n.metadata?.methods as string[] | undefined) ?? [];
-    const rolled = rolledMethods.get(n.label) ?? [];
-    // Merge rolled-in methods with whatever metadata already declared.
-    const methods = Array.from(new Set([...baseMethods, ...rolled]));
-    const properties = (n.metadata?.properties as string[] | undefined) ?? [];
-    const filePath = (n.metadata?.file_path as string | undefined) ?? null;
-    const stereotype = (n.metadata?.stereotype as string | undefined) ?? null;
-    return {
-      id: n.id,
-      name: n.label,
-      type: mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind),
-      cluster: placed?.cluster ?? fallbackCluster,
-      stereotype,
-      methods,
-      properties,
-      filePath,
-      dependencies: (adjacency.get(n.id) ?? []).map((tid) => idToName.get(tid) ?? tid),
-      x: (placed?.x ?? 600) - cardW / 2,
-      y: (placed?.y ?? 350) - cardH / 2,
-    };
-  });
+  // Topological / per-type-grid path: cluster regions empty (this layout
+  // doesn't group by Layer 3 cluster). Renderer skips region drawing.
+  return { nodes: buildNodes(visibleNodes, positioned), clusterRegions: [] };
 }
 
 // UML 2.5 relationship classification. Maps the backend edge ``kind`` string
@@ -347,6 +497,8 @@ interface UnifiedGraphViewProps {
   activeModes: Set<GraphMode>;
   onNodeSelect: (node: GraphNode | null) => void;
   onNodeFocus?: (node: GraphNode) => void;
+  /** Fires when the user clicks a Layer 3 cluster background region. */
+  onClusterSelect?: (region: ClusterRegion) => void;
   zoomLevel: number;
   onZoomChange: (zoom: number) => void;
   onResetView: () => void;
@@ -374,7 +526,7 @@ export interface GraphNode {
   y: number;
 }
 
-export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, activeModes, onNodeSelect, onNodeFocus, zoomLevel, onZoomChange, onResetView, highlightedCluster, sidebarCollapsed, pathFilter, density = 'detailed' }: UnifiedGraphViewProps) {
+export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, activeModes, onNodeSelect, onNodeFocus, onClusterSelect, zoomLevel, onZoomChange, onResetView, highlightedCluster, sidebarCollapsed, pathFilter, density = 'detailed' }: UnifiedGraphViewProps) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
 
   const handleNodeClick = (node: GraphNode) => {
@@ -468,7 +620,10 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
   // Derived nodes from the projection, then a local override layer for
   // user-driven drags so positions don't snap back when the projection
   // re-renders (e.g. after an SSE refetch).
-  const baseNodes = useMemo(() => projectionToNodes(projection, cardW, cardH), [projection, cardW, cardH]);
+  const { nodes: baseNodes, clusterRegions } = useMemo(
+    () => projectionToNodes(projection, cardW, cardH),
+    [projection, cardW, cardH],
+  );
 
   // Combined edge list — pulls edges from EACH active projection and tags
   // each entry with its source layer so the renderer can pick the right
@@ -982,6 +1137,51 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             transition: isDragging ? 'none' : 'transform 0.2s ease-out',
           }}
         >
+          {/* Cluster regions — drawn beneath the SVG/nodes so they read as
+              grouping backgrounds. All grey for now; click handlers on the
+              header bubble fire ``onClusterSelect`` for the right panel.
+              ``pointer-events`` is scoped to the header so clicks anywhere
+              else on the region pass through to the canvas pan/zoom. */}
+          {clusterRegions.map((r) => (
+            <div
+              key={`cluster-region-${r.id}`}
+              className="absolute"
+              style={{
+                left: r.x,
+                top: r.y,
+                width: r.w,
+                height: r.h,
+                background: 'rgba(255,255,255,0.025)',
+                border: '1px solid rgba(255,255,255,0.10)',
+                borderRadius: 12,
+                pointerEvents: 'none',
+                zIndex: 0,
+              }}
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClusterSelect?.(r);
+                }}
+                className="text-left px-3 text-[12px] font-bold uppercase tracking-wider text-gray-200 hover:text-white hover:bg-white/[0.05] transition-colors"
+                style={{
+                  pointerEvents: 'auto',
+                  display: 'block',
+                  width: '100%',
+                  height: REGION_HEADER_H,
+                  lineHeight: `${REGION_HEADER_H}px`,
+                  borderTopLeftRadius: 12,
+                  borderTopRightRadius: 12,
+                }}
+                title={r.role}
+              >
+                <span className="align-middle">{r.shortName}</span>
+                <span className="ml-2 text-gray-500 font-normal text-[11px]">· {r.nodeCount}</span>
+              </button>
+            </div>
+          ))}
+
           {/* Connection Lines — overflow:visible lets edges extend beyond SVG bounds */}
           <svg
             style={{
@@ -1013,7 +1213,12 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
               const target = nodes.find((n) => n.id === edge.target);
               if (!source || !target) return null;
 
-              const isFlow = sourceLayer === 'flow' || (edge.kind || '').toLowerCase().startsWith('flow');
+              // Strictly source-layer-gated. The earlier
+              // ``edge.kind.startsWith('flow')`` fallback caused leakage:
+              // any edge with a flow-prefixed kind rendered as a teal flow
+              // arrow even when Flow mode was off, so toggling to
+              // Architecture-only could leave teal arrows on screen.
+              const isFlow = sourceLayer === 'flow';
               const x1 = source.x + cardW;
               const y1 = source.y + cardH / 2;
               const x2 = target.x;

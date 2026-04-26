@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Share2, Files, Search, GitBranch, Info, X, Layers, ShieldCheck, Bot } from 'lucide-react';
 import { AnimatedLogo } from '../ui/AnimatedLogo';
 import { useRouter } from 'next/navigation';
-import { UnifiedGraphView, GraphNode, GraphMode, GraphDensity, PathFilter } from './UnifiedGraphView';
+import { UnifiedGraphView, GraphNode, GraphMode, GraphDensity, PathFilter, ClusterRegion } from './UnifiedGraphView';
 import { InvariantView } from './InvariantView';
 import { DiagramToolbar } from './DiagramToolbar';
 import { AgentQuery } from './AgentActivityLog';
@@ -61,6 +61,9 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   const [isResizingAgentLog, setIsResizingAgentLog] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  // Cluster the user clicked on the symbol-view background. Rendered as an
+  // inline overlay card in the canvas area; doesn't touch RightSidePanel.
+  const [selectedCluster, setSelectedCluster] = useState<ClusterRegion | null>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [highlightedQuery, setHighlightedQuery] = useState<AgentQuery | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -602,7 +605,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
               {/* `key={activeView}` forces a remount on view swap so the
                   uml-view-fade keyframe re-runs and the user perceives the
                   swap as a brief zoom-in rather than an instant page swap. */}
-              <div key={activeView} className="flex-1 overflow-hidden uml-view-fade">
+              <div key={activeView} className="flex-1 overflow-hidden uml-view-fade relative">
               {isGraphView && (
                 <UnifiedGraphView
                   repositoryId={projectId}
@@ -610,6 +613,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   agentLogCollapsed={agentLogCollapsed}
                   activeModes={activeModes}
                   onNodeSelect={setSelectedNode}
+                  onClusterSelect={setSelectedCluster}
                   zoomLevel={zoomLevel}
                   onZoomChange={setZoomLevel}
                   onResetView={resetView}
@@ -620,6 +624,38 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                 />
               )}
               {activeView === 'invariant' && <InvariantView repositoryId={projectId} showLegend={showLegend} />}
+              {/* Cluster info overlay — appears top-right of the canvas
+                  when the user clicks a region's header. Stays fixed in
+                  screen space (independent of pan/zoom). */}
+              {isGraphView && selectedCluster && (
+                <div className="absolute top-3 right-3 z-30 max-w-[320px] bg-[#252526] border border-[#3e3e42] rounded-lg shadow-xl p-3">
+                  <div className="flex items-start gap-2">
+                    <Layers className="h-4 w-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">
+                        Cluster
+                      </div>
+                      <div className="text-sm text-white font-medium leading-snug mb-2 break-words">
+                        {selectedCluster.role}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {selectedCluster.nodeCount} symbol{selectedCluster.nodeCount === 1 ? '' : 's'}
+                      </div>
+                      <div className="text-[10px] text-gray-500 mt-2 font-mono break-all">
+                        id: {selectedCluster.id}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCluster(null)}
+                      className="p-1 -m-1 hover:bg-[#3e3e42] rounded transition-colors flex-shrink-0"
+                      aria-label="Close cluster info"
+                    >
+                      <X className="h-3.5 w-3.5 text-gray-400" />
+                    </button>
+                  </div>
+                </div>
+              )}
               </div>
             </div>
 

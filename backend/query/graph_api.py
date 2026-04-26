@@ -2,12 +2,120 @@
 
 from __future__ import annotations
 
+import re
+from collections import Counter
+from typing import Iterable
+
 from backend.db import store as db_store
 from backend.models import GraphEdge, GraphNode, GraphProjection
 
 
+# A few common words that should map to canonical short tags. Anything not
+# in this dict falls through to "uppercase + cap at 12 chars" which gives
+# reasonable results for path segments like "users", "api", "tests", etc.
+_TAG_ABBREVIATIONS = {
+    "authentication": "AUTH",
+    "auth": "AUTH",
+    "authorization": "AUTHZ",
+    "database": "DB",
+    "persistent": "STORAGE",
+    "persistence": "STORAGE",
+    "storage": "STORAGE",
+    "utility": "UTILS",
+    "utilities": "UTILS",
+    "configuration": "CONFIG",
+    "controllers": "CONTROL",
+    "middleware": "MIDDLE",
+}
+
+
+def _short_tag(raw: str) -> str:
+    """Normalise an identifier-ish string to a short upper-snake tag."""
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", raw or "").strip("_").lower()
+    if not cleaned:
+        return "CLUSTER"
+    if cleaned in _TAG_ABBREVIATIONS:
+        return _TAG_ABBREVIATIONS[cleaned]
+    return cleaned.upper()[:12]
+
+
+_ROLE_STOPWORDS = {
+    "the", "a", "an", "this", "that", "these", "those",
+    "manages", "handles", "provides", "implements", "contains",
+    "serves", "represents", "defines", "is", "are", "and", "or",
+    "with", "for", "to", "of", "in", "on", "by", "as",
+    "cluster", "module", "component", "system", "code", "files",
+}
+
+
+def _short_name_for_cluster(file_paths: Iterable[str], role_description: str) -> str:
+    """Pick a short tag for a cluster.
+
+    Strategy: most common immediate-parent directory of the cluster's member
+    files, lowercased + abbreviated via _TAG_ABBREVIATIONS. If the files don't
+    share a meaningful directory, fall back to the first non-stopword in the
+    role description.
+    """
+    parents: list[str] = []
+    for p in file_paths:
+        if not p:
+            continue
+        # Take the immediate parent directory; that's almost always the
+        # meaningful module name (``auth/login.py`` → ``auth``).
+        parts = p.replace("\\", "/").rstrip("/").split("/")
+        if len(parts) >= 2 and parts[-2]:
+            parents.append(parts[-2])
+    if parents:
+        most_common, _ = Counter(parents).most_common(1)[0]
+        return _short_tag(most_common)
+
+    # Role-text fallback: pick the first word that isn't a stopword.
+    for word in re.findall(r"[A-Za-z]+", role_description.lower()):
+        if len(word) > 2 and word not in _ROLE_STOPWORDS:
+            return _short_tag(word)
+    return "CLUSTER"
+
+
 def symbol_projection(repo_hash: str) -> GraphProjection:
-    """Layer 1 projection: every symbol + every ref."""
+    """Layer 1 projection: every symbol + every ref.
+
+    Per-symbol metadata is enriched with the symbol's Layer 3 cluster
+    assignment (``cluster_id`` + ``cluster_role``) so the frontend can group
+    symbols visually by architectural region without a separate round trip.
+    Both fields are ``None`` when Layer 3 hasn't run for this repo.
+    """
+    # Build the file_path → cluster_id map once. iter_files is cheap (one
+    # Mongo scan keyed on repo_hash); avoiding it would require a per-symbol
+    # lookup which is N round trips. We also build the inverse cluster_id →
+    # [file_path] mapping in the same pass so the short-tag derivation
+    # doesn't need a second scan.
+    file_to_cluster: dict[str, str | None] = {}
+    cluster_to_files: dict[str, list[str]] = {}
+    for f in db_store.iter_files(repo_hash):
+        path = f["file_path"]
+        cid_obj = f.get("cluster_id")
+        cid = str(cid_obj) if cid_obj is not None else None
+        file_to_cluster[path] = cid
+        if cid is not None:
+            cluster_to_files.setdefault(cid, []).append(path)
+
+    # cluster_id → role_description so we can ship the human label alongside
+    # the id (saves the frontend a second projection request). Also derive a
+    # short, badge-sized tag (e.g. AUTH / USERS / TESTS) for the visual
+    # cluster region label.
+    cluster_to_role: dict[str, str] = {}
+    cluster_to_short: dict[str, str] = {}
+    for c in db_store.iter_clusters(repo_hash):
+        cid = c.get("_id")
+        if cid is None:
+            continue
+        cid_str = str(cid)
+        role = c.get("role_description", "") or ""
+        cluster_to_role[cid_str] = role
+        cluster_to_short[cid_str] = _short_name_for_cluster(
+            cluster_to_files.get(cid_str, []), role,
+        )
+
     nodes: list[GraphNode] = []
     for doc in db_store.iter_symbols(repo_hash):
         qname = doc.get("qualified_name", "")
@@ -18,6 +126,9 @@ def symbol_projection(repo_hash: str) -> GraphProjection:
         parent_class = None
         if kind == "method" and "." in qname:
             parent_class = qname.rsplit(".", 1)[0]
+        cluster_id = file_to_cluster.get(doc.get("file_path") or "")
+        cluster_role = cluster_to_role.get(cluster_id) if cluster_id else None
+        cluster_short = cluster_to_short.get(cluster_id) if cluster_id else None
         nodes.append(
             GraphNode(
                 id=str(doc["_id"]),
@@ -31,6 +142,12 @@ def symbol_projection(repo_hash: str) -> GraphProjection:
                     "signature": doc.get("signature") or "",
                     "symbol_kind": kind,
                     "parent_class": parent_class,
+                    "cluster_id": cluster_id,
+                    "cluster_role": cluster_role,
+                    # Short upper-snake tag for the cluster region label
+                    # (e.g. AUTH / USERS / TESTS). Long form lives in
+                    # ``cluster_role`` for the click-to-expand card.
+                    "cluster_short": cluster_short,
                 },
             )
         )
