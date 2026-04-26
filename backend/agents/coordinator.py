@@ -23,6 +23,27 @@ from .protocols import UserQuery, UserResponse
 logger = logging.getLogger(__name__)
 
 
+_USER_QUERY_DECLARED = {"repo_hash", "question"}
+
+
+def _query_extras(query) -> dict:
+    """Return the dict of fields the caller passed beyond UserQuery's declared
+    fields. Handles Pydantic v2 (``model_extra``) and v1 (extras land in
+    ``__dict__`` because UserQuery sets ``Config.extra = 'allow'``).
+    Pydantic v1 is what ``uagents.Model`` ships with."""
+    extra = getattr(query, "model_extra", None)
+    if isinstance(extra, dict) and extra:
+        return extra
+    # Pydantic v1: pull everything off the model and subtract declared fields.
+    if hasattr(query, "dict"):
+        try:
+            data = query.dict()
+        except Exception:
+            data = {}
+        return {k: v for k, v in data.items() if k not in _USER_QUERY_DECLARED}
+    return {}
+
+
 def _count_by_source(invariants: list[dict]) -> dict[str, int]:
     """Group an invariant list by source_kind so the Activity Log can render
     per-kind counts (test/defensive/comment) without re-scanning the bundle."""
@@ -45,6 +66,22 @@ def _symbol_ids_for_files(repo_hash: str, file_paths: list[str]) -> list[str]:
     out: list[str] = []
     for sym in db_store.iter_symbols(repo_hash):
         if sym.get("file_path") in wanted:
+            out.append(str(sym["_id"]))
+    return out
+
+
+def _symbol_ids_for_qnames(repo_hash: str, qnames: list[str]) -> list[str]:
+    """Resolve qualified names to stringified symbol ObjectIds. Flow query
+    payloads carry source/sink/path as qnames (per ``FlowPath`` wire shape),
+    but ``region_highlighted`` events have to reference the same node ids the
+    frontend graph store keys on — without this, flow highlights silently
+    no-op."""
+    if not qnames:
+        return []
+    wanted = set(qnames)
+    out: list[str] = []
+    for sym in db_store.iter_symbols(repo_hash):
+        if sym.get("qualified_name") in wanted:
             out.append(str(sym["_id"]))
     return out
 
@@ -86,7 +123,7 @@ def _extract_flow_payload(query: UserQuery) -> dict:
     via Pydantic's ``model_extra`` (when the model permits) or via attribute
     access. We look in both places defensively.
     """
-    extra = getattr(query, "model_extra", None) or {}
+    extra = _query_extras(query)
     explicit = extra.get("flow") if isinstance(extra, dict) else None
     if isinstance(explicit, dict):
         payload = dict(explicit)
@@ -112,7 +149,7 @@ def _extract_flow_payload(query: UserQuery) -> dict:
 
 def _extract_arch_payload(query: UserQuery) -> dict:
     """Pull an ArchQuery-shaped dict off a UserQuery (path / cluster_id)."""
-    extra = getattr(query, "model_extra", None) or {}
+    extra = _query_extras(query)
     payload: dict = {}
     if isinstance(extra, dict):
         explicit = extra.get("arch")
@@ -133,7 +170,7 @@ def _extract_invariant_payload(query: UserQuery) -> dict:
     qualified name out of the question text so prompts like
     ``"what invariants apply to auth.login?"`` still work.
     """
-    extra = getattr(query, "model_extra", None) or {}
+    extra = _query_extras(query)
     payload: dict = {}
     if isinstance(extra, dict):
         explicit = extra.get("invariant")
@@ -155,7 +192,7 @@ def _extract_invariant_payload(query: UserQuery) -> dict:
 
 def _extract_exemplar_payload(query: UserQuery) -> dict:
     """Pull an ExemplarQuery-shaped dict off a UserQuery (task / cluster_id)."""
-    extra = getattr(query, "model_extra", None) or {}
+    extra = _query_extras(query)
     payload: dict = {"task": query.question or ""}
     if isinstance(extra, dict):
         explicit = extra.get("exemplar")
@@ -173,7 +210,7 @@ def handle_user_query(query: UserQuery) -> UserResponse:
     # Allow callers to skip the keyword classifier by passing an explicit
     # ``query_type`` field (e.g. via the FastAPI gateway). Falls back to
     # keyword-based classification per SPEC §7.2.3.
-    extra = getattr(query, "model_extra", None) or {}
+    extra = _query_extras(query)
     explicit_type = extra.get("query_type") if isinstance(extra, dict) else None
     query_type = explicit_type or _classify(query.question)
     engine = QueryEngine(query.repo_hash)
@@ -185,26 +222,22 @@ def handle_user_query(query: UserQuery) -> UserResponse:
         payload = _extract_flow_payload(query)
         result = flow_analyst.handle_flow_query(query.repo_hash, payload)
         flows = list(result.get("flows", []))
-        symbol_ids: list[str] = []
+        # Collect every qname touched by the result so the Activity Log + the
+        # graph highlight reference the same nodes.
+        touched_qnames: list[str] = []
+        seen_qnames: set[str] = set()
         for flow in flows:
-            src = flow.get("source_symbol")
-            sink = flow.get("sink_symbol")
-            if src:
-                symbol_ids.append(src)
-            if sink:
-                symbol_ids.append(sink)
-            for inter in flow.get("path", []) or []:
-                if inter:
-                    symbol_ids.append(inter)
-        # De-dupe while preserving order so the Activity Log highlight matches
-        # the wire payload the consumer just saw.
-        seen: set[str] = set()
-        unique_ids: list[str] = []
-        for sid in symbol_ids:
-            if sid in seen:
-                continue
-            seen.add(sid)
-            unique_ids.append(sid)
+            for qname in (
+                flow.get("source_symbol"),
+                flow.get("sink_symbol"),
+                *(flow.get("path") or []),
+            ):
+                if qname and qname not in seen_qnames:
+                    seen_qnames.add(qname)
+                    touched_qnames.append(qname)
+        # Resolve qnames → stringified symbol ObjectIds for the highlight
+        # event; the frontend graph store keys nodes by id, not qname.
+        highlight_ids = _symbol_ids_for_qnames(query.repo_hash, touched_qnames)
         event_bus.publish(
             query.repo_hash,
             "agent_activity",
@@ -212,18 +245,19 @@ def handle_user_query(query: UserQuery) -> UserResponse:
                 "query_id": query_id,
                 "query_type": "trace_data_flow",
                 "cluster_id": None,
-                "symbol_ids": unique_ids,
+                "symbol_ids": highlight_ids,
+                "touched_qnames": touched_qnames,
                 "seed_symbol": payload.get("symbol"),
                 "direction": payload.get("direction"),
                 "flow_count": len(flows),
             },
         )
-        if unique_ids:
+        if highlight_ids:
             event_bus.publish(
                 query.repo_hash,
                 "region_highlighted",
                 {
-                    "node_ids": unique_ids,
+                    "node_ids": highlight_ids,
                     "color": "#ff6b6b",
                     "ttl_ms": 4000,
                 },
@@ -236,7 +270,10 @@ def handle_user_query(query: UserQuery) -> UserResponse:
         bundle = engine.find_relevant_context(
             FindContextRequest(task=query.question, repo_hash=query.repo_hash)
         )
-        symbol_ids = [s.qualified_name for s in bundle.relevant_symbols]
+        # Frontend graph store keys nodes by stringified ObjectId, not qname,
+        # so resolve before publishing the highlight event.
+        qnames = [s.qualified_name for s in bundle.relevant_symbols]
+        highlight_ids = _symbol_ids_for_qnames(query.repo_hash, qnames)
         event_bus.publish(
             query.repo_hash,
             "agent_activity",
@@ -244,15 +281,15 @@ def handle_user_query(query: UserQuery) -> UserResponse:
                 "query_id": query_id,
                 "query_type": query_type,
                 "cluster_id": bundle.region.cluster_id,
-                "symbol_ids": symbol_ids,
+                "symbol_ids": highlight_ids,
             },
         )
-        if symbol_ids:
+        if highlight_ids:
             event_bus.publish(
                 query.repo_hash,
                 "region_highlighted",
                 {
-                    "node_ids": symbol_ids,
+                    "node_ids": highlight_ids,
                     "color": "#ffb347",
                     "ttl_ms": 4000,
                 },
@@ -333,12 +370,7 @@ def handle_user_query(query: UserQuery) -> UserResponse:
         target_qnames = list(
             {inv.get("target_symbol") for inv in invariants if inv.get("target_symbol")}
         )
-        highlight_ids: list[str] = []
-        if target_qnames:
-            wanted = set(target_qnames)
-            for sym in db_store.iter_symbols(query.repo_hash):
-                if sym.get("qualified_name") in wanted:
-                    highlight_ids.append(str(sym["_id"]))
+        highlight_ids = _symbol_ids_for_qnames(query.repo_hash, target_qnames)
         event_bus.publish(
             query.repo_hash,
             "agent_activity",

@@ -1,0 +1,120 @@
+/**
+ * Adobe Component Overrides
+ * Apply Adobe design system to Tailwind classes
+ */
+
+/* Override Tailwind colors with Adobe design tokens */
+@layer base {
+  body {
+    font-family: var(--adobe-font-sans);
+    background-color: var(--adobe-bg-base);
+    color: var(--adobe-text-primary);
+  }
+}
+
+/* Map common Tailwind classes to Adobe tokens */
+@layer utilities {
+  /* Background colors */
+  .bg-\[\#1e1e1e\] { background-color: var(--adobe-bg-base) !important; }
+  .bg-\[\#2d2d2d\] { background-color: var(--adobe-bg-layer-1) !important; }
+  .bg-\[\#3a3a3a\] { background-color: var(--adobe-bg-hover) !important; }
+  .bg-\[\#424242\] { background-color: var(--adobe-bg-active) !important; }
+  .bg-\[\#1a1a1a\] { background-color: var(--adobe-gray-950) !important; }
+
+  /* Border colors */
+  .border-gray-800 { border-color: var(--adobe-border-default) !important; }
+  .border-gray-700 { border-color: var(--adobe-border-medium) !important; }
+  .border-gray-600 { border-color: var(--adobe-border-strong) !important; }
+
+  /* Text colors */
+  .text-white { color: var(--adobe-text-primary) !important; }
+  .text-gray-300 { color: var(--adobe-text-secondary) !important; }
+  .text-gray-400 { color: var(--adobe-text-tertiary) !important; }
+  .text-gray-500 { color: var(--adobe-text-quaternary) !important; }
+  .text-gray-600 { color: var(--adobe-text-disabled) !important; }
+
+  /* Gradients */
+  .from-blue-500 { --tw-gradient-from: var(--adobe-blue-500) !important; }
+  .to-purple-600 { --tw-gradient-to: var(--adobe-purple-600) !important; }
+  .from-blue-600 { --tw-gradient-from: var(--adobe-blue-600) !important; }
+  .to-purple-700 { --tw-gradient-to: var(--adobe-purple-600) !important; }
+
+  /* Blue shades */
+  .bg-blue-500 { background-color: var(--adobe-blue-500) !important; }
+  .bg-blue-600 { background-color: var(--adobe-blue-600) !important; }
+  .text-blue-400 { color: var(--adobe-blue-400) !important; }
+  .text-blue-500 { color: var(--adobe-blue-500) !important; }
+  .border-blue-500 { border-color: var(--adobe-blue-500) !important; }
+
+  /* Purple shades */
+  .text-purple-400 { color: var(--adobe-purple-500) !important; }
+  .text-purple-600 { color: var(--adobe-purple-600) !important; }
+
+  /* Success/Error/Warning */
+  .text-green-600 { color: var(--adobe-success-600) !important; }
+  .bg-green-500 { background-color: var(--adobe-success-500) !important; }
+  .text-yellow-500 { color: var(--adobe-warning-500) !important; }
+  .text-red-500 { color: var(--adobe-error-500) !important; }
+
+  /* Transitions */
+  .transition-all,
+  .transition-colors,
+  .transition-transform {
+    transition-duration: var(--adobe-transition-base);
+    transition-timing-function: var(--adobe-ease-in-out);
+  }
+
+  /* Rounded corners - map to Adobe radius */
+  .rounded-lg { border-radius: var(--adobe-radius-lg) !important; }
+  .rounded-xl { border-radius: var(--adobe-radius-xl) !important; }
+  .rounded-2xl { border-radius: var(--adobe-radius-2xl) !important; }
+  .rounded-full { border-radius: var(--adobe-radius-full) !important; }
+}
+
+/* Component-specific Adobe styling */
+@layer components {
+  /* Buttons */
+  button:not(.unstyled) {
+    font-family: var(--adobe-font-sans);
+    transition: var(--adobe-transition-base);
+  }
+
+  /* Inputs */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="url"],
+  textarea,
+  select {
+    font-family: var(--adobe-font-sans);
+    background-color: var(--adobe-bg-input);
+    border-color: var(--adobe-input-border);
+    color: var(--adobe-text-primary);
+  }
+
+  input:focus,
+  textarea:focus,
+  select:focus {
+    border-color: var(--adobe-input-focus);
+    outline: none;
+    box-shadow: 0 0 0 var(--adobe-ring-width) rgba(59, 130, 246, 0.2);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--adobe-text-quaternary);
+  }
+
+  /* Cards */
+  .adobe-card-hover:hover {
+    border-color: var(--adobe-border-medium);
+    transform: translateY(-2px);
+    box-shadow: var(--adobe-shadow-md);
+  }
+
+  /* Focus rings */
+  *:focus-visible {
+    outline: var(--adobe-ring-width) solid var(--adobe-ring-color);
+    outline-offset: var(--adobe-ring-offset);
+  }
+}

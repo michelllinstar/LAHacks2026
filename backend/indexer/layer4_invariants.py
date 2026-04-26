@@ -8,7 +8,7 @@ sources in an indexed repo:
   in the enclosing function body.
 * **Defensive checks** (confidence 0.60): early-return-on-falsy patterns,
   intra-body asserts, and parameter-validating raises inside function bodies.
-* **Comment-derived** (confidence 0.35, optional): when ``ANTHROPIC_API_KEY``
+* **Comment-derived** (confidence 0.35, optional): when ``GEMINI_API_KEY``
   is set, run a small Claude prompt over functions whose docstring/comment
   block sits within ``comment_distance_lines`` of a risky construct
   (``raise``/``try``/``return None``).
@@ -82,8 +82,19 @@ def build(
 
     symbols = list(db_store.iter_symbols(repo_hash))
     if not symbols:
-        logger.info("layer 4: no Layer 1 symbols found; skipping invariant build")
+        logger.info(
+            "layer 4: no Layer 1 symbols found; skipping invariant build repo=%s",
+            repo_hash,
+        )
         return zero_stats
+
+    use_llm = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+    logger.info(
+        "layer 4: starting repo=%s symbols=%d sources_enabled=test,defensive,comment(%s)",
+        repo_hash,
+        len(symbols),
+        "on" if use_llm else "off",
+    )
 
     qname_to_id: dict[str, ObjectId] = {}
     valid_symbol_ids: set[ObjectId] = set()
@@ -101,34 +112,62 @@ def build(
             function_symbols_by_file.setdefault(sym.get("file_path", ""), []).append(sym)
     for file_path, fns in function_symbols_by_file.items():
         fns.sort(key=lambda s: s.get("line_start", 0))
+    logger.debug(
+        "layer 4: indexed %d qnames; %d files have function symbols",
+        len(qname_to_id),
+        len(function_symbols_by_file),
+    )
 
     db_store.reset_invariants(repo_hash)
 
     if repo_path is None:
-        logger.warning("layer 4: repo_path missing; cannot read source files")
+        logger.warning(
+            "layer 4: repo_path missing; cannot read source files repo=%s",
+            repo_hash,
+        )
         return zero_stats
 
     parser = get_python_parser()
     if parser is None:
-        logger.warning("layer 4: tree-sitter parser unavailable; skipping")
+        logger.warning(
+            "layer 4: tree-sitter parser unavailable; skipping repo=%s",
+            repo_hash,
+        )
         return zero_stats
+
+    if not use_llm:
+        logger.warning(
+            "layer 4: GEMINI_API_KEY/GOOGLE_API_KEY not set; comment-derived "
+            "invariants disabled (heuristic-only) repo=%s",
+            repo_hash,
+        )
 
     candidates: list[dict] = []
     rejected = 0
     comment_budget = max_comment_invariants
-    use_llm = bool(os.getenv("ANTHROPIC_API_KEY"))
     comment_tasks: list[dict] = []
+    files_walked = 0
+    files_parse_failed = 0
+    test_files_seen = 0
+    test_cands_total = 0
+    defensive_cands_total = 0
 
     for path in walk_repo(repo_path):
+        files_walked += 1
         try:
             source_bytes = path.read_bytes()
         except OSError as exc:
-            logger.warning("layer 4: could not read %s: %s", path, exc)
+            logger.warning(
+                "layer 4: could not read %s repo=%s: %s", path, repo_hash, exc
+            )
             continue
         try:
             tree = parser.parse(source_bytes)
         except Exception as exc:
-            logger.warning("layer 4: parse failure for %s: %s", path, exc)
+            files_parse_failed += 1
+            logger.warning(
+                "layer 4: parse failure for %s repo=%s: %s", path, repo_hash, exc
+            )
             continue
         if tree is None or tree.root_node is None:
             continue
@@ -137,11 +176,19 @@ def build(
 
         # 1) Test-derived invariants.
         if _is_test_path(path):
+            test_files_seen += 1
             test_cands, test_rejected = _extract_test_invariants(
                 tree.root_node, source_bytes, file_path_str, qname_to_id
             )
             candidates.extend(test_cands)
             rejected += test_rejected
+            test_cands_total += len(test_cands)
+            logger.debug(
+                "layer 4: test file %s yielded %d candidates (%d rejected)",
+                file_path_str,
+                len(test_cands),
+                test_rejected,
+            )
 
         # 2) Defensive-check invariants — over function symbols seen in this file.
         fn_syms = function_symbols_by_file.get(file_path_str, [])
@@ -150,6 +197,14 @@ def build(
                 tree.root_node, source_bytes, file_path_str, fn_syms
             )
             candidates.extend(def_cands)
+            defensive_cands_total += len(def_cands)
+            if def_cands:
+                logger.debug(
+                    "layer 4: defensive pass on %s yielded %d candidates over %d fns",
+                    file_path_str,
+                    len(def_cands),
+                    len(fn_syms),
+                )
 
             # 3) Comment-derived (optional, capped). Collect prompts here;
             # we dispatch them concurrently after the per-file walk.
@@ -165,31 +220,72 @@ def build(
                 comment_tasks.extend(file_tasks)
                 comment_budget -= len(file_tasks)
 
+    logger.info(
+        "layer 4: scan complete repo=%s files=%d parse_failures=%d test_files=%d "
+        "test_cands=%d defensive_cands=%d comment_tasks=%d",
+        repo_hash,
+        files_walked,
+        files_parse_failed,
+        test_files_seen,
+        test_cands_total,
+        defensive_cands_total,
+        len(comment_tasks),
+    )
+
     # Execute the LLM-backed comment-derivation tasks concurrently. Cap at 4
     # in-flight calls (max_comment_invariants=200 budget already enforced).
     if comment_tasks:
+        logger.info(
+            "layer 4: dispatching %d comment-derivation LLM tasks repo=%s "
+            "(workers=4)",
+            len(comment_tasks),
+            repo_hash,
+        )
         cm_cands = _run_comment_tasks(comment_tasks, max_workers=4)
+        logger.info(
+            "layer 4: comment-derivation produced %d candidates from %d tasks "
+            "repo=%s",
+            len(cm_cands),
+            len(comment_tasks),
+            repo_hash,
+        )
         candidates.extend(cm_cands)
 
     # ------------------------------------------------------------------
     # Validate, normalize, dedupe.
     # ------------------------------------------------------------------
+    pre_filter_by_source: dict[str, int] = {}
+    for cand in candidates:
+        sk = cand.get("source_kind", "?")
+        pre_filter_by_source[sk] = pre_filter_by_source.get(sk, 0) + 1
+    logger.debug(
+        "layer 4: pre-filter candidates=%d by_source=%s",
+        len(candidates),
+        pre_filter_by_source,
+    )
+
     cleaned: list[dict] = []
     seen_keys: set[tuple[ObjectId, str, str]] = set()
+    drop_invalid_target = 0
+    drop_empty_text = 0
+    drop_dupe = 0
     for cand in candidates:
         target = cand.get("target_symbol_id")
         if target is None or target not in valid_symbol_ids:
             rejected += 1
+            drop_invalid_target += 1
             continue
         text = cand.get("text") or ""
         text = " ".join(text.split())  # collapse whitespace incl. newlines
         if not text:
             rejected += 1
+            drop_empty_text += 1
             continue
         if len(text) > _MAX_TEXT_LEN:
             text = text[:_MAX_TEXT_LEN]
         key = (target, cand["source_kind"], text[:_DEDUPE_TEXT_KEY])
         if key in seen_keys:
+            drop_dupe += 1
             continue
         seen_keys.add(key)
         cleaned.append(
@@ -202,13 +298,22 @@ def build(
             }
         )
 
+    logger.debug(
+        "layer 4: filter drops invalid_target=%d empty_text=%d dupe=%d kept=%d",
+        drop_invalid_target,
+        drop_empty_text,
+        drop_dupe,
+        len(cleaned),
+    )
+
     capped = False
     if len(cleaned) > max_invariants:
         capped = True
         logger.warning(
-            "layer 4: collected %d invariants, capping to %d",
+            "layer 4: collected %d invariants, capping to %d repo=%s",
             len(cleaned),
             max_invariants,
+            repo_hash,
         )
         cleaned.sort(
             key=lambda r: (
@@ -226,8 +331,12 @@ def build(
         inv_ids = db_store.bulk_insert_invariants(repo_hash, cleaned)
 
     by_source = {"test": 0, "defensive": 0, "comment": 0}
+    by_confidence = {"high": 0, "med": 0, "low": 0}
     for row in cleaned:
         by_source[row["source_kind"]] = by_source.get(row["source_kind"], 0) + 1
+        c = row["confidence"]
+        bucket = "high" if c >= 0.75 else ("med" if c >= 0.5 else "low")
+        by_confidence[bucket] += 1
 
     if emit is not None:
         for inv_id, row in zip(inv_ids, cleaned):
@@ -266,6 +375,17 @@ def build(
                     },
                 },
             )
+
+    logger.info(
+        "layer 4: done repo=%s invariants=%d by_source=%s by_confidence=%s "
+        "rejected=%d capped=%s",
+        repo_hash,
+        len(cleaned),
+        by_source,
+        by_confidence,
+        rejected,
+        capped,
+    )
 
     return {
         "invariants": len(cleaned),
@@ -648,7 +768,7 @@ def _run_comment_tasks(tasks: list[dict], *, max_workers: int = 4) -> list[dict]
     """Dispatch comment-derivation LLM calls concurrently.
 
     Uses a small ``ThreadPoolExecutor`` cap so we don't fan out to hundreds
-    of in-flight requests against the Anthropic API. Works under both the
+    of in-flight requests against the Gemini API. Works under both the
     FastAPI BackgroundTask runner and the standalone agent runtime — neither
     needs to own an asyncio event loop.
     """

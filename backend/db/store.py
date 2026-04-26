@@ -12,10 +12,13 @@ on first use so importing this module never touches the network.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
+
+logger = logging.getLogger(__name__)
 
 from bson import Binary, ObjectId
 from dotenv import load_dotenv
@@ -24,11 +27,18 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
-# Load env from the repo-root .env.local so CLI/agent processes get the same
-# configuration the FastAPI app uses.
-_ROOT_ENV = Path(__file__).resolve().parent.parent.parent / ".env.local"
-if _ROOT_ENV.exists():
-    load_dotenv(_ROOT_ENV)
+# Load env from the repo root so CLI / agent / FastAPI processes share the
+# same configuration. Precedence (highest wins): OS env > .env.local > .env.
+# We load with ``override=False`` and process .env.local FIRST so values it
+# sets are never replaced by the .env load that follows. This also means
+# anything already in os.environ (e.g. an explicit ``MONGODB_URI=...`` set
+# by a shell or by pytest's conftest) wins over both files — which is what
+# the test suite's sentinel relies on.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+for _name in (".env.local", ".env"):
+    _path = _REPO_ROOT / _name
+    if _path.exists():
+        load_dotenv(_path, override=False)
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +61,20 @@ def get_client() -> MongoClient:
     """Return a process-wide cached :class:`MongoClient`."""
     global _client
     if _client is None:
-        _client = MongoClient(_mongo_uri(), serverSelectionTimeoutMS=5000)
+        # Log the host:port portion only — never the full URI, which can
+        # carry credentials in the userinfo segment.
+        uri = _mongo_uri()
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(uri)
+            host_disp = parsed.hostname or "unknown"
+            if parsed.port:
+                host_disp = "%s:%d" % (host_disp, parsed.port)
+        except Exception:
+            host_disp = "unknown"
+        logger.info("mongo: initialising client host=%s db=%s", host_disp, _db_name())
+        _client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     return _client
 
 
@@ -110,6 +133,13 @@ def _ensure_repo_indexes(db: Database) -> None:
         [("repo_hash", ASCENDING), ("file_path", ASCENDING), ("line_start", ASCENDING)],
         name="symbols_repo_file_line",
     )
+    # Layer 2's flow builder filters symbols to function/method kinds only;
+    # without this index that filter scans every symbol per repo. SPEC §9.2
+    # sub-200ms p95 budget for direct queries depends on it.
+    db["symbols"].create_index(
+        [("repo_hash", ASCENDING), ("kind", ASCENDING)],
+        name="symbols_repo_kind",
+    )
     # Text index for replacing FTS5. Mongo allows only one text index per
     # collection but multiple fields can participate.
     try:
@@ -134,9 +164,15 @@ def _ensure_repo_indexes(db: Database) -> None:
     db["symbol_embeddings"].create_index(
         [("symbol_id", ASCENDING)], unique=True, name="symbol_embeddings_symbol_unique"
     )
-    db["symbol_embeddings"].create_index(
-        [("repo_hash", ASCENDING)], name="symbol_embeddings_repo"
-    )
+    # symbol_embeddings_repo (single-field on repo_hash) was redundant: every
+    # access path joins via the unique symbol_id index. Drop it defensively
+    # on existing deployments so the orphan doesn't keep getting maintained.
+    try:
+        db["symbol_embeddings"].drop_index("symbol_embeddings_repo")
+    except OperationFailure:
+        pass
+    except Exception:
+        pass
 
     try:
         db["flows"].drop_index("flows_repo")
@@ -199,6 +235,7 @@ def _ensure_repo_indexes(db: Database) -> None:
 
 def init_control_db() -> None:
     """Idempotently create control-plane indexes."""
+    logger.info("mongo: ensuring control-plane indexes db=%s", _db_name())
     _ensure_control_indexes(get_db())
 
 
@@ -208,6 +245,7 @@ def init_repo_db(repo_hash: str) -> None:
     All repos share collections; ``repo_hash`` is here for API compatibility
     with the previous SQLite store.
     """
+    logger.debug("mongo: ensuring per-repo indexes repo=%s", repo_hash)
     _ensure_repo_indexes(get_db())
 
 
@@ -432,10 +470,23 @@ def bulk_upsert_symbols(
     if ops:
         db["symbols"].bulk_write(ops, ordered=False)
 
+    # Reconciliation filter narrowed to the same 4-tuple set used in upsert.
+    # ``qualified_name`` alone over-fetched: a qname shared across files (e.g.
+    # ``__init__`` on two classes) returned every doc with that name. Adding
+    # file_path and line_start as additional ``$in`` clauses keeps the index
+    # path on ``symbols_unique`` and prunes the cross-product server-side; the
+    # ``by_key`` dict still pins the final alignment.
     qnames = list({row["qualified_name"] for row in rows})
+    file_paths = list({row["file_path"] for row in rows})
+    line_starts = list({int(row["line_start"]) for row in rows})
     by_key: dict[tuple[str, str, int], ObjectId] = {}
     cursor = db["symbols"].find(
-        {"repo_hash": repo_hash, "qualified_name": {"$in": qnames}},
+        {
+            "repo_hash": repo_hash,
+            "qualified_name": {"$in": qnames},
+            "file_path": {"$in": file_paths},
+            "line_start": {"$in": line_starts},
+        },
         {"_id": 1, "qualified_name": 1, "file_path": 1, "line_start": 1},
     )
     for doc in cursor:
@@ -684,13 +735,22 @@ def iter_flows(repo_hash: str) -> list[dict]:
 def flows_from_symbol(
     repo_hash: str, symbol_id: ObjectId, max_depth: int = 3
 ) -> list[dict]:
-    """Flows whose source is ``symbol_id`` and whose path length <= max_depth."""
+    """Flows whose source is ``symbol_id`` and whose **edge count** is at most
+    ``max_depth``.
+
+    The stored ``path`` field is intermediates-only (endpoints excluded), so a
+    flow with ``e`` edges has ``e - 1`` intermediates. The filter is therefore
+    ``$size <= max_depth - 1``. Audit found the previous formulation
+    (``$size <= max_depth``) was always satisfied because the builder caps at
+    ``max_depth=3`` and stores at most 2 intermediates.
+    """
     db = get_db()
+    intermediate_cap = max(0, int(max_depth) - 1)
     cursor = db["flows"].find(
         {
             "repo_hash": repo_hash,
             "source_symbol_id": symbol_id,
-            "$expr": {"$lte": [{"$size": {"$ifNull": ["$path", []]}}, max_depth]},
+            "$expr": {"$lte": [{"$size": "$path"}, intermediate_cap]},
         }
     )
     return list(cursor)
@@ -699,39 +759,27 @@ def flows_from_symbol(
 def flows_to_symbol(
     repo_hash: str, symbol_id: ObjectId, max_depth: int = 3
 ) -> list[dict]:
-    """Flows whose sink is ``symbol_id`` and whose path length <= max_depth."""
+    """Flows whose sink is ``symbol_id`` and whose **edge count** is at most
+    ``max_depth`` — see :func:`flows_from_symbol` for the path-vs-edge
+    accounting that justifies the ``- 1``."""
     db = get_db()
+    intermediate_cap = max(0, int(max_depth) - 1)
     cursor = db["flows"].find(
         {
             "repo_hash": repo_hash,
             "sink_symbol_id": symbol_id,
-            "$expr": {"$lte": [{"$size": {"$ifNull": ["$path", []]}}, max_depth]},
+            "$expr": {"$lte": [{"$size": "$path"}, intermediate_cap]},
         }
     )
     return list(cursor)
 
 
-def flows_through_symbol(repo_hash: str, symbol_id: ObjectId) -> list[dict]:
-    """Flows where ``symbol_id`` appears anywhere in the path or as endpoint."""
-    db = get_db()
-    return list(
-        db["flows"].find(
-            {
-                "repo_hash": repo_hash,
-                "$or": [
-                    {"source_symbol_id": symbol_id},
-                    {"sink_symbol_id": symbol_id},
-                    {"path": symbol_id},
-                ],
-            }
-        )
-    )
-
-
 def flows_touching_symbols(
     repo_hash: str, symbol_ids: Sequence[ObjectId]
 ) -> list[dict]:
-    """Batch version of :func:`flows_through_symbol` over many symbol ids."""
+    """Flows where any of ``symbol_ids`` appears as source, sink, or anywhere
+    in the intermediate path. Single $or query — see ``flows_repo_source``,
+    ``flows_repo_sink``, and the multikey ``flows_repo_path`` indexes."""
     if not symbol_ids:
         return []
     db = get_db()
@@ -805,14 +853,10 @@ def fetch_cluster(repo_hash: str, cluster_id: ObjectId) -> Optional[dict]:
 
 
 def fetch_cluster_member_files(repo_hash: str, cluster_id: ObjectId) -> list[str]:
-    """Files assigned to a cluster; still supported, prefer ``cluster_member_files``."""
-    db = get_db()
-    return [
-        doc["file_path"]
-        for doc in db["files"]
-        .find({"repo_hash": repo_hash, "cluster_id": cluster_id})
-        .sort("file_path", 1)
-    ]
+    """Deprecated alias kept for one release; new code uses
+    :func:`cluster_member_files`. Will be removed once external callers
+    are migrated."""
+    return cluster_member_files(repo_hash, cluster_id)
 
 
 def bulk_insert_clusters(repo_hash: str, rows: Sequence[dict]) -> list[ObjectId]:
@@ -937,8 +981,15 @@ def clusters_for_files(
 
 
 def cluster_member_files(repo_hash: str, cluster_id: ObjectId) -> list[str]:
-    """Alias for :func:`fetch_cluster_member_files`."""
-    return fetch_cluster_member_files(repo_hash, cluster_id)
+    """Files assigned to ``cluster_id``, sorted by path. Uses the sparse
+    ``files_repo_cluster`` index."""
+    db = get_db()
+    return [
+        doc["file_path"]
+        for doc in db["files"]
+        .find({"repo_hash": repo_hash, "cluster_id": cluster_id})
+        .sort("file_path", 1)
+    ]
 
 
 def cluster_member_symbols(

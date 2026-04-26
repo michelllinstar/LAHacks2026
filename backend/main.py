@@ -2,16 +2,46 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.db.store import init_control_db
+from backend.db.store import get_db, init_control_db
 from backend.routes import auth, graph, index, query, repos, stream
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
+# Load .env first as the canonical config (matches .env.example), then let
+# .env.local override any values for local-dev customization without editing
+# the tracked file. python-dotenv silently no-ops when a file is absent.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_REPO_ROOT / ".env")
+load_dotenv(_REPO_ROOT / ".env.local", override=True)
+
+
+def configure_logging() -> None:
+    """Initialise root logging for Cartographer processes.
+
+    Reads ``CARTOGRAPHER_LOG_LEVEL`` (default ``INFO``). Idempotent: if any
+    handler is already attached to the root logger (uvicorn, pytest, an
+    embedding host) we leave the existing config alone so we don't double-log
+    or override the host's preferred format.
+    """
+    root = logging.getLogger()
+    if root.handlers:
+        return
+    level_name = os.getenv("CARTOGRAPHER_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Codebase Cartographer Backend", redirect_slashes=False)
 
@@ -33,14 +63,13 @@ app.include_router(stream.router, prefix="/api/stream")
 
 @app.on_event("startup")
 def _on_startup() -> None:
+    configure_logging()
     try:
         init_control_db()
     except Exception as exc:  # pragma: no cover
         # Defer connection failure to first use so the service still imports
         # cleanly when MongoDB is unreachable at startup.
-        import logging
-
-        logging.getLogger(__name__).warning(
+        logger.warning(
             "MongoDB unreachable at startup (%s); will retry on first request",
             exc,
         )
@@ -48,4 +77,16 @@ def _on_startup() -> None:
 
 @app.get("/health")
 def health_check() -> dict:
-    return {"status": "ok"}
+    """Liveness + Mongo reachability probe.
+
+    Returns ``{"status": "ok", "mongo": "reachable"}`` when the DB is up,
+    or ``{"status": "ok", "mongo": "unreachable", "error": <msg>}`` so a
+    monitoring system can distinguish "process alive but DB down" from a
+    plain crash. The HTTP status stays 200 either way — clients should
+    inspect ``mongo`` to decide.
+    """
+    try:
+        get_db().command("ping")
+        return {"status": "ok", "mongo": "reachable"}
+    except Exception as exc:  # pragma: no cover
+        return {"status": "ok", "mongo": "unreachable", "error": str(exc)[:200]}

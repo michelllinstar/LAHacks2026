@@ -19,7 +19,7 @@ from backend.db import store as db_store
 from backend.lib import events as event_bus
 
 from . import embeddings, layer1_symbols, layer2_flows, layer3_clusters, layer4_invariants
-from .treesitter_loader import get_python_parser
+from .treesitter_loader import get_parser_for, get_python_parser, get_typescript_parser
 from .walker import walk_repo
 
 logger = logging.getLogger(__name__)
@@ -57,12 +57,102 @@ def run_index(
     db_store.reset_layer1(repo_hash)
     db_store.reset_flows(repo_hash)
 
-    _run_layer1(repo_hash, repo_path, emit, job_id)
-    _run_layer2(repo_hash, emit, job_id)
-    _run_layer3(repo_hash, emit, job_id)
-    _run_layer4(repo_hash, repo_path, emit, job_id)
+    pipeline_start = time.monotonic()
+    logger.info("pipeline: start repo=%s job_id=%s", repo_hash, job_id)
+
+    _run_layer_with_logging(
+        layer_num=1,
+        layer_name="symbol",
+        fn=lambda: _run_layer1(repo_hash, repo_path, emit, job_id),
+        repo_hash=repo_hash,
+        count_fn=lambda: {
+            "symbols": len(db_store.iter_symbols(repo_hash)),
+            "refs": len(db_store.iter_refs(repo_hash)),
+        },
+    )
+    _run_layer_with_logging(
+        layer_num=2,
+        layer_name="flow",
+        fn=lambda: _run_layer2(repo_hash, emit, job_id),
+        repo_hash=repo_hash,
+        count_fn=lambda: {"flows": db_store.count_flows(repo_hash)},
+    )
+    _run_layer_with_logging(
+        layer_num=3,
+        layer_name="architecture",
+        fn=lambda: _run_layer3(repo_hash, emit, job_id),
+        repo_hash=repo_hash,
+        count_fn=lambda: {
+            "clusters": db_store.count_clusters(repo_hash),
+            "cluster_deps": db_store.count_cluster_dependencies(repo_hash),
+        },
+    )
+    _run_layer_with_logging(
+        layer_num=4,
+        layer_name="invariant",
+        fn=lambda: _run_layer4(repo_hash, repo_path, emit, job_id),
+        repo_hash=repo_hash,
+        count_fn=lambda: {"invariants": db_store.count_invariants(repo_hash)},
+    )
 
     db_store.set_repo_status(repo_hash, "ready")
+    logger.info(
+        "pipeline: done repo=%s elapsed=%.2fs",
+        repo_hash,
+        time.monotonic() - pipeline_start,
+    )
+
+
+def _run_layer_with_logging(
+    *,
+    layer_num: int,
+    layer_name: str,
+    fn: Callable[[], None],
+    repo_hash: str,
+    count_fn: Callable[[], dict],
+) -> None:
+    """Wrap a per-layer builder call with start/end timing logs.
+
+    Per-layer exceptions are already caught and logged inside the individual
+    ``_run_layerN`` helpers (they convert failures into ``error`` job rows
+    plus an SSE event), so we just observe wall-clock time here. We still
+    re-raise anything that escapes the helper so a programmer error doesn't
+    silently mark the repo ``ready``.
+    """
+    logger.info("layer %d (%s): start repo=%s", layer_num, layer_name, repo_hash)
+    started = time.monotonic()
+    try:
+        fn()
+    except Exception:
+        logger.exception(
+            "layer %d (%s): unhandled exception repo=%s elapsed=%.2fs",
+            layer_num,
+            layer_name,
+            repo_hash,
+            time.monotonic() - started,
+        )
+        raise
+    elapsed = time.monotonic() - started
+    try:
+        counts = count_fn() or {}
+    except Exception as exc:  # pragma: no cover - count probe is best-effort
+        logger.warning(
+            "layer %d (%s): count probe failed repo=%s: %s",
+            layer_num,
+            layer_name,
+            repo_hash,
+            exc,
+        )
+        counts = {}
+    counts_str = " ".join(f"{k}={v}" for k, v in counts.items()) or "(no counts)"
+    logger.info(
+        "layer %d (%s): done repo=%s elapsed=%.2fs %s",
+        layer_num,
+        layer_name,
+        repo_hash,
+        elapsed,
+        counts_str,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -83,9 +173,13 @@ def _run_layer1(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> No
     )
     emit("index_progress", {"layer": layer, "state": "running", "count": 0})
 
-    parser = get_python_parser()
-    if parser is None:
-        logger.warning("tree-sitter parser unavailable; skipping Layer 1 indexing")
+    # SPEC §10: Python + TypeScript. Only short-circuit when *all* grammars
+    # are missing — otherwise a TS-only repo would silently skip Layer 1
+    # because the Python grammar wasn't installed (and vice versa).
+    py_parser = get_python_parser()
+    ts_parser = get_typescript_parser()
+    if py_parser is None and ts_parser is None:
+        logger.warning("tree-sitter parsers unavailable; skipping Layer 1 indexing")
         ended = _now_iso()
         db_store.upsert_index_job(
             job_id=f"{job_id}-{layer}",
@@ -105,13 +199,20 @@ def _run_layer1(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> No
     files_seen: list[tuple[str, Optional[str]]] = []
 
     for path in walk_repo(repo_root):
+        # Per-file parser dispatch by extension. ``get_parser_for`` returns
+        # None when the relevant grammar isn't installed; in that case we
+        # silently drop the file (the early short-circuit above already
+        # handled the all-grammars-missing case).
+        file_parser = get_parser_for(str(path))
+        if file_parser is None:
+            continue
         try:
             source_bytes = path.read_bytes()
         except OSError as exc:
             logger.warning("could not read %s: %s", path, exc)
             continue
         try:
-            tree = parser.parse(source_bytes)
+            tree = file_parser.parse(source_bytes)
         except Exception as exc:  # pragma: no cover
             logger.warning("parse failure for %s: %s", path, exc)
             continue

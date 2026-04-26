@@ -1,0 +1,8 @@
+@import 'tailwindcss' source(none);
+@source '../app/**/*.{js,ts,jsx,tsx}';
+
+@import 'tw-animate-css';
+@import './adobe-design-system.css';
+@import './adobe-components.css';
+@import './theme.css';
+@import './globals.css';

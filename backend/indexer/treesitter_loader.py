@@ -1,8 +1,12 @@
 """Cached tree-sitter parser loader.
 
-Falls back to ``None`` if the optional ``tree_sitter_languages`` dependency is
+Falls back to ``None`` if the optional tree-sitter language dependencies are
 not installed; the indexer runner should log a warning and skip indexing in
 that case rather than crashing the server.
+
+SPEC §10 mandates Python + TypeScript. We expose a per-language accessor and a
+``get_parser_for(file_path)`` router so the runner can dispatch parsing on a
+per-file basis without knowing about grammars itself.
 """
 
 from __future__ import annotations
@@ -12,26 +16,85 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-_parser: Optional[Any] = None
-_load_attempted = False
+_python_parser: Optional[Any] = None
+_python_load_attempted = False
+
+_typescript_parser: Optional[Any] = None
+_typescript_load_attempted = False
+
+_tsx_parser: Optional[Any] = None
+_tsx_load_attempted = False
+
+
+def _try_get_parser(language: str) -> Optional[Any]:
+    """Best-effort tree-sitter parser load; returns None on any failure."""
+    try:
+        from tree_sitter import Language, Parser  # type: ignore
+        if language == "python":
+            import tree_sitter_python as tspython  # type: ignore
+            lang = Language(tspython.language())
+        elif language in ("typescript", "tsx"):
+            import tree_sitter_typescript as tstype  # type: ignore
+            lang = Language(tstype.language_typescript() if language == "typescript" else tstype.language_tsx())
+        else:
+            return None
+        parser = Parser(lang)
+        logger.info("tree-sitter parser loaded language=%s", language)
+        return parser
+    except Exception as exc:
+        logger.warning(
+            "tree-sitter parser unavailable language=%s reason=%s; indexing disabled for this language",
+            language,
+            exc,
+        )
+        return None
 
 
 def get_python_parser() -> Optional[Any]:
     """Return a cached tree-sitter Python parser, or ``None`` on import failure."""
-    global _parser, _load_attempted
-    if _parser is not None:
-        return _parser
-    if _load_attempted:
+    global _python_parser, _python_load_attempted
+    if _python_parser is not None:
+        return _python_parser
+    if _python_load_attempted:
         return None
-    _load_attempted = True
-    try:
-        from tree_sitter_languages import get_parser  # type: ignore
-    except Exception as exc:  # pragma: no cover - exercised in dep-less envs
-        logger.warning("tree_sitter_languages unavailable (%s); indexing disabled", exc)
+    _python_load_attempted = True
+    _python_parser = _try_get_parser("python")
+    return _python_parser
+
+
+def get_typescript_parser() -> Optional[Any]:
+    """Return a cached tree-sitter TypeScript parser, or ``None`` if unavailable."""
+    global _typescript_parser, _typescript_load_attempted
+    if _typescript_parser is not None:
+        return _typescript_parser
+    if _typescript_load_attempted:
         return None
-    try:
-        _parser = get_parser("python")
-    except Exception as exc:  # pragma: no cover
-        logger.warning("failed to load tree-sitter python grammar: %s", exc)
-        _parser = None
-    return _parser
+    _typescript_load_attempted = True
+    _typescript_parser = _try_get_parser("typescript")
+    return _typescript_parser
+
+
+def get_tsx_parser() -> Optional[Any]:
+    """Return a cached tree-sitter TSX parser, or ``None`` if unavailable."""
+    global _tsx_parser, _tsx_load_attempted
+    if _tsx_parser is not None:
+        return _tsx_parser
+    if _tsx_load_attempted:
+        return None
+    _tsx_load_attempted = True
+    _tsx_parser = _try_get_parser("tsx")
+    return _tsx_parser
+
+
+def get_parser_for(file_path: str):
+    """Return the tree-sitter parser for a source file's extension, or None
+    if no parser is available (e.g. SDK missing)."""
+    ext = file_path.lower().rsplit(".", 1)[-1] if "." in file_path else ""
+    if ext == "py":
+        return get_python_parser()
+    if ext == "tsx":
+        return get_tsx_parser()
+    if ext == "ts":
+        return get_typescript_parser()
+    logger.debug("get_parser_for: no parser for extension ext=%s path=%s", ext, file_path)
+    return None

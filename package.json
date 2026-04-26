@@ -9,6 +9,7 @@
     "backend": "uvicorn backend.main:app --reload --port 4000",
     "agents": "python -m backend.agents.runtime",
     "mcp": "python -m backend.mcp.server",
+    "demo": "python scripts/run_demo.py",
     "lint": "eslint . --ext .js,.jsx"
   },
   "dependencies": {
@@ -21,5 +22,9 @@
     "react-dom": "^18.3.1",
     "swr": "^2.2.5",
     "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "typescript": "6.0.3"
   }
 }

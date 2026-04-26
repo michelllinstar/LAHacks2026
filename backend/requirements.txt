@@ -6,10 +6,9 @@ requests
 cloudinary
 tree-sitter<0.22
 tree-sitter-languages==1.10.2
-sentence-transformers
 numpy
 uagents
 mcp
-anthropic
+google-genai
 sse-starlette
 pymongo

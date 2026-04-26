@@ -24,7 +24,7 @@ package-lock.json
 
 # --- Environment ---
 .env*
-!.env.example
+.env
 
 # --- Databases ---
 *.db
@@ -43,3 +43,5 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+frontend/tsconfig.tsbuildinfo
+backend/venv311/
