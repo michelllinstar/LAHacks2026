@@ -96,11 +96,59 @@ def run_index(
     )
 
     db_store.set_repo_status(repo_hash, "ready")
+
+    # Purge the on-disk source tree once indexing succeeds — the graph,
+    # symbols, flows, clusters, and invariants are all materialized in Mongo
+    # at this point so the working copy is no longer needed. Triggered only
+    # after every layer completes; if any layer raised, the source stays put
+    # so the user can re-index without re-uploading.
+    _purge_source_tree(repo_hash, repo_path)
+
     logger.info(
         "pipeline: done repo=%s elapsed=%.2fs",
         repo_hash,
         time.monotonic() - pipeline_start,
     )
+
+
+def _purge_source_tree(repo_hash: str, repo_path: str) -> None:
+    """Best-effort wipe of the indexed working copy under the workspace root.
+
+    Honors the ``CARTOGRAPHER_KEEP_SOURCE=1`` env var as an opt-out so a dev
+    can keep the tree around for debugging. Refuses to recurse outside the
+    workspace root, which prevents an unexpected ``repo_path`` value from
+    deleting something it shouldn't (e.g. a hand-edited absolute path).
+    """
+    import os
+    import shutil
+    from pathlib import Path
+
+    if os.getenv("CARTOGRAPHER_KEEP_SOURCE") == "1":
+        logger.info("purge: skipped (CARTOGRAPHER_KEEP_SOURCE=1) repo=%s", repo_hash)
+        return
+    workspace_env = os.getenv("CARTOGRAPHER_WORKSPACE_ROOT")
+    workspace_root = (
+        Path(workspace_env).expanduser().resolve()
+        if workspace_env
+        else (Path.home() / ".cartographer" / "repos").resolve()
+    )
+    try:
+        target = Path(repo_path).resolve()
+        target.relative_to(workspace_root)
+    except (OSError, ValueError):
+        logger.warning(
+            "purge: refusing to delete %s outside workspace %s",
+            repo_path,
+            workspace_root,
+        )
+        return
+    if not target.exists():
+        return
+    try:
+        shutil.rmtree(target)
+        logger.info("purge: removed %s", target)
+    except Exception as exc:  # pragma: no cover - best effort cleanup
+        logger.warning("purge: failed to remove %s: %s", target, exc)
 
 
 def _run_layer_with_logging(

@@ -1,5 +1,7 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { Code2, Mail, Lock, GitBranch, Globe, ShieldCheck, ArrowLeft } from 'lucide-react';
 import { AxiosError } from 'axios';
 import { toast } from 'sonner';
@@ -20,7 +22,20 @@ function generateCode(): string {
 }
 
 export function LoginPage({ onLogin }: LoginPageProps) {
-  const [isSignup, setIsSignup] = useState(false);
+  // Honor ?mode=signup so links from the landing page can land on the
+  // correct tab. Default ("/login" with no query) is the sign-in form.
+  // ``useSearchParams`` may return null on the first client render before
+  // hydration, so we both initialize from it AND sync via useEffect when
+  // it lands. Otherwise a "Get Started" link routes to Sign In on first
+  // paint and never flips to Sign Up.
+  const searchParams = useSearchParams();
+  const initialIsSignup = searchParams?.get('mode') === 'signup';
+  const [isSignup, setIsSignup] = useState(initialIsSignup);
+  useEffect(() => {
+    const mode = searchParams?.get('mode');
+    if (mode === 'signup') setIsSignup(true);
+    else if (mode === 'signin') setIsSignup(false);
+  }, [searchParams]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -209,7 +224,18 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       </div>
 
       {/* Right Side - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-8">
+      <div className="flex-1 flex items-center justify-center p-8 relative">
+        {/* Back-to-landing button — always visible in the top-left corner of
+            the form panel so the user can escape sign-in / sign-up without
+            using the browser back button. */}
+        <Link
+          href="/"
+          className="absolute top-4 left-4 flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-300 hover:text-white border border-white/10 hover:border-white/30 rounded-md bg-white/[0.04] hover:bg-white/[0.08] transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span>Home</span>
+        </Link>
+
         <div className="w-full max-w-lg anim-fade-up-delay-1">
           <div className="lg:hidden mb-6 flex items-center justify-center gap-5">
             <AnimatedLogo size={40} />
@@ -335,7 +361,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 <label className="block text-base font-medium text-gray-300 mb-2">
                   Email
                 </label>
-                <div className="glass-input flex items-center gap-3 rounded-xl px-5 py-4">
+                <div className="glass-input flex items-center gap-3 rounded-lg px-4 py-1.5">
                   <Mail className="h-5 w-5 text-gray-500 flex-shrink-0" />
                   <input
                     type="email"
@@ -352,7 +378,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 <label className="block text-base font-medium text-gray-300 mb-2">
                   Password
                 </label>
-                <div className="glass-input flex items-center gap-3 rounded-xl px-5 py-4">
+                <div className="glass-input flex items-center gap-3 rounded-lg px-4 py-1.5">
                   <Lock className="h-5 w-5 text-gray-500 flex-shrink-0" />
                   <input
                     type="password"
@@ -364,9 +390,6 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                     minLength={isSignup ? 8 : undefined}
                   />
                 </div>
-                {isSignup && (
-                  <p className="text-xs text-gray-500 mt-1">At least 8 characters</p>
-                )}
               </div>
 
               {isSignup && (
@@ -374,7 +397,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                   <label className="block text-base font-medium text-gray-300 mb-2">
                     Confirm Password
                   </label>
-                  <div className="glass-input flex items-center gap-3 rounded-xl px-5 py-4">
+                  <div className="glass-input flex items-center gap-3 rounded-lg px-4 py-1.5">
                     <Lock className="h-5 w-5 text-gray-500 flex-shrink-0" />
                     <input
                       type="password"
@@ -385,9 +408,6 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                       required
                     />
                   </div>
-                  {confirmPassword.length > 0 && confirmPassword !== password && (
-                    <p className="text-xs text-red-400 mt-1">Passwords don&apos;t match</p>
-                  )}
                 </div>
               )}
 

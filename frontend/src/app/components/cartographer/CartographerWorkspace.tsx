@@ -3,8 +3,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Share2, Files, Search, GitBranch, Info, X, Layers, ShieldCheck, Bot } from 'lucide-react';
 import { AnimatedLogo } from '../ui/AnimatedLogo';
 import { useRouter } from 'next/navigation';
-import { UnifiedGraphView, GraphNode, GraphMode, GraphDensity, PathFilter } from './UnifiedGraphView';
+import { UnifiedGraphView, GraphNode, GraphMode, GraphDensity, PathFilter, classifyLayerBand, type LayerBand } from './UnifiedGraphView';
 import { InvariantView } from './InvariantView';
+import { ContextsView } from './ContextsView';
+import { PackagesView } from './PackagesView';
 import { DiagramToolbar } from './DiagramToolbar';
 import { ViewLevelToolbar, type ViewLevel } from './ViewLevelToolbar';
 import { AgentQuery } from './AgentActivityLog';
@@ -39,15 +41,20 @@ const LEVEL_LABELS: Record<ViewLevel, string> = {
 interface FocusBreadcrumbProps {
   viewLevel: ViewLevel;
   focusPath: string[];
+  /** Levels that the navigator skipped because they had no children for the
+   *  current focus. Rendered as faded "(SkippedLevel)" stubs in the trail
+   *  so the user understands why the toolbar jumped two steps. */
+  skippedLevels: Set<ViewLevel>;
   onJump: (idx: number) => void;
 }
 
-// Renders the focus chain (e.g. Tiers › Backend › Service › Ordering › ⟨Packages⟩).
-// Segment 0..n-1 are clickable focus selections; the trailing segment shows
-// the current level label (greyed out, non-clickable since you're already
-// there). Toolbar level + this trail share the same focusPath state, so they
-// stay in sync by construction.
-function FocusBreadcrumb({ viewLevel, focusPath, onJump }: FocusBreadcrumbProps) {
+// Renders the focus chain (e.g. Tiers › Backend › Service › ⟨Contexts⟩ › payments).
+// Segments may be either:
+//   - a focus pick (clickable, e.g. "Backend"),
+//   - a skipped-level stub like "(Contexts)" rendered faded — clicking it
+//     jumps back to that level so the user can drill in manually if their
+//     mental model differs from the auto-skipper's.
+function FocusBreadcrumb({ viewLevel, focusPath, skippedLevels, onJump }: FocusBreadcrumbProps) {
   const currentIdx = LEVEL_ORDER.indexOf(viewLevel);
   return (
     <div className="flex items-center gap-1.5 px-4 py-1.5 bg-[#252526] border-b border-[#1e1e1e] text-[11px] text-gray-400 flex-wrap">
@@ -63,6 +70,7 @@ function FocusBreadcrumb({ viewLevel, focusPath, onJump }: FocusBreadcrumbProps)
       {focusPath.map((segment, i) => {
         const targetLevel = LEVEL_ORDER[i + 1];
         const isCurrent = i + 1 === currentIdx;
+        const isSkipped = skippedLevels.has(targetLevel);
         return (
           <span key={`${i}-${segment}`} className="flex items-center gap-1.5">
             <span className="text-gray-600">›</span>
@@ -70,11 +78,15 @@ function FocusBreadcrumb({ viewLevel, focusPath, onJump }: FocusBreadcrumbProps)
               type="button"
               onClick={() => onJump(i + 1)}
               className={`px-1.5 py-0.5 rounded hover:bg-white/[0.06] hover:text-white transition-colors max-w-[200px] truncate ${
-                isCurrent ? 'text-white font-medium' : ''
-              }`}
-              title={`${segment} (${LEVEL_LABELS[targetLevel]})`}
+                isSkipped ? 'opacity-40 italic' : ''
+              } ${isCurrent ? 'text-white font-medium' : ''}`}
+              title={
+                isSkipped
+                  ? `${LEVEL_LABELS[targetLevel]} skipped — no meaningful split at this level`
+                  : `${segment} (${LEVEL_LABELS[targetLevel]})`
+              }
             >
-              {segment}
+              {isSkipped ? `(${LEVEL_LABELS[targetLevel]})` : segment}
             </button>
           </span>
         );
@@ -118,6 +130,10 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   // focusPath[i] is the focus chosen at LEVEL_ORDER[i]. Length == index of the
   // current viewLevel: an empty path means the user is at the root level.
   const [focusPath, setFocusPath] = useState<string[]>([]);
+  // Levels that were auto-skipped because they had no meaningful split for
+  // the current focus (e.g. Contexts skipped on a small backend that has no
+  // bounded-context decomposition). Surfaced as faded breadcrumb stubs.
+  const [skippedLevels, setSkippedLevels] = useState<Set<ViewLevel>>(() => new Set());
   const [selectedPath, setSelectedPath] = useState<SelectedPath | null>(null);
   // File click in the explorer panel keeps the row highlighted, but no longer
   // narrows the graph projection — the path filter behaviour was disorienting
@@ -139,10 +155,14 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   // clicking a level always changes the rendered graph. Multi-select
   // overlays remain visible only at the level whose mapped layer matches.
   const isGraphView = activeView === 'diagram';
+  // ``Contexts`` ⇒ architecture layer rendered with cluster-bounded boxes
+  // around the classes that make up each business-domain boundary (Ordering /
+  // Catalog / Payments…). Architecture mode in UnifiedGraphView already draws
+  // translucent cluster backgrounds with the cluster name header.
   const levelToLayer: Record<ViewLevel, GraphMode> = {
     tiers: 'architecture',
     layers: 'architecture',
-    contexts: 'flow',
+    contexts: 'architecture',
     packages: 'symbol',
     classes: 'symbol',
   };
@@ -371,32 +391,153 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
     setZoomLevel(100);
   };
 
-  // Drilling: clicking a node at the current level focuses on it and advances
-  // to the next finer level. At the deepest level the click is a no-op for
-  // the breadcrumb (the right-side panel still shows node details).
+  // Symbol projection used to count children at a given hierarchy level.
+  // Drives the empty-level skip logic so the toolbar never lands on a view
+  // that would render a single box (or none).
+  const symbolGraphForProbe = useCartographerStore(
+    (s) => s.byRepo[projectId]?.graphs?.symbol,
+  );
+
+  // Probe: how many distinct child names exist at `level` for the given
+  // focus path? An empty (size 0) or singleton (size 1) result means the
+  // level is trivial and should be skipped during navigation. Returns the
+  // distinct names so we can auto-pick when there's a singleton.
+  const childrenAt = useCallback(
+    (level: ViewLevel, focus: string[]): { names: string[]; total: number } => {
+      // Layers always has the four standard bands — never trivial.
+      if (level === 'layers') {
+        return { names: ['Controller', 'Service', 'Repository', 'Entity'], total: 4 };
+      }
+      if (!symbolGraphForProbe) return { names: [], total: 0 };
+
+      // Restrict to symbols matching the current focus stack. We use file_path
+      // as the universal coordinate: the tier focus picks the top-level dir,
+      // the layer focus filters by classifyLayerBand, etc.
+      const tierFocus = focus[0]; // index 0 → tier
+      const layerFocus = focus[1] as LayerBand | undefined;
+
+      const inFocus = symbolGraphForProbe.nodes.filter((n) => {
+        const fp = (n.metadata?.file_path as string | undefined) ?? '';
+        if (tierFocus) {
+          const top = fp.split('/').filter(Boolean)[0] ?? '';
+          if (top !== tierFocus) return false;
+        }
+        if (layerFocus) {
+          if (classifyLayerBand(n.label, fp) !== layerFocus) return false;
+        }
+        return true;
+      });
+
+      const set = new Set<string>();
+      if (level === 'contexts') {
+        // Heuristic: the segment immediately following the layer-keyword
+        // directory is a "context". Falls back to second path segment.
+        for (const n of inFocus) {
+          const fp = (n.metadata?.file_path as string | undefined) ?? '';
+          const parts = fp.split('/').filter(Boolean);
+          // Skip the tier prefix, then look for a non-layer-keyword segment.
+          const start = tierFocus ? 1 : 0;
+          let key: string | null = null;
+          for (let i = start; i < parts.length - 1; i++) {
+            const seg = parts[i].toLowerCase();
+            if (/(controller|handler|router|routes?|view|page|api|service|manager|usecase|workflow|repository|repo|dao|store|gateway|entity|model|schema|dto|domain)/.test(seg)) continue;
+            key = parts[i];
+            break;
+          }
+          if (key) set.add(key);
+        }
+      } else if (level === 'packages') {
+        // Distinct directory paths — these are the "packages".
+        for (const n of inFocus) {
+          const fp = (n.metadata?.file_path as string | undefined) ?? '';
+          const idx = fp.lastIndexOf('/');
+          if (idx > 0) set.add(fp.slice(0, idx));
+        }
+      } else if (level === 'classes') {
+        for (const n of inFocus) set.add(n.label);
+      }
+      return { names: [...set], total: set.size };
+    },
+    [symbolGraphForProbe],
+  );
+
+  // Walk forward from `startIdx` skipping any trivial level (≤1 child). When
+  // a level has exactly one child, we auto-fill its focus segment so the
+  // breadcrumb still shows what was selected (just rendered faded). Returns
+  // the (level, focusPath, skippedLevels) the navigator should land on.
+  const skipEmpty = useCallback(
+    (startIdx: number, basePath: string[]) => {
+      let idx = startIdx;
+      const path = [...basePath];
+      const skipped = new Set<ViewLevel>();
+      while (idx < LEVEL_ORDER.length - 1) {
+        const probe = LEVEL_ORDER[idx];
+        // Tiers/Layers always render as the abstract tier or layers diagram —
+        // they're never trivial in this app.
+        if (probe === 'tiers' || probe === 'layers') break;
+        const { names, total } = childrenAt(probe, path);
+        if (total > 1) break;
+        skipped.add(probe);
+        if (total === 1) {
+          path.push(names[0]);
+        }
+        idx += 1;
+      }
+      return { idx, path, skipped };
+    },
+    [childrenAt],
+  );
+
+  // Drilling: focusing on a name at the current level advances to the next
+  // finer level. Auto-skips any level that would render a single box (or
+  // none) so the user isn't dropped on a useless Contexts view when the
+  // codebase has no bounded-context decomposition.
+  const advanceFocus = useCallback(
+    (name: string) => {
+      const currentIdx = LEVEL_ORDER.indexOf(viewLevel);
+      if (currentIdx < 0 || currentIdx >= LEVEL_ORDER.length - 1) return;
+      const baseNext = [...focusPath.slice(0, currentIdx), name];
+      const { idx, path, skipped } = skipEmpty(currentIdx + 1, baseNext);
+      setFocusPath(path);
+      setSkippedLevels(skipped);
+      setViewLevel(LEVEL_ORDER[idx]);
+    },
+    [viewLevel, focusPath, skipEmpty],
+  );
+
   const handleNodeFocus = useCallback((node: GraphNode) => {
-    const currentIdx = LEVEL_ORDER.indexOf(viewLevel);
-    if (currentIdx < 0 || currentIdx >= LEVEL_ORDER.length - 1) return;
-    setFocusPath((prev) => {
-      const next = prev.slice(0, currentIdx);
-      next.push(node.name);
-      return next;
-    });
-    setViewLevel(LEVEL_ORDER[currentIdx + 1]);
-  }, [viewLevel]);
+    advanceFocus(node.name);
+  }, [advanceFocus]);
 
   // Toolbar level click: jumps to that level and trims the breadcrumb so the
-  // path never claims focus we don't have.
-  const handleLevelChange = useCallback((next: ViewLevel) => {
-    const idx = LEVEL_ORDER.indexOf(next);
-    setViewLevel(next);
-    setFocusPath((prev) => prev.slice(0, idx));
-  }, []);
+  // path never claims focus we don't have. If the user clicks a level the
+  // navigator would normally skip, we honor it (clicking explicitly is an
+  // override) but also rerun the probe to fade out any further empty levels.
+  const handleLevelChange = useCallback(
+    (next: ViewLevel) => {
+      const idx = LEVEL_ORDER.indexOf(next);
+      const baseNext = focusPath.slice(0, idx);
+      const { idx: landedIdx, path, skipped } = skipEmpty(idx, baseNext);
+      setViewLevel(LEVEL_ORDER[landedIdx]);
+      setFocusPath(path);
+      setSkippedLevels(skipped);
+    },
+    [focusPath, skipEmpty],
+  );
 
   // Breadcrumb click: jump back to the level whose focus segment was clicked.
+  // Skipped levels are still clickable — the user can override the auto-skip
+  // and inspect the (single-box) view directly if they want.
   const handleBreadcrumbJump = useCallback((idx: number) => {
     setViewLevel(LEVEL_ORDER[idx]);
     setFocusPath((prev) => prev.slice(0, idx));
+    setSkippedLevels((prev) => {
+      // Drop any skip markers at or after the level we jumped to — they no
+      // longer apply since the user is choosing this level explicitly.
+      const next = new Set(prev);
+      for (let i = idx; i < LEVEL_ORDER.length; i++) next.delete(LEVEL_ORDER[i]);
+      return next;
+    });
   }, []);
 
   // Real repositories from store; fallback to a single-entry list of the
@@ -688,16 +829,26 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
           {activeView === 'diagram' && (
             <>
               {/* View-level selector (Tiers / Layers / Contexts / Packages /
-                  Classes) sits in the same toolbar slot the layer overlays
-                  used so the user always sees the active level next to the
-                  Symbol/Flow/Architecture overlay toggles. */}
-              <ViewLevelToolbar value={viewLevel} onChange={handleLevelChange} />
-              <DiagramToolbar
-                activeLayers={diagramLayers}
-                onToggleLayer={toggleDiagramLayer}
+                  Classes). Files / Database density toggle is hosted here and
+                  only shown at the Classes level — that's the only level
+                  whose card density is user-configurable. */}
+              <ViewLevelToolbar
+                value={viewLevel}
+                onChange={handleLevelChange}
                 density={diagramDensity}
                 onDensityChange={setDiagramDensity}
               />
+              {/* Secondary toolbar (Symbol/Flow/Architecture overlays) is only
+                  meaningful at the Classes level; at higher tiers the chosen
+                  level dictates the projection on its own. */}
+              {viewLevel === 'classes' && (
+                <DiagramToolbar
+                  activeLayers={diagramLayers}
+                  onToggleLayer={toggleDiagramLayer}
+                  density={diagramDensity}
+                  onDensityChange={setDiagramDensity}
+                />
+              )}
             </>
           )}
           {activeView === 'invariant' && <InvariantToolbar />}
@@ -709,14 +860,28 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                 <FocusBreadcrumb
                   viewLevel={viewLevel}
                   focusPath={focusPath}
+                  skippedLevels={skippedLevels}
                   onJump={handleBreadcrumbJump}
                 />
               )}
               {/* `key={activeView}` forces a remount on view swap so the
                   uml-view-fade keyframe re-runs and the user perceives the
                   swap as a brief zoom-in rather than an instant page swap. */}
-              <div key={activeView} className="flex-1 overflow-hidden uml-view-fade">
-              {isGraphView && (
+              <div key={`${activeView}-${viewLevel}`} className="flex-1 overflow-hidden uml-view-fade">
+              {isGraphView && viewLevel === 'contexts' && (
+                <ContextsView repositoryId={projectId} onContextFocus={advanceFocus} />
+              )}
+              {isGraphView && viewLevel === 'packages' && (
+                <PackagesView
+                  repositoryId={projectId}
+                  /* focusPath at packages depth: [tier, layer, context]; the
+                     context segment scopes the package set so users see the
+                     packages that belong to the context they drilled from. */
+                  contextFilter={focusPath[2] ?? null}
+                  onPackageFocus={advanceFocus}
+                />
+              )}
+              {isGraphView && viewLevel !== 'contexts' && viewLevel !== 'packages' && (
                 <UnifiedGraphView
                   repositoryId={projectId}
                   showLegend={showLegend}
@@ -731,6 +896,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   sidebarCollapsed={sidebarCollapsed}
                   pathFilter={pathFilter}
                   density={diagramDensity}
+                  viewLevel={viewLevel}
                 />
               )}
               {activeView === 'invariant' && <InvariantView repositoryId={projectId} showLegend={showLegend} />}

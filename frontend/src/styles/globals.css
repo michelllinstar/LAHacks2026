@@ -721,11 +721,13 @@ select {
    dark themes — the page sets `data-theme="light"` to opt in.
    =========================================================== */
 :root {
-  --uml-card-bg: #1e1e1e;
-  --uml-card-fg: #ffffff;
+  /* Dark UML cards — slightly lighter than the canvas so the card
+     reads as a distinct rectangle on the dark editor surface. */
+  --uml-card-bg: #2a2a2c;
+  --uml-card-fg: #f3f4f6;
   --uml-card-muted: #9ca3af;
-  --uml-card-border: #3e3e42;
-  --uml-divider: rgba(255,255,255,0.12);
+  --uml-card-border: #4b5563;
+  --uml-divider: rgba(255,255,255,0.14);
   --uml-stereotype: #d1d5db;
   --uml-mono: 'JetBrains Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace;
   --uml-tier-1: rgba(94, 234, 212, 0.10);   /* Layer 1 / Symbol  — teal wash    */

@@ -197,7 +197,7 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
                 placeholder="http://127.0.0.1:5050"
                 className="w-full bg-[#1e1e1e] border border-[#3e3e42] px-2 py-1.5 text-xs text-white rounded focus:outline-none focus:border-emerald-500 font-mono"
               />
-              <p className="text-[10px] text-gray-500 mt-1">
+              <p className="text-[8px] text-gray-500 mt-1">
                 Full URL with <code>http://</code> or <code>https://</code>.
                 Localhost works for agents running on this machine.
               </p>
