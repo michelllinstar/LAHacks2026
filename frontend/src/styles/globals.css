@@ -444,10 +444,11 @@ select {
 }
 
 .glass-input {
-  background: rgba(255,255,255,0.025);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.18);
+  /* Warm dark gray for the input fields — matches the panel/branding tone
+     without the glassy translucency. Border keeps the near-white treatment
+     used by surrounding card borders. */
+  background: rgb(43, 39, 34);
+  border: 1px solid #b8b3ae;
   transition: border-color 220ms ease, box-shadow 220ms ease, background 220ms ease;
 }
 
@@ -457,16 +458,16 @@ select {
 .glass-input input:-webkit-autofill:hover,
 .glass-input input:-webkit-autofill:focus,
 .glass-input input:-webkit-autofill:active {
-  -webkit-box-shadow: 0 0 0 1000px #3a3a3a inset !important;
-  box-shadow: 0 0 0 1000px #3a3a3a inset !important;
-  -webkit-text-fill-color: #e5e5e5 !important;
-  caret-color: #e5e5e5 !important;
+  -webkit-box-shadow: 0 0 0 1000px rgb(43, 39, 34) inset !important;
+  box-shadow: 0 0 0 1000px rgb(43, 39, 34) inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
   border-radius: inherit;
   transition: background-color 9999s ease-out 0s;
 }
 .glass-input:focus-within {
-  background: rgba(255,255,255,0.05);
-  border-color: rgba(255,255,255,0.75);
+  background: rgb(43, 39, 34);
+  border-color: #d6d2cd;
   box-shadow:
     0 0 0 3px rgba(255,255,255,0.20),
     0 0 24px rgba(255,255,255,0.20);

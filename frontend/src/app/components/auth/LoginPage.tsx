@@ -166,7 +166,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[#1e1e1e] flex aurora-bg">
+    <div className="h-screen overflow-hidden bg-[#1e1e1e] flex aurora-bg">
       {/* Left Side - Branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-[#2d2d2d] to-[#1a1a1a] p-12 flex-col items-center justify-center relative overflow-hidden anim-fade-up">
         {/* Background Pattern */}
@@ -386,6 +386,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                     onChange={(e) => setPassword(e.target.value)}
                     className="flex-1 min-w-0 bg-transparent text-base text-white placeholder-gray-500 focus:outline-none"
                     placeholder="••••••••"
+                    autoComplete={isSignup ? 'new-password' : 'current-password'}
                     required
                     minLength={isSignup ? 8 : undefined}
                   />
@@ -405,7 +406,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       className="flex-1 min-w-0 bg-transparent text-base text-white placeholder-gray-500 focus:outline-none"
                       placeholder="••••••••"
+                      autoComplete="new-password"
                       required
+                      minLength={8}
                     />
                   </div>
                 </div>

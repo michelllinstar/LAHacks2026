@@ -18,30 +18,33 @@ export function LandingPage() {
           backgroundSize: '50px 50px',
         }} />
 
-        {/* Top Navigation */}
-        <nav className="relative z-10 border-b border-gray-800 bg-[#1e1e1e]/80 backdrop-blur-sm">
-          <div className="max-w-7xl mx-auto px-5 py-4">
+        {/* Top Navigation — mirrors ProfilePage / ProjectsDashboard exactly */}
+        <nav className="relative z-10 bg-[#2d2d2d] border-b border-gray-800">
+          <div className="px-[100px] py-2">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-5">
-                <AnimatedLogo size={44} />
-                <div>
-                  <h1 className="font-bold text-white text-xl">MarkCodePolo</h1>
-                  <p className="text-xs text-gray-400">Visualize your codebase</p>
+              <Link href="/" className="flex items-center gap-4">
+                <AnimatedLogo size={40} />
+                <div className="text-left">
+                  <h1 className="text-3xl font-bold text-white leading-tight">MarkCodePolo</h1>
+                  <p className="text-[10px] text-gray-400 leading-tight">markcodepolo</p>
                 </div>
-              </div>
+              </Link>
 
-              <div className="flex items-center gap-6">
-                <a href="#features" className="text-gray-300 hover:text-white transition-colors">Features</a>
+              <div className="flex items-center gap-3">
+                <a href="#features" className="px-6 py-3 text-base text-gray-300 hover:text-white transition-colors">
+                  Features
+                </a>
                 <Link
                   href="/login?mode=signin"
-                  className="px-5 py-2 text-gray-300 hover:text-white transition-colors"
+                  className="px-6 py-3 text-base text-gray-300 hover:text-white transition-colors"
                 >
                   Sign In
                 </Link>
-                <Link href="/login?mode=signup" className="group">
-                  <GlassBubble tone="blue" size="sm">
-                    Get Started
-                  </GlassBubble>
+                <Link
+                  href="/login?mode=signup"
+                  className="px-7 py-3 text-base font-medium text-white border-2 border-white/30 hover:border-white/60 hover:bg-white/5 rounded-lg transition-all bg-transparent"
+                >
+                  Get Started
                 </Link>
               </div>
             </div>
@@ -49,7 +52,7 @@ export function LandingPage() {
         </nav>
 
         {/* Hero Content */}
-        <div className="relative z-10 max-w-7xl mx-auto px-5 pt-20 pb-32">
+        <div className="relative z-10 max-w-7xl mx-auto px-5 pt-12 pb-12">
           <div className="text-center max-w-4xl mx-auto">
             <div className="inline-flex items-center gap-5 px-5 py-2 bg-white/[0.03] border border-white/10 rounded-full mb-8 anim-fade-up anim-breathe">
               <Sparkles className="h-4 w-4 text-white/80" />
@@ -207,7 +210,7 @@ export function LandingPage() {
       </div>
 
       {/* Features Section */}
-      <div id="features" className="py-24 bg-[#1a1a1a]">
+      <div id="features" className="py-12 bg-[#1a1a1a]">
         <div className="max-w-7xl mx-auto px-5">
           <div className="text-center mb-16">
             <h3 className="text-4xl font-bold text-white mb-5">Everything you need</h3>
@@ -277,7 +280,7 @@ export function LandingPage() {
       </div>
 
       {/* Stats Section */}
-      <div className="py-24">
+      <div className="py-10">
         <div className="max-w-7xl mx-auto px-5">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             {[
@@ -298,12 +301,12 @@ export function LandingPage() {
       </div>
 
       {/* CTA Section */}
-      <div className="pt-24 pb-10 aurora-bg">
+      <div className="pt-10 pb-8 aurora-bg">
         <div className="max-w-4xl mx-auto px-5 text-center">
-          <h3 className="text-4xl font-bold text-white mb-6">
+          <h3 className="text-3xl font-bold text-white mb-3">
             Ready to visualize your architecture?
           </h3>
-          <p className="text-2xl text-gray-300 mb-10">
+          <p className="text-lg text-gray-300 mb-5">
             Join thousands of developers who trust MarkCodePolo for their documentation needs.
           </p>
           <Link href="/login?mode=signup" className="group inline-block">
