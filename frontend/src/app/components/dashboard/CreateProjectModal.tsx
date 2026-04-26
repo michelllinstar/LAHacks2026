@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { X, GitBranch, HardDrive, FolderPlus, ArrowRight, Upload, Folder, FileCode, User, Briefcase } from 'lucide-react';
 import { toast } from 'sonner';
 import { createRepo, triggerIndex, uploadRepo } from '../../../lib/api';
+import { GlassBubble } from '../ui/glass-bubble';
 import type { RepoSummary } from '../../../lib/types';
 
 type DomainType = 'personal' | 'work';
@@ -248,37 +249,37 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                 {/* GitHub Option */}
                 <button
                   onClick={() => handleTypeSelect('github')}
-                  className="p-6 bg-[#1e1e1e] border border-gray-700 hover:border-blue-500 rounded-xl transition-all text-left group"
+                  className="px-8 py-10 bg-[#1e1e1e] border border-gray-700 hover:border-blue-500 rounded-xl transition-all text-center group flex flex-col items-center"
                 >
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-lg flex items-center justify-center mb-5 group-hover:bg-[#3a3a3a] transition-colors">
+                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-lg flex items-center justify-center mb-6 group-hover:bg-[#3a3a3a] transition-colors">
                     <GitBranch className="h-6 w-6 text-gray-400 group-hover:text-blue-400" />
                   </div>
-                  <h3 className="text-2xl font-semibold text-white mb-5">Version Control</h3>
-                  <p className="text-base text-gray-400 mb-5">
+                  <h3 className="text-2xl font-semibold text-white mb-4 text-center">Version Control</h3>
+                  <p className="text-base text-gray-400 mb-6 text-center max-w-xs">
                     Connect your GitHub repository for automatic syncing and version tracking
                   </p>
-                  <div className="flex items-center gap-5 text-base text-blue-400">
+                  <GlassBubble tone="blue">
                     <span>Get Started</span>
                     <ArrowRight className="h-4 w-4" />
-                  </div>
+                  </GlassBubble>
                 </button>
 
                 {/* Local Option */}
                 <button
                   onClick={() => handleTypeSelect('local')}
-                  className="p-6 bg-[#1e1e1e] border border-gray-700 hover:border-purple-500 rounded-xl transition-all text-left group"
+                  className="px-8 py-10 bg-[#1e1e1e] border border-gray-700 hover:border-purple-500 rounded-xl transition-all text-center group flex flex-col items-center"
                 >
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-lg flex items-center justify-center mb-5 group-hover:bg-[#3a3a3a] transition-colors">
+                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-lg flex items-center justify-center mb-6 group-hover:bg-[#3a3a3a] transition-colors">
                     <HardDrive className="h-6 w-6 text-gray-400 group-hover:text-purple-400" />
                   </div>
-                  <h3 className="text-2xl font-semibold text-white mb-5">Local Files</h3>
-                  <p className="text-base text-gray-400 mb-5">
+                  <h3 className="text-2xl font-semibold text-white mb-4 text-center">Local Files</h3>
+                  <p className="text-base text-gray-400 mb-6 text-center max-w-xs">
                     Upload code files directly from your computer for quick analysis
                   </p>
-                  <div className="flex items-center gap-5 text-base text-purple-400">
+                  <GlassBubble tone="purple">
                     <span>Get Started</span>
                     <ArrowRight className="h-4 w-4" />
-                  </div>
+                  </GlassBubble>
                 </button>
               </div>
 

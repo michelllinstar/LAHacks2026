@@ -1,6 +1,7 @@
 'use client';
 import { ArrowRight, Sparkles, Zap, Shield, Cloud, Code2, GitBranch, Users, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
+import { GlassBubble } from '../ui/glass-bubble';
 
 export function LandingPage() {
   return (
@@ -40,11 +41,10 @@ export function LandingPage() {
                 >
                   Sign In
                 </Link>
-                <Link
-                  href="/login"
-                  className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium rounded-lg transition-all"
-                >
-                  Get Started
+                <Link href="/login" className="group">
+                  <GlassBubble tone="blue" size="sm">
+                    Get Started
+                  </GlassBubble>
                 </Link>
               </div>
             </div>
@@ -224,12 +224,11 @@ export function LandingPage() {
           <p className="text-2xl text-gray-300 mb-10">
             Join thousands of developers who trust CodeViz AI for their documentation needs.
           </p>
-          <Link
-            href="/login"
-            className="inline-flex items-center gap-5 px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-lg transition-all transform hover:scale-105"
-          >
-            Get Started Free
-            <ArrowRight className="h-5 w-5" />
+          <Link href="/login" className="group inline-block">
+            <GlassBubble tone="blue" size="lg" className="font-semibold">
+              Get Started Free
+              <ArrowRight className="h-5 w-5" />
+            </GlassBubble>
           </Link>
         </div>
       </div>

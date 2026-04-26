@@ -169,10 +169,10 @@ export function FilesPanel({ repositoryId, selected, onFileSelect, onCollapse }:
         {onCollapse && (
           <button
             onClick={onCollapse}
-            className="p-0.5 hover:bg-[#2a2d2e] rounded transition-colors"
+            className="p-2.5 hover:bg-[#2a2d2e] rounded transition-colors"
             title="Collapse Explorer"
           >
-            <ChevronLeft className="h-3.5 w-3.5 text-gray-400 hover:text-white" />
+            <ChevronLeft className="h-[13px] w-[13px] text-gray-400 hover:text-white" />
           </button>
         )}
       </div>
@@ -185,10 +185,10 @@ export function FilesPanel({ repositoryId, selected, onFileSelect, onCollapse }:
           </span>
           <button
             onClick={() => onFileSelect(null)}
-            className="p-0.5 hover:bg-[#2a2d2e] rounded transition-colors"
+            className="p-2.5 hover:bg-[#2a2d2e] rounded transition-colors"
             title="Clear filter"
           >
-            <X className="h-3 w-3 text-gray-400 hover:text-white" />
+            <X className="h-[13px] w-[13px] text-gray-400 hover:text-white" />
           </button>
         </div>
       )}

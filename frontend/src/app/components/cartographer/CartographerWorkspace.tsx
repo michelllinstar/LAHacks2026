@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ArrowLeft, Settings, Share2, Database, Files, Search, GitBranch, Info, X } from 'lucide-react';
+import { ArrowLeft, Settings, Share2, Database, Files, Search, GitBranch, Info, X, Layers, ShieldCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { UnifiedGraphView, GraphNode, GraphMode, PathFilter } from './UnifiedGraphView';
 import { InvariantView } from './InvariantView';
@@ -30,9 +30,9 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   const [diagramLayer, setDiagramLayer] = useState<GraphMode>('symbol');
   const [selectedRepository, setSelectedRepository] = useState(projectName);
   const [activeActivity, setActiveActivity] = useState<ActivityBarItem>('explorer');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth] = useState(280);
-  const [agentLogCollapsed, setAgentLogCollapsed] = useState(true);
+  const [agentLogCollapsed, setAgentLogCollapsed] = useState(false);
   const [agentLogWidth, setAgentLogWidth] = useState(280);
   const [isResizingAgentLog, setIsResizingAgentLog] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
@@ -245,13 +245,13 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
       <div className="h-9 bg-[#323233] flex items-center px-2 text-xs border-b border-[#1e1e1e]">
         <button
           onClick={onBack}
-          className="p-1.5 hover:bg-[#3e3e42] rounded transition-colors mr-2"
+          className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors mr-2"
         >
-          <ArrowLeft className="h-3.5 w-3.5 text-gray-400" />
+          <ArrowLeft className="h-[17px] w-[17px] text-gray-400" />
         </button>
 
         <div className="flex items-center gap-2 flex-1">
-          <Database className="h-3.5 w-3.5 text-[#007acc]" />
+          <Database className="h-[17px] w-[17px] text-[#007acc]" />
           <select
             value={selectedRepository}
             onChange={(e) => setSelectedRepository(e.target.value)}
@@ -269,12 +269,12 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
         <div className="flex items-center gap-1">
           <button
             onClick={onShare}
-            className="p-1.5 hover:bg-[#3e3e42] rounded transition-colors"
+            className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors"
           >
-            <Share2 className="h-3.5 w-3.5 text-gray-400" />
+            <Share2 className="h-[17px] w-[17px] text-gray-400" />
           </button>
-          <button className="p-1.5 hover:bg-[#3e3e42] rounded transition-colors">
-            <Settings className="h-3.5 w-3.5 text-gray-400" />
+          <button className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors">
+            <Settings className="h-[17px] w-[17px] text-gray-400" />
           </button>
         </div>
       </div>
@@ -381,7 +381,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
               <div className="p-4">
                 <h3 className="text-xs uppercase text-gray-400 font-semibold mb-3">Source Control</h3>
                 <div className="flex items-center gap-2 text-sm text-gray-400">
-                  <GitBranch className="h-4 w-4" />
+                  <GitBranch className="h-[17px] w-[17px]" />
                   <span>main</span>
                 </div>
               </div>
@@ -391,26 +391,37 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
 
         {/* Editor Group */}
         <div className="flex-1 flex flex-col">
-          {/* Top Bar — primary view tabs */}
-          <div className="h-11 bg-[#252526] border-b border-[#1e1e1e] flex items-stretch flex-shrink-0">
+          {/* Top Bar — primary view tabs (VSCode file-tab style) */}
+          <div className="h-9 bg-[#252526] border-b border-[#1e1e1e] flex items-center gap-1 flex-shrink-0 overflow-x-auto overflow-y-hidden">
             {(['diagram', 'invariant'] as ActiveView[]).map((view) => {
               const labels: Record<ActiveView, string> = {
                 diagram: 'Diagram',
                 invariant: 'Invariants',
               };
+              const icons: Record<ActiveView, React.ReactElement> = {
+                diagram: <Layers className="h-3.5 w-3.5 text-[#c586c0] flex-shrink-0" />,
+                invariant: <ShieldCheck className="h-3.5 w-3.5 text-[#dcdcaa] flex-shrink-0" />,
+              };
               const isActive = activeView === view;
               return (
-                <button
+                <div
                   key={view}
                   onClick={() => setActiveView(view)}
-                  className={`px-8 flex items-center border-r border-[#1e1e1e] text-xs font-medium tracking-wide transition-colors flex-shrink-0 ${
+                  className={`group h-9 px-3 flex items-center gap-2 border-r border-[#1e1e1e] cursor-pointer flex-shrink-0 relative ${
                     isActive
-                      ? 'bg-[#1e1e1e] text-white border-t-2 border-t-[#007acc]'
-                      : 'bg-[#252526] text-gray-400 hover:text-gray-200 hover:bg-[#2a2a2a] border-t-2 border-t-transparent'
+                      ? 'bg-[#1e1e1e] text-white'
+                      : 'bg-[#2d2d2d] text-gray-400 hover:bg-[#1e1e1e]'
                   }`}
                 >
-                  {labels[view]}
-                </button>
+                  {isActive && (
+                    <span className="absolute top-0 left-0 right-0 h-[1px] bg-[#007acc]" />
+                  )}
+                  {icons[view]}
+                  <span className="text-xs whitespace-nowrap">{labels[view]}</span>
+                  <span className="opacity-0 group-hover:opacity-100 hover:bg-[#3e3e42] rounded p-0.5 transition-all flex-shrink-0">
+                    <X className="h-3 w-3" />
+                  </span>
+                </div>
               );
             })}
           </div>
@@ -466,10 +477,10 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                           <h3 className="text-sm font-bold text-white">{selectedNode.name}</h3>
                           <button
                             onClick={() => setSelectedNode(null)}
-                            className="p-1 hover:bg-[#3e3e42] rounded transition-colors"
+                            className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors"
                             title="Close"
                           >
-                            <X className="h-3 w-3 text-gray-400" />
+                            <X className="h-[17px] w-[17px] text-gray-400" />
                           </button>
                         </div>
                         <div className="space-y-2 text-xs">
@@ -508,19 +519,23 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
             <div className="w-px h-4 bg-[#3e3e42]" />
             <button
               onClick={() => setZoomLevel(Math.max(3, zoomLevel - 10))}
-              className="w-7 h-7 flex items-center justify-center text-sm text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
+              className="p-2.5 flex items-center justify-center text-sm leading-none text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
               title="Zoom Out"
-            >−</button>
+            >
+              <span className="block w-[13px] h-[13px] text-center leading-[13px]">−</span>
+            </button>
             <span className="text-xs text-gray-300 min-w-[42px] text-center">{zoomLevel}%</span>
             <button
               onClick={() => setZoomLevel(Math.min(200, zoomLevel + 10))}
-              className="w-7 h-7 flex items-center justify-center text-sm text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
+              className="p-2.5 flex items-center justify-center text-sm leading-none text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
               title="Zoom In"
-            >+</button>
+            >
+              <span className="block w-[13px] h-[13px] text-center leading-[13px]">+</span>
+            </button>
             <div className="w-px h-4 bg-[#3e3e42]" />
             <button
               onClick={resetView}
-              className="px-3 h-7 flex items-center text-xs text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
+              className="p-2.5 flex items-center text-xs leading-none text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
               title="Reset View"
             >Reset</button>
           </div>
@@ -530,7 +545,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
       {/* Status Bar */}
       <div className="h-6 bg-[#007acc] flex items-center px-3 text-xs text-white">
         <div className="flex items-center gap-3">
-          <GitBranch className="h-3 w-3" />
+          <GitBranch className="h-[17px] w-[17px]" />
           <span>main</span>
         </div>
 

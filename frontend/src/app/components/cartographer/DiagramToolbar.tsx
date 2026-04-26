@@ -43,14 +43,14 @@ export function DiagramToolbar({ layer, onLayerChange }: DiagramToolbarProps) {
   const active = LAYERS.find((l) => l.id === layer) ?? LAYERS[0];
   return (
     <div className="bg-[#2d2d2d] border-b border-[#1e1e1e] flex items-stretch flex-shrink-0">
-      <div className="flex items-center gap-1 px-3 py-1.5">
+      <div className="flex items-center gap-2.5 p-2.5">
         {LAYERS.map(({ id, label, icon: Icon, accent }) => {
           const isActive = id === layer;
           return (
             <button
               key={id}
               onClick={() => onLayerChange(id)}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium tracking-wide transition-colors border ${
+              className={`flex items-center gap-1.5 p-2.5 rounded text-xs font-medium tracking-wide transition-colors border ${
                 isActive
                   ? 'bg-[#1e1e1e] text-white'
                   : 'bg-transparent text-gray-400 border-transparent hover:text-white hover:bg-[#1e1e1e]'
@@ -58,7 +58,7 @@ export function DiagramToolbar({ layer, onLayerChange }: DiagramToolbarProps) {
               style={isActive ? { borderColor: accent } : undefined}
               title={label}
             >
-              <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
+              <Icon className="h-[13px] w-[13px]" style={{ color: accent }} />
               <span>{label}</span>
             </button>
           );

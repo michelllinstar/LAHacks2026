@@ -1,6 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { Boxes, Workflow, Network, FileCode } from 'lucide-react';
+import { Boxes, Workflow, Network } from 'lucide-react';
 import { useCartographerStore } from '../../../lib/store';
 import type { LayerName } from '../../../lib/types';
 
@@ -102,9 +102,21 @@ export function LayerSummaryView({ repositoryId }: LayerSummaryViewProps) {
             return (
               <div
                 key={layer.key}
-                className="bg-[#252526] rounded-lg border border-[#3e3e42] overflow-hidden"
+                className="rounded-lg overflow-hidden"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  backdropFilter: 'blur(10px)',
+                  WebkitBackdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
               >
-                <div className="p-3 border-b border-[#3e3e42] bg-[#2d2d2d]">
+                <div
+                  className="p-3"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02))',
+                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  }}
+                >
                   <div className="flex items-center gap-2">
                     <Icon className={`h-4 w-4 ${layer.tone}`} />
                     <h3 className="text-sm font-bold text-white">{layer.label}</h3>
@@ -114,7 +126,7 @@ export function LayerSummaryView({ repositoryId }: LayerSummaryViewProps) {
                   </div>
                 </div>
 
-                <div className="divide-y divide-[#3e3e42]">
+                <div className="divide-y" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
                   {layerEntries.map((entry) => (
                     <button
                       key={entry.id}
@@ -124,7 +136,6 @@ export function LayerSummaryView({ repositoryId }: LayerSummaryViewProps) {
                       }`}
                     >
                       <div className="flex items-start gap-2">
-                        <FileCode className={`h-4 w-4 ${layer.tone}`} />
                         <div className="flex-1">
                           <div className="text-xs text-white mb-1 font-mono break-all">{entry.label}</div>
                           <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -158,7 +169,15 @@ export function LayerSummaryView({ repositoryId }: LayerSummaryViewProps) {
 
       {/* Details Panel */}
       {selected && (
-        <div className="w-96 border-l border-[#3e3e42] bg-[#252526] p-5 overflow-auto">
+        <div
+          className="w-96 p-5 overflow-auto"
+          style={{
+            background: 'rgba(255,255,255,0.04)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            borderLeft: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
           <h3 className="text-base font-bold text-white mb-3">Node Details</h3>
 
           <div className="space-y-3">

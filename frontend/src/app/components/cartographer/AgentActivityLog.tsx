@@ -61,17 +61,17 @@ export function AgentActivityLog({ onCollapse, onHighlight, highlightedQueryId }
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="p-3 border-b border-[#1e1e1e]">
+      <div className="p-2.5 border-b border-[#1e1e1e]">
         <div className="flex items-center gap-2 mb-1">
-          <Bot className="h-4 w-4 text-[#007acc]" />
+          <Bot className="h-[13px] w-[13px] text-[#007acc]" />
           <h3 className="text-sm font-bold text-white flex-1">Agent Activity</h3>
           {onCollapse && (
             <button
               onClick={onCollapse}
-              className="p-1 hover:bg-[#3e3e42] rounded transition-colors"
+              className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors"
               title="Hide Agent Log"
             >
-              <X className="h-3 w-3 text-gray-400" />
+              <X className="h-[13px] w-[13px] text-gray-400" />
             </button>
           )}
         </div>

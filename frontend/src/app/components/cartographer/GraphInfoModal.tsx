@@ -30,10 +30,10 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
           <h2 className="text-lg font-bold text-white">Graph Controls & Navigation</h2>
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-[#3e3e42] rounded transition-colors"
+            className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors"
             title="Close"
           >
-            <X className="h-4 w-4 text-gray-400" />
+            <X className="h-[13px] w-[13px] text-gray-400" />
           </button>
         </div>
 

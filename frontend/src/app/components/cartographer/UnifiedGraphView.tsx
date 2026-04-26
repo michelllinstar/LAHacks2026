@@ -507,35 +507,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
               transition: draggingNodeId ? 'none' : 'all 0.1s ease-out',
             }}
           >
-            {activeModes.has('symbol') &&
-              nodes.map((node) =>
-                node.dependencies?.map((depName) => {
-                  const target = nodes.find((n) => n.name === depName);
-                  if (target) {
-                    // Offset from center of node
-                    const startX = node.x + cardW / 2;
-                    const startY = node.y + cardH / 2;
-                    const endX = target.x + cardW / 2;
-                    const endY = target.y + cardH / 2;
-
-                    return (
-                      <g key={`symbol-${node.id}-${target.id}`}>
-                        <line
-                          x1={startX}
-                          y1={startY}
-                          x2={endX}
-                          y2={endY}
-                          stroke="#4a5568"
-                          strokeWidth="2"
-                          strokeDasharray="5 5"
-                          markerEnd="url(#arrowhead-symbol)"
-                        />
-                      </g>
-                    );
-                  }
-                  return null;
-                })
-              )}
+            {/* Symbol mode renders only colored nodes (no edges). */}
             {activeModes.has('flow') &&
               nodes.map((node) =>
                 node.dependencies?.map((depName) => {
@@ -561,37 +533,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                 })
               )}
 
-            {activeModes.has('architecture') &&
-              nodes.map((node) =>
-                node.dependencies?.map((depName) => {
-                  const target = nodes.find((n) => n.name === depName);
-                  if (target) {
-                    const startX = node.x + cardW / 2;
-                    const startY = node.y + cardH / 2;
-                    const endX = target.x + cardW / 2;
-                    const endY = target.y + cardH / 2;
-
-                    // Different colors for cross-cluster vs same-cluster dependencies
-                    const isInterCluster = node.cluster !== target.cluster;
-
-                    return (
-                      <line
-                        key={`arch-${node.id}-${target.id}`}
-                        x1={startX}
-                        y1={startY}
-                        x2={endX}
-                        y2={endY}
-                        stroke={isInterCluster ? "#dc2626" : "#4a5568"}
-                        strokeWidth="2"
-                        strokeDasharray={isInterCluster ? "3 3" : "5 5"}
-                        opacity="0.4"
-                        markerEnd={isInterCluster ? "url(#arrowhead-inter)" : "url(#arrowhead-symbol)"}
-                      />
-                    );
-                  }
-                  return null;
-                })
-              )}
+            {/* Architecture mode renders cluster backgrounds (below) instead of edges. */}
             <defs>
               <marker
                 id="arrowhead-symbol"
@@ -626,25 +568,37 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             </defs>
           </svg>
 
-          {/* Cluster Boundaries (Architecture Mode) */}
+          {/* Cluster Backgrounds (Architecture Mode) */}
           {activeModes.has('architecture') && (
             <>
-              {['Controllers', 'Services', 'Database', 'Routes', 'Utils'].map(clusterName => {
+              {Array.from(new Set(nodes.map((n) => n.cluster))).map((clusterName) => {
                 const bounds = getClusterBounds(clusterName);
                 if (!bounds) return null;
+                const accent = getAgentColor(clusterName);
+                const memberCount = nodes.filter((n) => n.cluster === clusterName).length;
                 return (
                   <div
                     key={clusterName}
-                    className={`absolute rounded-lg border-2 transition-all ${getClusterColor(clusterName)}`}
+                    className="absolute rounded-2xl"
                     style={{
                       left: bounds.left,
                       top: bounds.top,
                       width: bounds.width,
                       height: bounds.height,
+                      background: `linear-gradient(135deg, ${accent}26, ${accent}0d)`,
+                      border: `2px solid ${accent}66`,
+                      boxShadow: `inset 0 0 60px ${accent}1a`,
                       transition: draggingNodeId ? 'none' : 'all 0.2s ease-out',
                     }}
                   >
-                    <div className="text-xs text-gray-400 font-semibold p-2">{clusterName}</div>
+                    <div
+                      className="absolute -top-3 left-3 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide flex items-center gap-1.5"
+                      style={{ background: '#1a1a1a', color: accent, border: `1px solid ${accent}66` }}
+                    >
+                      <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: accent }} />
+                      {clusterName}
+                      <span className="text-gray-500">· {memberCount}</span>
+                    </div>
                   </div>
                 );
               })}

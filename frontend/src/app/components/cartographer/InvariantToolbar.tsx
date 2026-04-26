@@ -18,15 +18,15 @@ export function InvariantToolbar() {
       <div className="w-px h-6 bg-[#3e3e42] flex-shrink-0" />
       <div className="flex items-center gap-3 flex-shrink-0">
         <div className="flex items-center gap-1.5">
-          <CheckCircle className="h-3.5 w-3.5 text-green-400 flex-shrink-0" />
+          <CheckCircle className="h-[13px] w-[13px] text-green-400 flex-shrink-0" />
           <span className="text-xs text-gray-300 whitespace-nowrap">Test</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Shield className="h-3.5 w-3.5 text-blue-400 flex-shrink-0" />
+          <Shield className="h-[13px] w-[13px] text-blue-400 flex-shrink-0" />
           <span className="text-xs text-gray-300 whitespace-nowrap">Check</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <AlertCircle className="h-3.5 w-3.5 text-yellow-400 flex-shrink-0" />
+          <AlertCircle className="h-[13px] w-[13px] text-yellow-400 flex-shrink-0" />
           <span className="text-xs text-gray-300 whitespace-nowrap">Comment</span>
         </div>
       </div>
