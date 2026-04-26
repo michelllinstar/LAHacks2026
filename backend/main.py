@@ -11,7 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.db.store import get_db, init_control_db
 from backend.routes import auth, graph, index, query, repos, stream
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
+# Load .env first as the canonical config (matches .env.example), then let
+# .env.local override any values for local-dev customization without editing
+# the tracked file. python-dotenv silently no-ops when a file is absent.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_REPO_ROOT / ".env")
+load_dotenv(_REPO_ROOT / ".env.local", override=True)
 
 app = FastAPI(title="Codebase Cartographer Backend", redirect_slashes=False)
 
