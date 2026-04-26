@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Mail, Building, MapPin, Link as LinkIcon, Save, Camera, Briefcase, User, LogOut, Folder } from 'lucide-react';
+import { Mail, Building, MapPin, Link as LinkIcon, Save, Camera, Briefcase, User, LogOut } from 'lucide-react';
+import { AnimatedLogo } from '../ui/AnimatedLogo';
 import { toast } from 'sonner';
 
 interface UserProfile {
@@ -87,18 +88,16 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
     <div className="min-h-screen bg-[#1e1e1e]">
       {/* Top Navigation — mirrors ProjectsDashboard exactly */}
       <nav className="bg-[#2d2d2d] border-b border-gray-800">
-        <div className="px-[100px] py-6">
+        <div className="px-[100px] py-2">
           <div className="flex items-center justify-between">
             <button
               onClick={() => router.push('/dashboard')}
               className="flex items-center gap-4"
             >
-              <div className="p-2 bg-gradient-to-br from-[#34D399] to-[#F59E0B] rounded-md">
-                <Folder className="h-5 w-5 text-white" />
-              </div>
+              <AnimatedLogo size={40} />
               <div className="text-left">
-                <h1 className="text-xl font-bold text-white leading-tight">Repositories</h1>
-                <p className="text-sm text-gray-400 leading-tight">markcodepolo</p>
+                <h1 className="text-3xl font-bold text-white leading-tight">Repositories</h1>
+                <p className="text-[10px] text-gray-400 leading-tight">markcodepolo</p>
               </div>
             </button>
 

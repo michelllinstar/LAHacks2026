@@ -1,17 +1,19 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ArrowLeft, Settings, Share2, Database, Files, Search, GitBranch, Info, X, Layers, ShieldCheck, Bot } from 'lucide-react';
+import { Share2, Files, Search, GitBranch, Info, X, Layers, ShieldCheck, Bot } from 'lucide-react';
+import { AnimatedLogo } from '../ui/AnimatedLogo';
 import { useRouter } from 'next/navigation';
-import { UnifiedGraphView, GraphNode, GraphMode, PathFilter } from './UnifiedGraphView';
+import { UnifiedGraphView, GraphNode, GraphMode, GraphDensity, PathFilter } from './UnifiedGraphView';
 import { InvariantView } from './InvariantView';
 import { DiagramToolbar } from './DiagramToolbar';
+import { ViewLevelToolbar, type ViewLevel } from './ViewLevelToolbar';
 import { AgentQuery } from './AgentActivityLog';
 import { RightSidePanel } from './RightSidePanel';
 import { FilesPanel, SelectedPath } from '../workspace/FilesPanel';
 import { AgentsPanel } from './AgentsPanel';
 import { GraphInfoModal } from './GraphInfoModal';
 import { InvariantToolbar } from './InvariantToolbar';
-import { getGraph, getIndexStatus } from '../../../lib/api';
+import { getGraph, getIndexStatus, listRepos } from '../../../lib/api';
 import { useRepoStream } from '../../../lib/sse';
 import { useCartographerStore } from '../../../lib/store';
 import type { GraphProjection, IndexStatus, LayerName, SseEvent } from '../../../lib/types';
@@ -24,13 +26,83 @@ interface CartographerWorkspaceProps {
 }
 
 type ActiveView = 'diagram' | 'invariant';
+
+const LEVEL_ORDER: ViewLevel[] = ['tiers', 'layers', 'contexts', 'packages', 'classes'];
+const LEVEL_LABELS: Record<ViewLevel, string> = {
+  tiers: 'Tiers',
+  layers: 'Layers',
+  contexts: 'Contexts',
+  packages: 'Packages',
+  classes: 'Classes',
+};
+
+interface FocusBreadcrumbProps {
+  viewLevel: ViewLevel;
+  focusPath: string[];
+  onJump: (idx: number) => void;
+}
+
+// Renders the focus chain (e.g. Tiers › Backend › Service › Ordering › ⟨Packages⟩).
+// Segment 0..n-1 are clickable focus selections; the trailing segment shows
+// the current level label (greyed out, non-clickable since you're already
+// there). Toolbar level + this trail share the same focusPath state, so they
+// stay in sync by construction.
+function FocusBreadcrumb({ viewLevel, focusPath, onJump }: FocusBreadcrumbProps) {
+  const currentIdx = LEVEL_ORDER.indexOf(viewLevel);
+  return (
+    <div className="flex items-center gap-1.5 px-4 py-1.5 bg-[#252526] border-b border-[#1e1e1e] text-[11px] text-gray-400 flex-wrap">
+      <button
+        type="button"
+        onClick={() => onJump(0)}
+        className={`px-1.5 py-0.5 rounded hover:bg-white/[0.06] hover:text-white transition-colors ${
+          currentIdx === 0 ? 'text-white font-medium' : ''
+        }`}
+      >
+        {LEVEL_LABELS[LEVEL_ORDER[0]]}
+      </button>
+      {focusPath.map((segment, i) => {
+        const targetLevel = LEVEL_ORDER[i + 1];
+        const isCurrent = i + 1 === currentIdx;
+        return (
+          <span key={`${i}-${segment}`} className="flex items-center gap-1.5">
+            <span className="text-gray-600">›</span>
+            <button
+              type="button"
+              onClick={() => onJump(i + 1)}
+              className={`px-1.5 py-0.5 rounded hover:bg-white/[0.06] hover:text-white transition-colors max-w-[200px] truncate ${
+                isCurrent ? 'text-white font-medium' : ''
+              }`}
+              title={`${segment} (${LEVEL_LABELS[targetLevel]})`}
+            >
+              {segment}
+            </button>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 type ActivityBarItem = 'explorer' | 'search' | 'source-control' | 'agents' | 'info';
 
 export function CartographerWorkspace({ projectId, projectName, onBack, onShare }: CartographerWorkspaceProps) {
   const router = useRouter();
   const [activeView, setActiveView] = useState<ActiveView>('diagram');
-  const [diagramLayer, setDiagramLayer] = useState<GraphMode>('symbol');
-  const [selectedRepository, setSelectedRepository] = useState(projectName);
+  // Multi-select overlay modes — any combination of symbol/flow/architecture
+  // can be on at once. The base graph stays the same; each mode adds a
+  // separate overlay (color-coding / arrows / folder backgrounds).
+  const [diagramLayers, setDiagramLayers] = useState<Set<GraphMode>>(
+    () => new Set<GraphMode>(['symbol']),
+  );
+  const toggleDiagramLayer = (mode: GraphMode) => {
+    setDiagramLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(mode)) next.delete(mode);
+      else next.add(mode);
+      return next;
+    });
+  };
+  const [diagramDensity, setDiagramDensity] = useState<GraphDensity>('detailed');
+  const [selectedRepository, setSelectedRepository] = useState(projectId);
   const [activeActivity, setActiveActivity] = useState<ActivityBarItem>('explorer');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth] = useState(280);
@@ -42,14 +114,41 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   const [zoomLevel, setZoomLevel] = useState(100);
   const [highlightedQuery, setHighlightedQuery] = useState<AgentQuery | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [viewLevel, setViewLevel] = useState<ViewLevel>('tiers');
+  // focusPath[i] is the focus chosen at LEVEL_ORDER[i]. Length == index of the
+  // current viewLevel: an empty path means the user is at the root level.
+  const [focusPath, setFocusPath] = useState<string[]>([]);
   const [selectedPath, setSelectedPath] = useState<SelectedPath | null>(null);
-  const pathFilter: PathFilter | null = selectedPath
-    ? { path: selectedPath.path, kind: selectedPath.kind }
-    : null;
+  // File click in the explorer panel keeps the row highlighted, but no longer
+  // narrows the graph projection — the path filter behaviour was disorienting
+  // when users just wanted to peek at a file. Selecting an explorer row is now
+  // purely a visual cue.
+  const pathFilter: PathFilter | null = null;
 
-  // Derive activeModes from the selected diagram layer.
+  // activeModes mirrors the user's overlay selections so UnifiedGraphView
+  // can render any combination of overlays. The view-level toolbar
+  // (Tiers / Layers / Contexts / Packages / Classes) acts as a coarser
+  // selector that maps onto a single underlying graph projection:
+  //
+  //   Tiers, Layers   → architecture  (highest-level cluster view)
+  //   Contexts        → flow          (cross-module call/data flows)
+  //   Packages,
+  //   Classes         → symbol        (per-symbol layer)
+  //
+  // The toolbar wins when set: it overrides any multi-select overlay so
+  // clicking a level always changes the rendered graph. Multi-select
+  // overlays remain visible only at the level whose mapped layer matches.
   const isGraphView = activeView === 'diagram';
-  const activeModes: Set<GraphMode> = new Set(isGraphView ? [diagramLayer] : []);
+  const levelToLayer: Record<ViewLevel, GraphMode> = {
+    tiers: 'architecture',
+    layers: 'architecture',
+    contexts: 'flow',
+    packages: 'symbol',
+    classes: 'symbol',
+  };
+  const activeModes: Set<GraphMode> = isGraphView
+    ? new Set<GraphMode>([levelToLayer[viewLevel]])
+    : new Set();
 
   // ---------------------------------------------------------------------
   // Live data wiring — projectId is the repo hash after dashboard wiring.
@@ -233,12 +332,51 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
     setZoomLevel(100);
   };
 
-  // Mock repositories for demo
-  const repositories = [
-    { id: '1', name: projectName, status: 'ready', indexedAt: new Date() },
-    { id: '2', name: 'react-codebase', status: 'indexing', indexedAt: null },
-    { id: '3', name: 'python-backend', status: 'ready', indexedAt: new Date() },
-  ];
+  // Drilling: clicking a node at the current level focuses on it and advances
+  // to the next finer level. At the deepest level the click is a no-op for
+  // the breadcrumb (the right-side panel still shows node details).
+  const handleNodeFocus = useCallback((node: GraphNode) => {
+    const currentIdx = LEVEL_ORDER.indexOf(viewLevel);
+    if (currentIdx < 0 || currentIdx >= LEVEL_ORDER.length - 1) return;
+    setFocusPath((prev) => {
+      const next = prev.slice(0, currentIdx);
+      next.push(node.name);
+      return next;
+    });
+    setViewLevel(LEVEL_ORDER[currentIdx + 1]);
+  }, [viewLevel]);
+
+  // Toolbar level click: jumps to that level and trims the breadcrumb so the
+  // path never claims focus we don't have.
+  const handleLevelChange = useCallback((next: ViewLevel) => {
+    const idx = LEVEL_ORDER.indexOf(next);
+    setViewLevel(next);
+    setFocusPath((prev) => prev.slice(0, idx));
+  }, []);
+
+  // Breadcrumb click: jump back to the level whose focus segment was clicked.
+  const handleBreadcrumbJump = useCallback((idx: number) => {
+    setViewLevel(LEVEL_ORDER[idx]);
+    setFocusPath((prev) => prev.slice(0, idx));
+  }, []);
+
+  // Real repositories from store; fallback to a single-entry list of the
+  // currently-loaded repo if the store hasn't been hydrated yet.
+  const reposFromStore = useCartographerStore((s) => s.repos);
+  const setReposInStore = useCartographerStore((s) => s.setRepos);
+  useEffect(() => {
+    setSelectedRepository(projectId);
+  }, [projectId]);
+  useEffect(() => {
+    if (reposFromStore.length === 0) {
+      listRepos()
+        .then((data) => setReposInStore(data))
+        .catch(() => {});
+    }
+  }, [reposFromStore.length, setReposInStore]);
+  const repositories = reposFromStore.length > 0
+    ? reposFromStore.map((r) => ({ id: r.hash, name: r.name, status: r.status }))
+    : [{ id: projectId, name: projectName, status: 'ready' as const }];
 
   // Handle agent log resize
   useEffect(() => {
@@ -277,43 +415,64 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
         userSelect: isResizingAgentLog ? 'none' : 'auto'
       }}
     >
-      {/* VS Code Title Bar */}
-      <div className="h-9 bg-[#2d2d2d] flex items-center px-2 text-xs border-b border-[#1e1e1e]">
-        <button
-          onClick={onBack}
-          className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors mr-2"
-        >
-          <ArrowLeft className="h-[17px] w-[17px] text-gray-400" />
-        </button>
-
-        <div className="flex items-center gap-2 flex-1">
-          <Database className="h-[17px] w-[17px] text-[#2DD4BF]" />
-          <select
-            value={selectedRepository}
-            onChange={(e) => setSelectedRepository(e.target.value)}
-            className="bg-[#252526] text-white text-xs px-2 py-1 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
-          >
-            {repositories.map((repo) => (
-              <option key={repo.id} value={repo.name}>
-                {repo.name} {repo.status === 'indexing' ? '(indexing...)' : ''}
-              </option>
-            ))}
-          </select>
-          <span className="text-gray-500 text-[11px]">MarkCodePolo</span>
-        </div>
-
-        <div className="flex items-center gap-1">
+      {/* Top Navigation — sized to match the other workspace toolbars */}
+      <nav className="bg-[#2d2d2d] border-b border-[#1e1e1e] flex items-center px-3 py-3">
+        <div className="flex items-center justify-between w-full">
           <button
-            onClick={onShare}
-            className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors"
+            onClick={() => router.push('/dashboard')}
+            className="flex items-center gap-2"
+            title="Back to dashboard"
           >
-            <Share2 className="h-[17px] w-[17px] text-gray-400" />
+            <AnimatedLogo size={28} />
+            <div className="text-left leading-tight">
+              <h1 className="text-lg font-bold text-white leading-none">Repositories</h1>
+              <p className="text-[8px] text-gray-400 leading-none mt-1">markcodepolo</p>
+            </div>
           </button>
-          <button className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors">
-            <Settings className="h-[17px] w-[17px] text-gray-400" />
-          </button>
+
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <select
+                value={selectedRepository}
+                onChange={(e) => {
+                  const nextHash = e.target.value;
+                  setSelectedRepository(nextHash);
+                  if (nextHash && nextHash !== projectId) {
+                    router.push(`/workspace/${nextHash}`);
+                  }
+                }}
+                className="bg-[#252526] text-white text-xs px-2 py-1 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
+              >
+                {repositories.map((repo) => (
+                  <option key={repo.id} value={repo.id}>
+                    {repo.name} {repo.status === 'indexing' ? '(indexing...)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={() => {
+                if (typeof document === 'undefined') return;
+                const root = document.documentElement;
+                const next = root.getAttribute('data-theme') === 'light' ? null : 'light';
+                if (next) root.setAttribute('data-theme', next);
+                else root.removeAttribute('data-theme');
+              }}
+              className="p-2.5 hover:bg-[#252526] rounded transition-colors text-gray-300"
+              title="Toggle light / dark mode"
+            >
+              ☀︎
+            </button>
+            <button
+              onClick={onShare}
+              className="p-2.5 hover:bg-[#252526] rounded transition-colors"
+              title="Share"
+            >
+              <Share2 className="h-5 w-5 text-gray-300" />
+            </button>
+          </div>
         </div>
-      </div>
+      </nav>
 
       {/* Main Layout */}
       <div className="flex-1 flex overflow-hidden">
@@ -478,7 +637,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                     <span className="absolute top-0 left-0 right-0 h-[1px] bg-[#2DD4BF]" />
                   )}
                   {icons[view]}
-                  <span className="text-xs whitespace-nowrap">{labels[view]}</span>
+                  <span className="text-sm whitespace-nowrap">{labels[view]}</span>
                   <span className="opacity-0 group-hover:opacity-100 hover:bg-[#3e3e42] rounded p-0.5 transition-all flex-shrink-0">
                     <X className="h-3 w-3" />
                   </span>
@@ -488,13 +647,36 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
           </div>
 
           {activeView === 'diagram' && (
-            <DiagramToolbar layer={diagramLayer} onLayerChange={setDiagramLayer} />
+            <>
+              {/* View-level selector (Tiers / Layers / Contexts / Packages /
+                  Classes) sits in the same toolbar slot the layer overlays
+                  used so the user always sees the active level next to the
+                  Symbol/Flow/Architecture overlay toggles. */}
+              <ViewLevelToolbar value={viewLevel} onChange={handleLevelChange} />
+              <DiagramToolbar
+                activeLayers={diagramLayers}
+                onToggleLayer={toggleDiagramLayer}
+                density={diagramDensity}
+                onDensityChange={setDiagramDensity}
+              />
+            </>
           )}
           {activeView === 'invariant' && <InvariantToolbar />}
 
           {/* Visualization Content */}
           <div className="flex-1 overflow-hidden flex">
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 overflow-hidden flex flex-col">
+              {isGraphView && (
+                <FocusBreadcrumb
+                  viewLevel={viewLevel}
+                  focusPath={focusPath}
+                  onJump={handleBreadcrumbJump}
+                />
+              )}
+              {/* `key={activeView}` forces a remount on view swap so the
+                  uml-view-fade keyframe re-runs and the user perceives the
+                  swap as a brief zoom-in rather than an instant page swap. */}
+              <div key={activeView} className="flex-1 overflow-hidden uml-view-fade">
               {isGraphView && (
                 <UnifiedGraphView
                   repositoryId={projectId}
@@ -502,15 +684,18 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   agentLogCollapsed={agentLogCollapsed}
                   activeModes={activeModes}
                   onNodeSelect={setSelectedNode}
+                  onNodeFocus={handleNodeFocus}
                   zoomLevel={zoomLevel}
                   onZoomChange={setZoomLevel}
                   onResetView={resetView}
                   highlightedCluster={highlightedQuery?.cluster || null}
                   sidebarCollapsed={sidebarCollapsed}
                   pathFilter={pathFilter}
+                  density={diagramDensity}
                 />
               )}
               {activeView === 'invariant' && <InvariantView repositoryId={projectId} showLegend={showLegend} />}
+              </div>
             </div>
 
             {/* Right Side Panel — Node Info / Agents / Activity */}

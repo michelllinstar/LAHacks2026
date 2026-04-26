@@ -225,8 +225,8 @@ export function LayerSummaryView({ repositoryId }: LayerSummaryViewProps) {
             )}
 
             <div className="pt-3 border-t border-[#3e3e42]">
-              <div className="text-xs text-gray-500 mb-1">Interpretation</div>
-              <div className="text-xs text-gray-300">
+              <div className="text-[10px] text-gray-500 mb-1">Interpretation</div>
+              <div className="text-[10px] text-gray-300">
                 {selected.layer === 'symbol' && (
                   <div className="text-[#5EEAD4]">
                     ◆ Symbol layer — concrete classes, functions, and modules in the codebase

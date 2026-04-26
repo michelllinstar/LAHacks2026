@@ -110,10 +110,6 @@ export function GraphToolbar({ activeModes, onToggleMode, zoomLevel, onZoomChang
           <span className="text-xs text-gray-300 whitespace-nowrap">Class</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-full bg-green-500 flex-shrink-0" />
-          <span className="text-xs text-gray-300 whitespace-nowrap">Function</span>
-        </div>
-        <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-full bg-purple-500 flex-shrink-0" />
           <span className="text-xs text-gray-300 whitespace-nowrap">Interface</span>
         </div>

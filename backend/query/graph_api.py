@@ -10,18 +10,27 @@ def symbol_projection(repo_hash: str) -> GraphProjection:
     """Layer 1 projection: every symbol + every ref."""
     nodes: list[GraphNode] = []
     for doc in db_store.iter_symbols(repo_hash):
+        qname = doc.get("qualified_name", "")
+        kind = doc.get("kind")
+        # For methods (and any function whose qname is "X.y") expose the
+        # owning class qname so the frontend can roll the method into the
+        # class card without needing to re-derive it from labels.
+        parent_class = None
+        if kind == "method" and "." in qname:
+            parent_class = qname.rsplit(".", 1)[0]
         nodes.append(
             GraphNode(
                 id=str(doc["_id"]),
                 kind="symbol",
-                label=doc.get("qualified_name", ""),
+                label=qname,
                 layer=1,
                 metadata={
                     "file_path": doc.get("file_path"),
                     "line_start": doc.get("line_start"),
                     "line_end": doc.get("line_end"),
                     "signature": doc.get("signature") or "",
-                    "symbol_kind": doc.get("kind"),
+                    "symbol_kind": kind,
+                    "parent_class": parent_class,
                 },
             )
         )

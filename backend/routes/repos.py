@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
@@ -63,6 +64,52 @@ def _row_to_summary(row) -> RepoSummary:
     )
 
 
+def _clone_repo(git_url: str, repo_hash: str) -> Path:
+    """Shallow-clone ``git_url`` into the workspace root and return the dest path.
+
+    Idempotent: if the destination already exists and looks like a git checkout
+    we skip the clone. Errors are surfaced as 400/500 HTTPExceptions so the
+    frontend can show the underlying ``git`` failure (auth, 404, network…).
+    """
+    dest = (_workspace_root() / repo_hash).resolve()
+    # Make sure the resolved dest is still inside the workspace jail (defence
+    # against a hash collision producing an unexpected path).
+    try:
+        dest.relative_to(_workspace_root())
+    except ValueError:
+        raise HTTPException(status_code=500, detail="clone target outside workspace root")
+
+    if dest.exists():
+        if (dest / ".git").exists():
+            return dest
+        # Stale / partial directory — remove before retrying.
+        shutil.rmtree(dest, ignore_errors=True)
+
+    if shutil.which("git") is None:
+        raise HTTPException(status_code=500, detail="git is not installed on the server")
+
+    try:
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", "--single-branch", git_url, str(dest)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise HTTPException(status_code=504, detail="git clone timed out after 120s")
+
+    if result.returncode != 0:
+        shutil.rmtree(dest, ignore_errors=True)
+        # ``git`` puts the human-readable failure on stderr (auth, 404, etc).
+        # Trim noisy progress output; surface the last line.
+        msg = (result.stderr or result.stdout or "").strip().splitlines()
+        detail = msg[-1] if msg else f"git clone failed (exit {result.returncode})"
+        raise HTTPException(status_code=400, detail=f"git clone failed: {detail}")
+
+    return dest
+
+
 @router.post("", response_model=RepoSummary)
 def create_repo(payload: RepoCreate) -> RepoSummary:
     if not payload.git_url and not payload.local_path:
@@ -78,11 +125,21 @@ def create_repo(payload: RepoCreate) -> RepoSummary:
             name = Path(payload.local_path).expanduser().name or repo_hash
         else:
             name = repo_hash
+
+    # Auto-clone GitHub URLs into the workspace so the indexer has a checkout
+    # to walk. Without this, ``POST /api/repos/{hash}/index`` rejects the repo
+    # for missing ``local_path`` and the frontend's "Create Project" flow
+    # silently never indexes.
+    local_path: Optional[str] = payload.local_path
+    if payload.git_url and not local_path:
+        cloned = _clone_repo(payload.git_url, repo_hash)
+        local_path = str(cloned)
+
     db_store.upsert_repo(
         hash=repo_hash,
         name=name,
         git_url=payload.git_url,
-        local_path=payload.local_path,
+        local_path=local_path,
         status="pending",
     )
     db_store.init_repo_db(repo_hash)

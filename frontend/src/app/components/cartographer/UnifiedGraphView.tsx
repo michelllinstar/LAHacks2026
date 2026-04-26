@@ -22,14 +22,16 @@ function mapKind(kind: string | undefined | null): GraphNode['type'] {
   const k = (kind ?? '').toLowerCase();
   if (k === 'class') return 'class';
   if (k === 'interface' || k === 'type') return 'interface';
-  if (k === 'module' || k === 'file' || k === 'package') return 'module';
+  // Architecture-layer cluster nodes & module-ish kinds share the orange
+  // "module" treatment so the architecture layer reads as a higher tier.
+  if (k === 'module' || k === 'file' || k === 'package' || k === 'cluster') return 'module';
   // function, method, variable, arrow_function, anything else → function
   return 'function';
 }
 
-// Deterministic radial layout — wire nodes have no positions, so we lay
-// them out in concentric rings keyed off their order in the projection.
-// Spacing scales with the rendered card size so nodes stay packed.
+// Group nodes by their legend type (class / interface / function / module /
+// variable) and lay each type out in its own grid block. Same-type nodes
+// stay visually together so the legend doubles as a cluster map.
 function projectionToNodes(graph: GraphProjection | undefined, cardW: number, cardH: number): GraphNode[] {
   if (!graph) return [];
   const adjacency = new Map<string, string[]>();
@@ -41,37 +43,243 @@ function projectionToNodes(graph: GraphProjection | undefined, cardW: number, ca
   const idToName = new Map<string, string>();
   for (const n of graph.nodes) idToName.set(n.id, n.label);
 
-  const count = graph.nodes.length;
+  // UML-style rollup: collapse methods into their owning class so the
+  // diagram stops showing function nodes that are really class members.
+  // A node is a "method" if either:
+  //   - its symbol_kind is "method" (Layer 1 may emit this directly), OR
+  //   - its label is "Class.member" and a class with that prefix exists.
+  const classByName = new Map<string, typeof graph.nodes[number]>();
+  // Also index classes by their bare name (last dotted segment) so we can
+  // match methods whose qualified-name path doesn't perfectly align with the
+  // class qname (e.g. extra package segments emitted by different language
+  // extractors).
+  const classByShortName = new Map<string, typeof graph.nodes[number]>();
+  for (const n of graph.nodes) {
+    const k = mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind);
+    if (k === 'class') {
+      classByName.set(n.label, n);
+      const short = n.label.split('.').pop();
+      if (short) classByShortName.set(short, n);
+    }
+  }
+
+  const rolledMethods = new Map<string, string[]>(); // class label → method names
+  const absorbed = new Set<string>();                // node ids hidden as members
+  const findParentClass = (n: typeof graph.nodes[number]): { parent: string; memberName: string } | null => {
+    // 1. Authoritative metadata field (added by the backend symbol_projection
+    //    for symbol_kind == "method").
+    const ownerClass = (n.metadata?.parent_class as string | undefined)
+      ?? (n.metadata?.class_name as string | undefined);
+    if (ownerClass) {
+      if (classByName.has(ownerClass)) {
+        return { parent: ownerClass, memberName: n.label.startsWith(ownerClass + '.') ? n.label.slice(ownerClass.length + 1) : n.label };
+      }
+      const short = ownerClass.split('.').pop();
+      if (short && classByShortName.has(short)) {
+        const parent = classByShortName.get(short)!.label;
+        return { parent, memberName: n.label.split('.').pop() ?? n.label };
+      }
+    }
+    // 2. Walk the dotted qname from longest to shortest prefix and roll up
+    //    on the first class match.
+    const parts = n.label.split('.');
+    for (let i = parts.length - 1; i > 0; i--) {
+      const prefix = parts.slice(0, i).join('.');
+      if (classByName.has(prefix)) {
+        return { parent: prefix, memberName: parts.slice(i).join('.') };
+      }
+      // Try matching by the last segment of the candidate prefix — handles
+      // qname format mismatches (e.g. method qname is "pkg.mod.Foo.bar" but
+      // class is registered as "Foo").
+      const shortPrefix = parts[i - 1];
+      if (classByShortName.has(shortPrefix)) {
+        const parent = classByShortName.get(shortPrefix)!.label;
+        return { parent, memberName: parts.slice(i).join('.') };
+      }
+    }
+    return null;
+  };
+
+  for (const n of graph.nodes) {
+    const sym = (n.metadata?.symbol_kind as string | undefined)?.toLowerCase();
+    const t = mapKind(sym ?? n.kind);
+    if (t !== 'function') continue;
+    const match = findParentClass(n);
+    if (match) {
+      const list = rolledMethods.get(match.parent) ?? [];
+      list.push(match.memberName);
+      rolledMethods.set(match.parent, list);
+      absorbed.add(n.id);
+    }
+  }
+
+  // Visible nodes only — methods absorbed above are hidden from the canvas
+  // because they now live inside the class card's method list.
+  const visibleNodes = graph.nodes.filter((n) => !absorbed.has(n.id));
+
+  // ---------------------------------------------------------------------
+  // Layered (topological) layout — assign each visible node a "layer index"
+  // equal to the longest dependency path that ends at it. Sources land in
+  // layer 0 on the left; sinks land furthest right. Arrows therefore flow
+  // in one consistent direction (left → right).
+  // ---------------------------------------------------------------------
+  const visibleIds = new Set(visibleNodes.map((n) => n.id));
+  const visibleAdj = new Map<string, string[]>();
+  const inDeg = new Map<string, number>();
+  for (const n of visibleNodes) {
+    visibleAdj.set(n.id, []);
+    inDeg.set(n.id, 0);
+  }
+  for (const e of graph.edges) {
+    if (!visibleIds.has(e.source) || !visibleIds.has(e.target)) continue;
+    if (e.source === e.target) continue; // self-loop, ignore for layering
+    visibleAdj.get(e.source)!.push(e.target);
+    inDeg.set(e.target, (inDeg.get(e.target) ?? 0) + 1);
+  }
+
+  const layerOf = new Map<string, number>();
+  // Kahn-style longest-path. Break cycles by greedy initialization at
+  // remaining min-in-degree node when the queue empties early.
+  const queue: string[] = [];
+  for (const [id, d] of inDeg) if (d === 0) queue.push(id);
+  for (const id of queue) layerOf.set(id, 0);
+  let qi = 0;
+  while (qi < queue.length) {
+    const id = queue[qi++];
+    const cur = layerOf.get(id) ?? 0;
+    for (const tgt of visibleAdj.get(id) ?? []) {
+      const next = Math.max(layerOf.get(tgt) ?? 0, cur + 1);
+      layerOf.set(tgt, next);
+      const remaining = (inDeg.get(tgt) ?? 0) - 1;
+      inDeg.set(tgt, remaining);
+      if (remaining === 0) queue.push(tgt);
+    }
+  }
+  // Anything left has been part of a cycle — pin it to the deepest reached
+  // layer + 1 so it still gets a column.
+  for (const n of visibleNodes) {
+    if (!layerOf.has(n.id)) {
+      let best = 0;
+      for (const v of layerOf.values()) best = Math.max(best, v);
+      layerOf.set(n.id, best + 1);
+    }
+  }
+
+  // Group nodes by layer, then sort each layer by legend type so same-kind
+  // nodes still cluster vertically within a column.
+  const TYPE_ORDER: GraphNode['type'][] = ['class', 'interface', 'function', 'module'];
+  const typeRank = (n: typeof graph.nodes[number]) => {
+    const t = mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind);
+    const idx = TYPE_ORDER.indexOf(t);
+    return idx === -1 ? TYPE_ORDER.length : idx;
+  };
+
+  const layers = new Map<number, typeof graph.nodes>();
+  for (const n of visibleNodes) {
+    const li = layerOf.get(n.id) ?? 0;
+    if (!layers.has(li)) layers.set(li, []);
+    layers.get(li)!.push(n);
+  }
+  for (const [, list] of layers) {
+    list.sort((a, b) => {
+      const r = typeRank(a) - typeRank(b);
+      return r !== 0 ? r : a.label.localeCompare(b.label);
+    });
+  }
+
+  const colWidth = cardW + cardW * 1.0;
+  const rowHeight = cardH + cardH * 0.6;
   const cx = 600;
-  const cy = 350;
-  const innerRadius = cardW * 1.1;
-  const ringStep = Math.max(cardW, cardH) * 1.15;
-  return graph.nodes.map((n, i) => {
-    const ringSize = 12;
-    const ring = Math.floor(i / ringSize);
-    const idxOnRing = i % ringSize;
-    const radius = innerRadius + ring * ringStep;
-    const ringCount = Math.min(ringSize, count - ring * ringSize);
-    const angle = (idxOnRing / ringCount) * Math.PI * 2;
-    const cluster = (n.metadata?.cluster_id as string | undefined) ?? (n.metadata?.cluster as string | undefined) ?? 'Unclustered';
-    const methods = (n.metadata?.methods as string[] | undefined) ?? [];
+  const baseY = 350;
+  const sortedLayerKeys = [...layers.keys()].sort((a, b) => a - b);
+  const totalCols = sortedLayerKeys.length;
+  const startX = cx - ((totalCols - 1) * colWidth) / 2;
+
+  const positioned = new Map<string, { x: number; y: number; cluster: string }>();
+  sortedLayerKeys.forEach((li, colIdx) => {
+    const list = layers.get(li)!;
+    const colH = list.length * rowHeight - cardH * 0.6;
+    list.forEach((n, i) => {
+      const x = startX + colIdx * colWidth;
+      const y = baseY - colH / 2 + i * rowHeight;
+      const cluster = mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind);
+      positioned.set(n.id, { x, y, cluster });
+    });
+  });
+
+  return visibleNodes.map((n) => {
+    const placed = positioned.get(n.id);
+    const fallbackCluster = (n.metadata?.cluster_id as string | undefined)
+      ?? (n.metadata?.cluster as string | undefined)
+      ?? 'Unclustered';
+    const baseMethods = (n.metadata?.methods as string[] | undefined) ?? [];
+    const rolled = rolledMethods.get(n.label) ?? [];
+    // Merge rolled-in methods with whatever metadata already declared.
+    const methods = Array.from(new Set([...baseMethods, ...rolled]));
     const properties = (n.metadata?.properties as string[] | undefined) ?? [];
     const filePath = (n.metadata?.file_path as string | undefined) ?? null;
+    const stereotype = (n.metadata?.stereotype as string | undefined) ?? null;
     return {
       id: n.id,
       name: n.label,
-      // Prefer the real symbol kind from metadata; fall back to the wire-node
-      // ``kind`` (which is ``"symbol"`` for layer 1 — uninformative).
       type: mapKind((n.metadata?.symbol_kind as string | undefined) ?? n.kind),
-      cluster,
+      cluster: placed?.cluster ?? fallbackCluster,
+      stereotype,
       methods,
       properties,
       filePath,
       dependencies: (adjacency.get(n.id) ?? []).map((tid) => idToName.get(tid) ?? tid),
-      x: cx + Math.cos(angle) * radius - cardW / 2,
-      y: cy + Math.sin(angle) * radius - cardH / 2,
+      x: (placed?.x ?? 600) - cardW / 2,
+      y: (placed?.y ?? 350) - cardH / 2,
     };
   });
+}
+
+// UML 2.5 relationship classification. Maps the backend edge ``kind`` string
+// onto one of six canonical UML relationships, each with its own line style
+// and arrowhead. Anything unknown falls back to a plain dependency arrow
+// (dashed line + open arrow) since that's the most generic UML relation.
+export type UmlRelation =
+  | 'association'   // solid line, open arrow
+  | 'aggregation'   // solid line, hollow diamond at the whole
+  | 'composition'   // solid line, filled diamond at the whole
+  | 'inheritance'   // solid line, hollow triangle at the parent
+  | 'realization'   // dashed line, hollow triangle at the interface
+  | 'dependency';   // dashed line, open arrow
+
+export interface UmlEdgeStyle {
+  relation: UmlRelation;
+  dashed: boolean;
+  // Marker placed at the *target* end of the line (the "whole" or "parent"
+  // for hierarchical relations).
+  endMarker: 'open-arrow' | 'hollow-triangle' | 'hollow-diamond' | 'filled-diamond';
+  color: string;
+}
+
+export function classifyUmlEdge(kind: string | undefined | null): UmlEdgeStyle {
+  const k = (kind ?? '').toLowerCase();
+  // Inheritance — class extends class.
+  if (/(^|_)(inherits?|extends|generaliz)/.test(k)) {
+    return { relation: 'inheritance', dashed: false, endMarker: 'hollow-triangle', color: '#93c5fd' };
+  }
+  // Realization — class implements interface.
+  if (/(implements?|realiz)/.test(k)) {
+    return { relation: 'realization', dashed: true, endMarker: 'hollow-triangle', color: '#d8b4fe' };
+  }
+  // Composition — strong "owns" / lifecycle-bound containment.
+  if (/(composes|composition|owns)/.test(k)) {
+    return { relation: 'composition', dashed: false, endMarker: 'filled-diamond', color: '#fcd34d' };
+  }
+  // Aggregation — weak "has-a" containment.
+  if (/(aggregat|contains|has_a|has-a|hasa)/.test(k)) {
+    return { relation: 'aggregation', dashed: false, endMarker: 'hollow-diamond', color: '#fcd34d' };
+  }
+  // Association — generic "uses / references / calls" without lifecycle ties.
+  if (/(calls?|references?|uses?|associat|invokes?|reads?|writes?)/.test(k)) {
+    return { relation: 'association', dashed: false, endMarker: 'open-arrow', color: '#86efac' };
+  }
+  // Default → dependency (dashed + open arrow).
+  return { relation: 'dependency', dashed: true, endMarker: 'open-arrow', color: '#9ca3af' };
 }
 
 export interface PathFilter {
@@ -93,21 +301,26 @@ interface UnifiedGraphViewProps {
   agentLogCollapsed: boolean;
   activeModes: Set<GraphMode>;
   onNodeSelect: (node: GraphNode | null) => void;
+  onNodeFocus?: (node: GraphNode) => void;
   zoomLevel: number;
   onZoomChange: (zoom: number) => void;
   onResetView: () => void;
   highlightedCluster: string | null;
   sidebarCollapsed?: boolean;
   pathFilter?: PathFilter | null;
+  density?: GraphDensity;
 }
 
 export type GraphMode = 'symbol' | 'flow' | 'architecture';
+export type GraphDensity = 'detailed' | 'compact';
 
 export interface GraphNode {
   id: string;
   name: string;
   type: 'class' | 'interface' | 'function' | 'module';
   cluster: string;
+  /** Optional UML stereotype, e.g. "interface", "service", "controller". */
+  stereotype?: string | null;
   methods?: string[];
   properties?: string[];
   dependencies?: string[];
@@ -116,12 +329,13 @@ export interface GraphNode {
   y: number;
 }
 
-export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, activeModes, onNodeSelect, zoomLevel, onZoomChange, onResetView, highlightedCluster, sidebarCollapsed, pathFilter }: UnifiedGraphViewProps) {
+export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, activeModes, onNodeSelect, onNodeFocus, zoomLevel, onZoomChange, onResetView, highlightedCluster, sidebarCollapsed, pathFilter, density = 'detailed' }: UnifiedGraphViewProps) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
 
   const handleNodeClick = (node: GraphNode) => {
     setSelectedNode(node);
     onNodeSelect(node);
+    onNodeFocus?.(node);
   };
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
@@ -148,12 +362,20 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     return () => ro.disconnect();
   }, []);
 
-  const cardW = Math.round(Math.max(110, Math.min(200, viewportWidth * 0.10)));
-  const cardH = Math.round(cardW * 0.85);
+  // In compact ("Database") density, every class becomes a small pill so
+  // large repositories stay legible at a glance. Detailed density keeps the
+  // full method/property cards.
+  const cardW = density === 'compact'
+    ? 96
+    : Math.round(Math.max(110, Math.min(200, viewportWidth * 0.10)));
+  const cardH = density === 'compact' ? 32 : Math.round(cardW * 0.85);
 
   // Live graph data sourced from the Cartographer store. The store is
   // populated by CartographerWorkspace's initial fetch + SSE handler.
-  const layer = pickLayer(activeModes);
+  // Symbol / Flow / Architecture are now overlay modes on the same graph,
+  // not separate projections. Always pull the symbol layer so the node set
+  // stays stable; the active mode only changes which overlay is drawn.
+  const layer: LayerName = 'symbol';
   const projection = useCartographerStore(
     (s) => s.byRepo[repositoryId]?.graphs[layer],
   );
@@ -180,6 +402,154 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     () => (pathFilter ? allNodes.filter((n) => matchesPathFilter(n, pathFilter)) : allNodes),
     [allNodes, pathFilter],
   );
+
+  // ---------------------------------------------------------------------
+  // Cross-boundary edge stubs.
+  //
+  // When an in-view node depends on a node outside the current view (either
+  // not in the active projection or filtered out by ``pathFilter``), emit a
+  // stub arrow pointing from the source toward the diagram's bounding box,
+  // ending at a labeled placeholder showing the external target's name and
+  // its parent group. Cross-tier edges additionally carry a protocol
+  // stereotype (``«HTTP»``, ``«SQL»``, ...) painted on the arrow.
+  // ---------------------------------------------------------------------
+  type Tier = 'frontend' | 'backend' | 'data' | 'unknown';
+  const tierOf = (hints: { name?: string; cluster?: string; filePath?: string | null }): Tier => {
+    const blob = `${hints.filePath ?? ''} ${hints.cluster ?? ''} ${hints.name ?? ''}`.toLowerCase();
+    if (/(\b|\/)(ui|components?|frontend|client|web|pages?|views?)(\b|\/)/.test(blob)) return 'frontend';
+    if (/(\b|\/)(db|database|sql|repository|repo|model|orm|migrations?|schema)(\b|\/)/.test(blob)) return 'data';
+    if (/(\b|\/)(api|server|backend|service|controller|router|handler)(\b|\/)/.test(blob)) return 'backend';
+    return 'unknown';
+  };
+  const stereotypeFor = (sourceTier: Tier, targetTier: Tier, targetName: string): string | null => {
+    if (sourceTier === targetTier) return null;
+    if (targetTier === 'data') return '«SQL»';
+    if (targetTier === 'backend' && sourceTier === 'frontend') return '«HTTP»';
+    if (sourceTier === 'backend' && targetTier === 'frontend') return '«HTTP»';
+    // Heuristic on the symbol name as a last resort.
+    const n = targetName.toLowerCase();
+    if (/(query|select|insert|update|delete|sql)/.test(n)) return '«SQL»';
+    if (/(fetch|axios|request|http|get|post)/.test(n)) return '«HTTP»';
+    return '«crosses tier»';
+  };
+
+  // Build a lookup of in-view nodes by name + name->external metadata pulled
+  // from ``allNodes`` (the unfiltered projection). External targets unknown
+  // even there fall back to ``Unknown` group with sentinel tier.
+  const externalStubs = useMemo(() => {
+    if (nodes.length === 0) return [] as Array<{
+      key: string;
+      sourceId: string;
+      targetName: string;
+      targetGroup: string;
+      protocol: string | null;
+      sx: number;
+      sy: number;
+      bx: number;
+      by: number;
+      labelX: number;
+      labelY: number;
+    }>;
+
+    const inView = new Set(nodes.map((n) => n.name));
+    const externalLookup = new Map<string, GraphNode>();
+    for (const a of allNodes) externalLookup.set(a.name, a);
+
+    // Bounding box of in-view nodes — used to anchor placeholders just
+    // outside the diagram.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + cardW);
+      maxY = Math.max(maxY, n.y + cardH);
+    }
+    const margin = Math.max(cardW * 0.6, 80);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+
+    // Collapse multiple in-view sources targeting the same external node to
+    // one shared boundary placeholder. The arrow still emanates from each
+    // source, but they all land on the same labeled stub.
+    const placeholderPos = new Map<string, { bx: number; by: number; sourceTier: Tier }>();
+    const stubs: Array<{
+      key: string; sourceId: string; targetName: string; targetGroup: string;
+      protocol: string | null; sx: number; sy: number; bx: number; by: number;
+      labelX: number; labelY: number;
+    }> = [];
+
+    for (const node of nodes) {
+      const sourceTier = tierOf({ name: node.name, cluster: node.cluster, filePath: node.filePath });
+      for (const depName of node.dependencies ?? []) {
+        if (inView.has(depName)) continue;
+
+        const ext = externalLookup.get(depName);
+        const targetGroup = ext?.cluster ?? 'External';
+        const targetTier = tierOf({
+          name: depName,
+          cluster: ext?.cluster,
+          filePath: ext?.filePath,
+        });
+
+        // Anchor the placeholder on whichever side of the bounding box best
+        // matches the direction from the centroid to the source. Stable per
+        // (target, source-tier) so the same external symbol renders in the
+        // same spot across re-renders.
+        let pos = placeholderPos.get(depName);
+        if (!pos) {
+          const sx = node.x + cardW / 2;
+          const sy = node.y + cardH / 2;
+          const dx = sx - cx;
+          const dy = sy - cy;
+          const horizontalDominant = Math.abs(dx) > Math.abs(dy);
+          let bx: number, by: number;
+          if (horizontalDominant) {
+            bx = dx >= 0 ? maxX + margin : minX - margin;
+            by = sy;
+          } else {
+            bx = sx;
+            by = dy >= 0 ? maxY + margin : minY - margin;
+          }
+          pos = { bx, by, sourceTier };
+          placeholderPos.set(depName, pos);
+        }
+
+        const sx = node.x + cardW / 2;
+        const sy = node.y + cardH / 2;
+        const protocol = stereotypeFor(sourceTier, targetTier, depName);
+        stubs.push({
+          key: `ext-${node.id}-${depName}`,
+          sourceId: node.id,
+          targetName: depName,
+          targetGroup,
+          protocol,
+          sx,
+          sy,
+          bx: pos.bx,
+          by: pos.by,
+          labelX: (sx + pos.bx) / 2,
+          labelY: (sy + pos.by) / 2,
+        });
+      }
+    }
+    return stubs;
+  }, [nodes, allNodes, cardW, cardH]);
+
+  // Deduplicated placeholder badges — one per external target.
+  const externalPlaceholders = useMemo(() => {
+    const seen = new Map<string, { name: string; group: string; bx: number; by: number }>();
+    for (const s of externalStubs) {
+      if (!seen.has(s.targetName)) {
+        seen.set(s.targetName, {
+          name: s.targetName,
+          group: s.targetGroup,
+          bx: s.bx,
+          by: s.by,
+        });
+      }
+    }
+    return Array.from(seen.values());
+  }, [externalStubs]);
 
   // Setter shim so existing code that calls `setNodes(prev => ...)` still
   // works. Translates updates into position overrides since projection is
@@ -434,6 +804,10 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
   };
 
   const getAgentColor = (cluster: string) => {
+    // Match the legend dot colors so the cluster backgrounds reinforce the
+    // legend grouping. Falls back to gray for non-type clusters (legacy data).
+    const typeColor = NODE_COLORS[cluster]?.dot;
+    if (typeColor) return typeColor;
     const colors: Record<string, string> = {
       Controllers: '#eab308',
       Services: '#3b82f6',
@@ -463,12 +837,24 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     };
   };
 
+  // Map the active layer name to one of the four UML tier classes — each
+  // class supplies a translucent wash on the canvas so the eye can track
+  // which tier (Symbol / Flow / Architecture / Invariant) is in focus across
+  // tab switches.
+  const tierClass = layer === 'symbol'
+    ? 'uml-tier-1'
+    : layer === 'flow'
+      ? 'uml-tier-2'
+      : layer === 'architecture'
+        ? 'uml-tier-3'
+        : 'uml-tier-4';
+
   return (
-    <div className="h-full flex flex-col bg-[#1e1e1e]">
+    <div className="h-full flex flex-col bg-[#1e1e1e] uml-view-fade">
       {/* Mind Map Canvas */}
       <div
         ref={canvasRef}
-        className="flex-1 relative bg-[#1a1a1a] overflow-hidden"
+        className={`flex-1 relative bg-[#1a1a1a] overflow-hidden ${tierClass}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -506,33 +892,47 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
               transition: draggingNodeId ? 'none' : 'all 0.1s ease-out',
             }}
           >
-            {/* Symbol mode renders only colored nodes (no edges). */}
-            {activeModes.has('flow') &&
-              nodes.map((node) =>
-                node.dependencies?.map((depName) => {
-                  const target = nodes.find((n) => n.name === depName);
-                  if (target) {
-                    // Dynamic control point for curved flow
-                    const controlX = (node.x + target.x) / 2 + cardW / 2;
-                    const controlY = Math.min(node.y, target.y) - 50;
+            {/* UML 2.5 edges — rendered only when the Flow overlay is on.
+                Each projection edge is classified into one of six canonical
+                relationships (association, aggregation, composition,
+                inheritance, realization, dependency) by its ``kind`` string
+                and rendered with the matching line style and arrowhead.
+                Lines route from the right edge of the source node to the
+                left edge of the target node so the layered (left→right)
+                layout keeps every arrow flowing in the same direction. */}
+            {activeModes.has('flow') && projection?.edges.map((edge) => {
+              const source = nodes.find((n) => n.id === edge.source);
+              const target = nodes.find((n) => n.id === edge.target);
+              if (!source || !target) return null;
+              const style = classifyUmlEdge(edge.kind);
+              const markerId =
+                style.endMarker === 'open-arrow' ? 'uml-arrow-open' :
+                style.endMarker === 'hollow-triangle' ? 'uml-arrow-triangle' :
+                style.endMarker === 'hollow-diamond' ? 'uml-diamond-hollow' :
+                'uml-diamond-filled';
+              const x1 = source.x + cardW;          // exit right edge of source
+              const y1 = source.y + cardH / 2;
+              const x2 = target.x;                  // enter left edge of target
+              const y2 = target.y + cardH / 2;
+              return (
+                <g key={`uml-${edge.source}-${edge.target}-${edge.kind}`} style={{ color: style.color }}>
+                  <line
+                    x1={x1}
+                    y1={y1}
+                    x2={x2}
+                    y2={y2}
+                    stroke="currentColor"
+                    strokeWidth={1.6}
+                    strokeDasharray={style.dashed ? '6 4' : undefined}
+                    markerEnd={`url(#${markerId})`}
+                    opacity={0.85}
+                  />
+                </g>
+              );
+            })}
 
-                    return (
-                      <path
-                        key={`flow-${node.id}-${target.id}`}
-                        d={`M ${node.x + cardW / 2} ${node.y + cardH / 2} Q ${controlX} ${controlY} ${target.x + cardW / 2} ${target.y + cardH / 2}`}
-                        stroke="#2DD4BF"
-                        strokeWidth="3"
-                        fill="none"
-                        markerEnd="url(#arrowhead-flow)"
-                        opacity="0.8"
-                      />
-                    );
-                  }
-                  return null;
-                })
-              )}
-
-            {/* Architecture mode renders cluster backgrounds (below) instead of edges. */}
+            {/* Architecture overlay = folder backgrounds only (rendered
+                below). No edges in this mode — the grouping is the signal. */}
             <defs>
               <marker
                 id="arrowhead-symbol"
@@ -564,45 +964,229 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
               >
                 <polygon points="0 0, 8 3, 0 6" fill="#dc2626" />
               </marker>
+              <marker
+                id="arrowhead-allow"
+                markerWidth="8"
+                markerHeight="8"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="#22c55e" />
+              </marker>
+              <marker
+                id="arrowhead-external"
+                markerWidth="9"
+                markerHeight="9"
+                refX="8"
+                refY="3.5"
+                orient="auto"
+              >
+                <polygon points="0 0, 9 3.5, 0 7" fill="#B7553A" />
+              </marker>
+
+              {/* UML 2.5 line-end markers
+                  - uml-arrow-open      : open V (association, dependency, calls)
+                  - uml-arrow-triangle  : hollow triangle (generalization,
+                                          realization)
+                  - uml-diamond-hollow  : open diamond at the whole's end
+                                          (aggregation)
+                  - uml-diamond-filled  : filled diamond at the whole's end
+                                          (composition)
+                  Markers use markerUnits="strokeWidth" so the arrowheads
+                  scale gracefully when we adjust line weight. */}
+              <marker
+                id="uml-arrow-open"
+                viewBox="0 0 12 12"
+                markerWidth="10"
+                markerHeight="10"
+                refX="10"
+                refY="6"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M0 0 L10 6 L0 12" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              </marker>
+              <marker
+                id="uml-arrow-triangle"
+                viewBox="0 0 14 12"
+                markerWidth="12"
+                markerHeight="10"
+                refX="12"
+                refY="6"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M0 0 L12 6 L0 12 z" fill="var(--uml-card-bg, #1e1e1e)" stroke="currentColor" strokeWidth="1.2" />
+              </marker>
+              <marker
+                id="uml-diamond-hollow"
+                viewBox="0 0 16 12"
+                markerWidth="14"
+                markerHeight="10"
+                refX="14"
+                refY="6"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M0 6 L7 0 L14 6 L7 12 z" fill="var(--uml-card-bg, #1e1e1e)" stroke="currentColor" strokeWidth="1.2" />
+              </marker>
+              <marker
+                id="uml-diamond-filled"
+                viewBox="0 0 16 12"
+                markerWidth="14"
+                markerHeight="10"
+                refX="14"
+                refY="6"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M0 6 L7 0 L14 6 L7 12 z" fill="currentColor" stroke="currentColor" strokeWidth="1.2" />
+              </marker>
             </defs>
+
+            {/* Cross-boundary stub arrows — emitted whenever an in-view node
+                depends on a node that lives outside the current view. */}
+            {externalStubs.map((s) => (
+              <g key={s.key}>
+                <line
+                  x1={s.sx}
+                  y1={s.sy}
+                  x2={s.bx}
+                  y2={s.by}
+                  stroke="#B7553A"
+                  strokeWidth="1.5"
+                  strokeDasharray="6 4"
+                  opacity="0.85"
+                  markerEnd="url(#arrowhead-external)"
+                />
+                {s.protocol && (
+                  <g>
+                    {/* Background pill so the stereotype stays legible across
+                        any underlying node card or cluster fill. */}
+                    <rect
+                      x={s.labelX - (s.protocol.length * 3.4 + 8)}
+                      y={s.labelY - 9}
+                      width={s.protocol.length * 6.8 + 16}
+                      height={18}
+                      rx={9}
+                      ry={9}
+                      fill="#1e1e1e"
+                      stroke="#B7553A"
+                      strokeWidth="1"
+                      opacity="0.95"
+                    />
+                    <text
+                      x={s.labelX}
+                      y={s.labelY + 4}
+                      textAnchor="middle"
+                      fill="#F5C7B5"
+                      fontSize="10"
+                      fontWeight="600"
+                      style={{ fontFamily: 'Menlo, Monaco, "Courier New", monospace' }}
+                    >
+                      {s.protocol}
+                    </text>
+                  </g>
+                )}
+              </g>
+            ))}
           </svg>
 
-          {/* Cluster Backgrounds (Architecture Mode) */}
-          {activeModes.has('architecture') && (
-            <>
-              {Array.from(new Set(nodes.map((n) => n.cluster))).map((clusterName) => {
-                const bounds = getClusterBounds(clusterName);
-                if (!bounds) return null;
-                const accent = getAgentColor(clusterName);
-                const memberCount = nodes.filter((n) => n.cluster === clusterName).length;
-                return (
+          {/* External target placeholders — labeled with the external symbol's
+              name and parent group, anchored just outside the diagram bounds. */}
+          {externalPlaceholders.map((p) => (
+            <div
+              key={`ext-ph-${p.name}`}
+              className="absolute pointer-events-none"
+              style={{
+                left: p.bx - 80,
+                top: p.by - 20,
+                width: 160,
+              }}
+            >
+              <div
+                className="rounded-md border border-dashed text-center px-2 py-1.5"
+                style={{
+                  borderColor: '#B7553A',
+                  background: 'rgba(30,30,30,0.92)',
+                  boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
+                }}
+              >
+                <div
+                  className="text-[10px] font-semibold truncate"
+                  style={{ color: '#F5C7B5' }}
+                  title={p.name}
+                >
+                  {p.name}
+                </div>
+                <div
+                  className="text-[9px] text-gray-400 truncate"
+                  title={p.group}
+                >
+                  {p.group}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Folder Backgrounds (Architecture overlay) — group nodes by the
+              parent directory of their source file so the user sees how
+              classes are bundled on disk. */}
+          {activeModes.has('architecture') && (() => {
+            const folderOf = (n: GraphNode): string => {
+              const fp = n.filePath ?? '';
+              if (!fp) return '(root)';
+              const idx = fp.lastIndexOf('/');
+              return idx >= 0 ? fp.slice(0, idx) : '(root)';
+            };
+            const folderColor = (folder: string): string => {
+              // Stable hash → hue so each folder gets a consistent accent.
+              let h = 0;
+              for (let i = 0; i < folder.length; i++) h = (h * 31 + folder.charCodeAt(i)) >>> 0;
+              const hue = h % 360;
+              return `hsl(${hue}, 65%, 60%)`;
+            };
+            const folders = Array.from(new Set(nodes.map(folderOf)));
+            return folders.map((folder) => {
+              const members = nodes.filter((n) => folderOf(n) === folder);
+              if (members.length === 0) return null;
+              const padding = 24;
+              const minX = Math.min(...members.map((n) => n.x)) - padding;
+              const minY = Math.min(...members.map((n) => n.y)) - padding;
+              const maxX = Math.max(...members.map((n) => n.x + cardW + 20)) + padding;
+              const maxY = Math.max(...members.map((n) => n.y + cardH + 20)) + padding;
+              const accent = folderColor(folder);
+              const shortName = folder.split('/').slice(-2).join('/') || folder;
+              return (
+                <div
+                  key={folder}
+                  className="absolute rounded-2xl"
+                  style={{
+                    left: minX,
+                    top: minY,
+                    width: maxX - minX,
+                    height: maxY - minY,
+                    background: `linear-gradient(135deg, ${accent}26, ${accent}0d)`,
+                    border: `2px solid ${accent}66`,
+                    boxShadow: `inset 0 0 60px ${accent}1a`,
+                    transition: draggingNodeId ? 'none' : 'all 0.2s ease-out',
+                    pointerEvents: 'none',
+                  }}
+                >
                   <div
-                    key={clusterName}
-                    className="absolute rounded-2xl"
-                    style={{
-                      left: bounds.left,
-                      top: bounds.top,
-                      width: bounds.width,
-                      height: bounds.height,
-                      background: `linear-gradient(135deg, ${accent}26, ${accent}0d)`,
-                      border: `2px solid ${accent}66`,
-                      boxShadow: `inset 0 0 60px ${accent}1a`,
-                      transition: draggingNodeId ? 'none' : 'all 0.2s ease-out',
-                    }}
+                    className="absolute -top-3 left-3 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide flex items-center gap-1.5"
+                    style={{ background: '#1a1a1a', color: accent, border: `1px solid ${accent}66` }}
+                    title={folder}
                   >
-                    <div
-                      className="absolute -top-3 left-3 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide flex items-center gap-1.5"
-                      style={{ background: '#1a1a1a', color: accent, border: `1px solid ${accent}66` }}
-                    >
-                      <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: accent }} />
-                      {clusterName}
-                      <span className="text-gray-500">· {memberCount}</span>
-                    </div>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: accent }} />
+                    {shortName}
+                    <span className="text-gray-500">· {members.length}</span>
                   </div>
-                );
-              })}
-            </>
-          )}
+                </div>
+              );
+            });
+          })()}
 
           {/* Graph Nodes */}
           {nodes.map((node) => {
@@ -634,6 +1218,93 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                   }} />
                 )}
 
+                {node.type === 'module' ? (
+                  // Higher-level grouping (modules / packages / clusters) —
+                  // rendered as a single labeled container box per UML
+                  // package/component conventions, no attribute or method
+                  // compartments.
+                  <div
+                    style={{
+                      minHeight: cardH,
+                      borderRadius: 6,
+                      border: `2px solid ${isSelected ? colors.border : colors.border + 'aa'}`,
+                      background: `linear-gradient(135deg, ${colors.header}, #1a1a1a)`,
+                      boxShadow: isSelected
+                        ? `0 0 0 2px ${colors.border}40, 0 4px 16px ${colors.border}40`
+                        : '0 2px 10px #0008',
+                      padding: '10px 12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: 2,
+                      transition: 'border-color 0.15s, box-shadow 0.15s',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontStyle: 'italic',
+                        color: colors.label,
+                        letterSpacing: '0.05em',
+                      }}
+                    >
+                      «{node.stereotype ?? 'package'}»
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: '#fff',
+                        wordBreak: 'break-all',
+                        lineHeight: 1.25,
+                      }}
+                      title={node.name}
+                    >
+                      {node.name.split('.').pop() ?? node.name}
+                    </span>
+                  </div>
+                ) : density === 'compact' ? (
+                  <div
+                    style={{
+                      height: cardH,
+                      borderRadius: 999,
+                      border: `2px solid ${isSelected ? colors.border : colors.border + '88'}`,
+                      background: `linear-gradient(135deg, ${colors.header}, #1e1e1e)`,
+                      boxShadow: isSelected
+                        ? `0 0 0 2px ${colors.border}40, 0 4px 16px ${colors.border}40`
+                        : '0 2px 8px #0008',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '0 10px',
+                      transition: 'border-color 0.15s, box-shadow 0.15s',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: colors.dot,
+                        flexShrink: 0,
+                        boxShadow: `0 0 6px ${colors.dot}`,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: '#fff',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={node.name}
+                    >
+                      {node.name.split('.').pop() ?? node.name}
+                    </span>
+                  </div>
+                ) : (
                 <div style={{
                   borderRadius: 8,
                   overflow: 'hidden',
@@ -642,23 +1313,64 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                   background: '#1e1e1e',
                   transition: 'border-color 0.15s, box-shadow 0.15s',
                 }}>
-                  {/* Colored left stripe + header */}
+                  {/* Colored left stripe + header.
+                      UML 2.5 layout — when a stereotype is set it is shown
+                      in guillemets above the class name; the class name
+                      itself stays centered in the top compartment, with a
+                      horizontal rule separating it from the attribute /
+                      operation compartments below. */}
                   <div style={{
                     background: colors.header,
                     borderLeft: `4px solid ${colors.border}`,
                     padding: '6px 10px 7px',
+                    fontFamily: 'var(--uml-mono, Menlo, Monaco, "Courier New", monospace)',
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: colors.dot, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, color: colors.label, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        {node.type}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', lineHeight: 1.3, wordBreak: 'break-all' }}>
+                    {node.stereotype && (
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: colors.label,
+                          textAlign: 'center',
+                          marginBottom: 2,
+                          letterSpacing: '0.02em',
+                          fontStyle: 'italic',
+                        }}
+                      >
+                        «{node.stereotype}»
+                      </div>
+                    )}
+                    {!node.stereotype && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: colors.dot, flexShrink: 0 }} />
+                        <span style={{ fontSize: 10, color: colors.label, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          {node.type}
+                        </span>
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: '#fff',
+                        lineHeight: 1.3,
+                        wordBreak: 'break-all',
+                        textAlign: node.stereotype ? 'center' : 'left',
+                        // UML class names are typically italicized when the class is abstract.
+                        fontStyle: node.type === 'interface' ? 'italic' : 'normal',
+                      }}
+                    >
                       {node.name.split('.').pop() ?? node.name}
                     </div>
                     {node.name.includes('.') && (
-                      <div style={{ fontSize: 10, color: colors.label + 'aa', marginTop: 2, wordBreak: 'break-all' }}>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: colors.label + 'aa',
+                          marginTop: 2,
+                          wordBreak: 'break-all',
+                          textAlign: node.stereotype ? 'center' : 'left',
+                        }}
+                      >
                         {node.name}
                       </div>
                     )}
@@ -666,28 +1378,50 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
 
                   {/* Properties */}
                   {node.properties && node.properties.length > 0 && (
-                    <div style={{ borderTop: `1px solid ${colors.border}30`, borderLeft: `4px solid ${colors.border}`, background: '#1a1a1a', padding: '4px 10px' }}>
+                    <div style={{ borderTop: `1px solid ${colors.border}30`, borderLeft: `4px solid ${colors.border}`, background: '#1a1a1a', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
                       {node.properties.slice(0, 3).map((prop, idx) => (
-                        <div key={`${node.id}-p-${idx}`} style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>
+                        <div
+                          key={`${node.id}-p-${idx}`}
+                          style={{
+                            fontSize: 10,
+                            color: '#9ca3af',
+                            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                            letterSpacing: '0.02em',
+                            lineHeight: 1.5,
+                            padding: '2px 0',
+                            wordSpacing: '0.1em',
+                          }}
+                        >
                           – {prop}
                         </div>
                       ))}
                       {node.properties.length > 3 && (
-                        <div style={{ fontSize: 10, color: '#6b7280' }}>+{node.properties.length - 3} more</div>
+                        <div style={{ fontSize: 10, color: '#6b7280', paddingTop: 2 }}>+{node.properties.length - 3} more</div>
                       )}
                     </div>
                   )}
 
                   {/* Methods */}
                   {node.methods && node.methods.length > 0 && (
-                    <div style={{ borderTop: `1px solid ${colors.border}30`, borderLeft: `4px solid ${colors.border}`, background: '#1a1a1a', padding: '4px 10px' }}>
-                      {node.methods.slice(0, 3).map((method, idx) => (
-                        <div key={`${node.id}-m-${idx}`} style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>
+                    <div style={{ borderTop: `1px solid ${colors.border}30`, borderLeft: `4px solid ${colors.border}`, background: '#1a1a1a', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {node.methods.slice(0, 6).map((method, idx) => (
+                        <div
+                          key={`${node.id}-m-${idx}`}
+                          style={{
+                            fontSize: 10,
+                            color: '#9ca3af',
+                            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                            letterSpacing: '0.02em',
+                            lineHeight: 1.5,
+                            padding: '2px 0',
+                            wordSpacing: '0.1em',
+                          }}
+                        >
                           + {method}
                         </div>
                       ))}
-                      {node.methods.length > 3 && (
-                        <div style={{ fontSize: 10, color: '#6b7280' }}>+{node.methods.length - 3} more</div>
+                      {node.methods.length > 6 && (
+                        <div style={{ fontSize: 10, color: '#6b7280', paddingTop: 2 }}>+{node.methods.length - 6} more</div>
                       )}
                     </div>
                   )}
@@ -700,10 +1434,49 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                     )}
                   </div>
                 </div>
+                )}
               </div>
             );
           })}
         </div>
+
+        {/* Empty-state overlay — surfaces when the active layer's projection
+            hasn't been indexed yet (e.g., toggling Flow on a repo where
+            Layer 2 hasn't run). Without this, the canvas just looks blank
+            and the toolbar appears broken. */}
+        {nodes.length === 0 && !projection && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8 pointer-events-none">
+            <div
+              className="px-5 py-4 rounded-xl border border-white/10 bg-[#1e1e1e]/80 backdrop-blur-md max-w-sm pointer-events-auto"
+              style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.35)' }}
+            >
+              <div className="text-sm font-semibold text-white mb-1 capitalize">
+                {layer} layer not ready
+              </div>
+              <div className="text-xs text-gray-400 leading-relaxed">
+                The {layer} projection isn't available for this repository yet.
+                The indexer may still be running, or this layer hasn't been
+                generated. Try the Symbol layer for the base graph.
+              </div>
+            </div>
+          </div>
+        )}
+        {nodes.length === 0 && projection && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8 pointer-events-none">
+            <div
+              className="px-5 py-4 rounded-xl border border-white/10 bg-[#1e1e1e]/80 backdrop-blur-md max-w-sm pointer-events-auto"
+              style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.35)' }}
+            >
+              <div className="text-sm font-semibold text-white mb-1 capitalize">
+                Nothing to render
+              </div>
+              <div className="text-xs text-gray-400 leading-relaxed">
+                The {layer} layer has no nodes matching the current filter.
+                Clear the explorer filter or switch layers to see more.
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
     </div>

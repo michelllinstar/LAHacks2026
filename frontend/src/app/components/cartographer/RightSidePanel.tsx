@@ -138,26 +138,57 @@ export function RightSidePanel({
                     <span className="text-white ml-2 font-mono break-all">{selectedNode.filePath}</span>
                   </div>
                 )}
+                {selectedNode.properties && selectedNode.properties.length > 0 && (
+                  <div>
+                    <div className="text-gray-500 mb-1">
+                      Properties ({selectedNode.properties.length})
+                    </div>
+                    <div className="space-y-1">
+                      {selectedNode.properties.map((p, i) => (
+                        <div key={`${p}-${i}`} className="text-gray-200 font-mono break-all px-2 py-1 rounded bg-white/[0.03] border border-white/5">
+                          – {p}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {selectedNode.methods && selectedNode.methods.length > 0 && (
+                  <div>
+                    <div className="text-gray-500 mb-1">
+                      Methods ({selectedNode.methods.length})
+                    </div>
+                    <div className="space-y-1">
+                      {selectedNode.methods.map((m, i) => (
+                        <div key={`${m}-${i}`} className="text-[#86efac] font-mono break-all px-2 py-1 rounded bg-white/[0.03] border border-white/5">
+                          + {m}()
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {selectedNode.dependencies && selectedNode.dependencies.length > 0 && (
                   <div>
                     <div className="text-gray-500 mb-1">
                       Dependencies ({selectedNode.dependencies.length})
                     </div>
-                    <div className="space-y-0.5">
+                    <div className="space-y-1">
                       {selectedNode.dependencies.map((d, i) => (
-                        <div key={`${d}-${i}`} className="text-[#5EEAD4] font-mono break-all">
+                        <div key={`${d}-${i}`} className="text-[#5EEAD4] font-mono break-all px-2 py-1 rounded bg-white/[0.03] border border-white/5">
                           → {d}
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-                <button
-                  onClick={onClearNode}
-                  className="mt-3 text-[11px] text-gray-400 hover:text-white"
-                >
-                  Clear selection
-                </button>
+                <div className="flex justify-center mt-3">
+                  <button
+                    type="button"
+                    onClick={onClearNode}
+                    className="hover-glow inline-flex items-center px-2.5 py-1 text-[10px] text-gray-300 hover:text-white rounded-md border border-white/10 bg-white/[0.03] backdrop-blur-md transition-all"
+                  >
+                    Clear selection
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="text-gray-500 text-center py-6">

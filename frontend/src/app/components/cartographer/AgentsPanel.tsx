@@ -320,7 +320,7 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
             <select
               value={draftTemplate}
               onChange={(e) => setDraftTemplate(e.target.value)}
-              className="w-full bg-[#1e1e1e] border border-[#3e3e42] px-2 py-1.5 text-xs text-white rounded focus:outline-none focus:border-[#007acc]"
+              className="w-full bg-[#1e1e1e] border border-[#3e3e42] px-2 py-1 text-[10px] text-gray-400 rounded focus:outline-none focus:border-[#007acc]"
             >
               {(Array.isArray(templates) ? templates : []).map((t) => (
                 <option key={t.id} value={t.id}>
@@ -329,7 +329,7 @@ export function AgentsPanel({ onCollapse }: AgentsPanelProps) {
               ))}
             </select>
             {templateById.get(draftTemplate)?.description && (
-              <p className="text-[11px] text-gray-500 leading-snug">
+              <p className="text-xs text-gray-500 leading-snug">
                 {templateById.get(draftTemplate)?.description}
               </p>
             )}

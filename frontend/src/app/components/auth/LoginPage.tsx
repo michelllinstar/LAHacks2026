@@ -4,6 +4,7 @@ import { Code2, Mail, Lock, GitBranch, Globe, ShieldCheck, ArrowLeft } from 'luc
 import { AxiosError } from 'axios';
 import { toast } from 'sonner';
 import { login } from '../../../lib/api';
+import { AnimatedLogo } from '../ui/AnimatedLogo';
 
 interface LoginPageProps {
   onLogin: () => void;
@@ -162,9 +163,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
         <div className="relative z-10 max-w-md text-center">
           <div className="flex items-center justify-center gap-5 mb-5">
-            <div className="p-3 rounded-xl border border-white/10 bg-white/[0.03] hover-glow">
-              <Code2 className="h-8 w-8 text-white" />
-            </div>
+            <AnimatedLogo size={64} />
             <div className="text-left">
               <h1 className="text-2xl font-bold text-white">MarkCodePolo</h1>
               <p className="text-gray-400 text-base">Powered by Cloudinary</p>
@@ -213,9 +212,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-lg anim-fade-up-delay-1">
           <div className="lg:hidden mb-6 flex items-center justify-center gap-5">
-            <div className="p-2 rounded-lg border border-white/10 bg-white/[0.03] anim-breathe">
-              <Code2 className="h-6 w-6 text-white" />
-            </div>
+            <AnimatedLogo size={40} />
             <h1 className="text-2xl font-bold text-white">MarkCodePolo</h1>
           </div>
 

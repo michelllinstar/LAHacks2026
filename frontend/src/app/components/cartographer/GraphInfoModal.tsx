@@ -20,17 +20,17 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
-        className="bg-[#252526] border border-[#3e3e42] rounded-lg shadow-2xl max-w-2xl w-full mx-4"
+        className="glass-panel rounded-3xl max-w-2xl w-full max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden anim-fade-up aurora-bg"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-[#3e3e42]">
+        <div className="flex items-center justify-between p-4 border-b border-white/10">
           <h2 className="text-lg font-bold text-white">Graph Controls & Navigation</h2>
           <button
             onClick={onClose}
-            className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors"
+            className="p-2.5 hover:bg-white/10 rounded transition-colors"
             title="Close"
           >
             <X className="h-[13px] w-[13px] text-gray-400" />
@@ -38,7 +38,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+        <div className="p-6 space-y-6 flex-1 overflow-y-auto">
           {/* Pan & Navigation */}
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
@@ -47,7 +47,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
             </h3>
             <div className="space-y-2 text-sm text-gray-300">
               <div className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-[#1e1e1e] rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div className="w-6 h-6 bg-white/5 border border-white/10 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
                   🖱️
                 </div>
                 <div>
@@ -56,7 +56,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-[#1e1e1e] rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div className="w-6 h-6 bg-white/5 border border-white/10 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
                   📦
                 </div>
                 <div>
@@ -75,7 +75,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
             </h3>
             <div className="space-y-2 text-sm text-gray-300">
               <div className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-[#1e1e1e] rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div className="w-6 h-6 bg-white/5 border border-white/10 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
                   <kbd className="text-xs text-gray-400">+</kbd>
                 </div>
                 <div>
@@ -84,7 +84,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-[#1e1e1e] rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div className="w-6 h-6 bg-white/5 border border-white/10 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
                   <kbd className="text-xs text-gray-400">-</kbd>
                 </div>
                 <div>
@@ -93,7 +93,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-[#1e1e1e] rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div className="w-6 h-6 bg-white/5 border border-white/10 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
                   🤏
                 </div>
                 <div>
@@ -102,7 +102,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-[#1e1e1e] rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div className="w-6 h-6 bg-white/5 border border-white/10 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
                   <Maximize2 className="h-3.5 w-3.5 text-gray-400" />
                 </div>
                 <div>
@@ -147,7 +147,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
                   <div className="text-xs text-gray-400">See cluster boundaries and cross-cluster dependencies (red = cross-cluster)</div>
                 </div>
               </div>
-              <div className="mt-3 p-3 bg-[#1e1e1e] rounded border border-[#3e3e42]">
+              <div className="mt-3 p-3 bg-white/5 rounded border border-white/10">
                 <div className="text-xs text-gray-400">
                   <strong className="text-white">💡 Tip:</strong> You can enable multiple modes at once to overlay different connection types
                 </div>
@@ -163,7 +163,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
             </h3>
             <div className="space-y-2 text-sm text-gray-300">
               <div className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-[#1e1e1e] rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div className="w-6 h-6 bg-white/5 border border-white/10 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
                   🎯
                 </div>
                 <div>
@@ -172,7 +172,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-[#1e1e1e] rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div className="w-6 h-6 bg-white/5 border border-white/10 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
                   ✨
                 </div>
                 <div>
@@ -184,23 +184,23 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
           </div>
 
           {/* Keyboard Shortcuts */}
-          <div className="p-4 bg-[#1e1e1e] rounded border border-[#3e3e42]">
+          <div className="p-4 bg-white/5 rounded border border-white/10">
             <h3 className="text-sm font-bold text-white mb-3">Quick Reference</h3>
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="flex items-center gap-2">
-                <kbd className="px-2 py-1 bg-[#252526] border border-[#3e3e42] rounded text-gray-300">+</kbd>
+                <kbd className="px-2 py-1 bg-white/5 border border-white/15 rounded text-gray-200">+</kbd>
                 <span className="text-gray-400">Zoom in</span>
               </div>
               <div className="flex items-center gap-2">
-                <kbd className="px-2 py-1 bg-[#252526] border border-[#3e3e42] rounded text-gray-300">-</kbd>
+                <kbd className="px-2 py-1 bg-white/5 border border-white/15 rounded text-gray-200">-</kbd>
                 <span className="text-gray-400">Zoom out</span>
               </div>
               <div className="flex items-center gap-2">
-                <kbd className="px-2 py-1 bg-[#252526] border border-[#3e3e42] rounded text-gray-300">Drag</kbd>
+                <kbd className="px-2 py-1 bg-white/5 border border-white/15 rounded text-gray-200">Drag</kbd>
                 <span className="text-gray-400">Pan viewport</span>
               </div>
               <div className="flex items-center gap-2">
-                <kbd className="px-2 py-1 bg-[#252526] border border-[#3e3e42] rounded text-gray-300">Click</kbd>
+                <kbd className="px-2 py-1 bg-white/5 border border-white/15 rounded text-gray-200">Click</kbd>
                 <span className="text-gray-400">Select node</span>
               </div>
             </div>
@@ -208,7 +208,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-[#3e3e42] flex items-center justify-between">
+        <div className="p-4 border-t border-white/10 flex items-center justify-between">
           <div className="text-xs text-gray-500">Press ESC to close</div>
           <button
             onClick={onClose}

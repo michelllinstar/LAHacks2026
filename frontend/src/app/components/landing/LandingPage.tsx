@@ -2,6 +2,7 @@
 import { ArrowRight, Sparkles, Zap, Shield, Cloud, Code2, GitBranch, Users, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import { GlassBubble } from '../ui/glass-bubble';
+import { AnimatedLogo } from '../ui/AnimatedLogo';
 
 export function LandingPage() {
   return (
@@ -22,9 +23,7 @@ export function LandingPage() {
           <div className="max-w-7xl mx-auto px-5 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-5">
-                <div className="p-2 rounded-lg border border-white/10 bg-white/[0.03] hover-glow">
-                  <Code2 className="h-6 w-6 text-white" />
-                </div>
+                <AnimatedLogo size={44} />
                 <div>
                   <h1 className="font-bold text-white text-xl">MarkCodePolo</h1>
                   <p className="text-xs text-gray-400">Powered by Cloudinary</p>

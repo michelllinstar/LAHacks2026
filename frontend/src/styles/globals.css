@@ -361,6 +361,20 @@ select {
   font-family: Menlo, Monaco, 'Courier New', monospace;
 }
 
+/* Tailwind font-family utilities — pin every variant to the design system
+   stack so workspace surfaces (graph nodes, source-control rows, code labels)
+   render identically to the rest of the app. */
+.font-mono,
+.font-sans,
+.font-serif {
+  font-family: Menlo, Monaco, 'Courier New', monospace !important;
+}
+
+/* Defensive: any inline ``style={{ fontFamily: ... }}`` that names the generic
+   ``monospace`` keyword inherits the same Menlo stack via the universal rule
+   above (inline styles still win over class selectors, which is why the two
+   workspace-graph nodes set the explicit stack rather than relying on this). */
+
 /* Tailwind text-size utility overrides */
 .text-xs   { font-size: 10px !important; }
 .text-sm   { font-size: 11px !important; }
@@ -696,3 +710,104 @@ select {
 .text-\[9px\]  { font-size: 11px !important; }
 .text-\[10px\] { font-size: 12px !important; }
 .text-\[11px\] { font-size: 13px !important; }
+
+/* ===========================================================
+   UML conformance layer
+   ===========================================================
+   Class boxes follow UML 2.5: stereotype « » → name → attribute
+   compartment → operation compartment, separated by horizontal
+   rules. Containers are tinted per tier so the eye can track
+   tier membership. Variables are exposed for both light and
+   dark themes — the page sets `data-theme="light"` to opt in.
+   =========================================================== */
+:root {
+  --uml-card-bg: #1e1e1e;
+  --uml-card-fg: #ffffff;
+  --uml-card-muted: #9ca3af;
+  --uml-card-border: #3e3e42;
+  --uml-divider: rgba(255,255,255,0.12);
+  --uml-stereotype: #d1d5db;
+  --uml-mono: 'JetBrains Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace;
+  --uml-tier-1: rgba(94, 234, 212, 0.10);   /* Layer 1 / Symbol  — teal wash    */
+  --uml-tier-2: rgba(34, 211, 238, 0.10);   /* Layer 2 / Flow    — cyan wash    */
+  --uml-tier-3: rgba(245, 158, 11, 0.10);   /* Layer 3 / Arch    — amber wash   */
+  --uml-tier-4: rgba(168, 85, 247, 0.10);   /* Layer 4 / Invariant — violet wash */
+  --uml-tier-1-edge: rgba(94, 234, 212, 0.45);
+  --uml-tier-2-edge: rgba(34, 211, 238, 0.45);
+  --uml-tier-3-edge: rgba(245, 158, 11, 0.45);
+  --uml-tier-4-edge: rgba(168, 85, 247, 0.45);
+}
+
+[data-theme="light"] {
+  --uml-card-bg: #fafaf9;
+  --uml-card-fg: #111827;
+  --uml-card-muted: #6b7280;
+  --uml-card-border: #d4d4d8;
+  --uml-divider: rgba(0,0,0,0.10);
+  --uml-stereotype: #4b5563;
+  --uml-tier-1: rgba(13, 148, 136, 0.10);
+  --uml-tier-2: rgba(8, 145, 178, 0.10);
+  --uml-tier-3: rgba(217, 119, 6, 0.10);
+  --uml-tier-4: rgba(126, 34, 206, 0.10);
+  --uml-tier-1-edge: rgba(13, 148, 136, 0.55);
+  --uml-tier-2-edge: rgba(8, 145, 178, 0.55);
+  --uml-tier-3-edge: rgba(217, 119, 6, 0.55);
+  --uml-tier-4-edge: rgba(126, 34, 206, 0.55);
+}
+
+/* Class card — applied to .uml-class-card wrappers in graph views. */
+.uml-class-card {
+  background: var(--uml-card-bg);
+  color: var(--uml-card-fg);
+  border: 1px solid var(--uml-card-border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: var(--uml-mono);
+}
+.uml-stereotype {
+  font-family: var(--uml-mono);
+  font-size: 11px;
+  text-align: center;
+  color: var(--uml-stereotype);
+  padding: 2px 8px 0;
+  letter-spacing: 0.02em;
+}
+.uml-class-name {
+  font-family: var(--uml-mono);
+  font-weight: 700;
+  font-size: 13px;
+  text-align: center;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--uml-divider);
+}
+.uml-compartment {
+  font-family: var(--uml-mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--uml-divider);
+}
+.uml-compartment:last-child { border-bottom: 0; }
+.uml-compartment .uml-row {
+  color: var(--uml-card-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Tier containers — Architecture / cluster boundaries. */
+.uml-tier-1 { background: var(--uml-tier-1); border-color: var(--uml-tier-1-edge); }
+.uml-tier-2 { background: var(--uml-tier-2); border-color: var(--uml-tier-2-edge); }
+.uml-tier-3 { background: var(--uml-tier-3); border-color: var(--uml-tier-3-edge); }
+.uml-tier-4 { background: var(--uml-tier-4); border-color: var(--uml-tier-4-edge); }
+
+/* View transition — fade in so a tab swap reads as a zoom. The class is
+   applied to a wrapper whose React key changes when the active view
+   changes, forcing a remount and re-running the keyframe. */
+@keyframes uml-view-fade {
+  from { opacity: 0; transform: scale(0.985); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.uml-view-fade {
+  animation: uml-view-fade 220ms ease-out both;
+  transform-origin: center center;
+}
