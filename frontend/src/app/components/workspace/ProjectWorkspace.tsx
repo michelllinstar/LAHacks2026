@@ -57,6 +57,7 @@ export function ProjectWorkspace({ projectId, projectName, projectType, onBack, 
   const [chatInput, setChatInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [splitView, setSplitView] = useState(false);
+  const mountedRef = useRef(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
@@ -72,6 +73,21 @@ export function ProjectWorkspace({ projectId, projectName, projectType, onBack, 
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+  const fileSelectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chatResponseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (fileSelectTimeoutRef.current !== null) {
+        clearTimeout(fileSelectTimeoutRef.current);
+      }
+      if (chatResponseTimeoutRef.current !== null) {
+        clearTimeout(chatResponseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -173,7 +189,8 @@ export function ProjectWorkspace({ projectId, projectName, projectType, onBack, 
     setActiveTabId(codeTabId);
 
     // Auto-send explanation to chat
-    setTimeout(() => {
+    fileSelectTimeoutRef.current = setTimeout(() => {
+      if (!mountedRef.current) return;
       const folderPath = file.folder ? `${file.folder}/` : '';
       const assistantMessage: ChatMessage = {
         id: Date.now().toString(),
@@ -223,7 +240,8 @@ Would you like me to explain any specific part in more detail?`,
     setChatInput('');
     setIsTyping(true);
 
-    setTimeout(() => {
+    chatResponseTimeoutRef.current = setTimeout(() => {
+      if (!mountedRef.current) return;
       const activeTab = getActiveTab();
       const response = generateChatResponse(chatInput, activeTab);
       const assistantMessage: ChatMessage = {
@@ -380,13 +398,16 @@ What would you like to know?`;
               // Position the UML window next to the editor when opening
               if (newSplitView) {
                 const editorArea = document.getElementById('editor-area');
-                if (editorArea) {
-                  const rect = editorArea.getBoundingClientRect();
-                  setUmlWindowPosition({
-                    x: rect.left + rect.width - 620, // 20px padding from right edge
-                    y: rect.top + 20, // 20px from top
-                  });
+                if (editorArea === null) {
+                  // Fallback: center the floating window if the editor element is unavailable
+                  setUmlWindowPosition({ x: 100, y: 100 });
+                  return;
                 }
+                const rect = editorArea.getBoundingClientRect();
+                setUmlWindowPosition({
+                  x: rect.left + rect.width - 620, // 20px padding from right edge
+                  y: rect.top + 20, // 20px from top
+                });
               }
             }}
             className={`px-2 py-1 hover:bg-[#3e3e42] rounded transition-colors flex items-center gap-1.5 ${

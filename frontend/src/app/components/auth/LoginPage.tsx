@@ -79,8 +79,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             </div>
 
             <div className="space-y-5">
-              {['AI-Powered Analysis', 'Version Control Integration', 'Real-time Collaboration', 'Cloudinary CDN'].map((feature, idx) => (
-                <div key={idx} className="flex items-center gap-5 text-gray-300 text-base">
+              {['AI-Powered Analysis', 'Version Control Integration', 'Real-time Collaboration', 'Cloudinary CDN'].map((feature) => (
+                <div key={feature} className="flex items-center gap-5 text-gray-300 text-base">
                   <div className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
                   <span>{feature}</span>
                 </div>
@@ -127,7 +127,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 disabled={isLoading}
                 className="w-full px-5 py-3 bg-white hover:bg-gray-100 text-gray-900 text-base rounded-lg transition-colors flex items-center justify-center gap-5 border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <svg className="h-5 w-5" viewBox="0 0 24 24">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" role="img" aria-label="Google">
                   <path
                     fill="#4285F4"
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -200,9 +200,13 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                     <input type="checkbox" className="w-4 h-4 rounded border-gray-700 bg-[#1e1e1e] text-blue-500 focus:ring-blue-500" />
                     <span className="text-base text-gray-400">Remember me</span>
                   </label>
-                  <a href="#" className="text-base text-blue-400 hover:text-blue-300">
+                  <button
+                    type="button"
+                    onClick={() => toast.info('Password reset coming soon')}
+                    className="text-base text-blue-400 hover:text-blue-300"
+                  >
                     Forgot password?
-                  </a>
+                  </button>
                 </div>
               )}
 

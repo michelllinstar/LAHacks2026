@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ArrowLeft, Settings, Share2, Database, Files, Search, GitBranch, Info, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { UnifiedGraphView, GraphNode, GraphMode } from './UnifiedGraphView';
@@ -50,6 +50,10 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
   const pushHighlight = useCartographerStore((s) => s.pushHighlight);
   const pushActivity = useCartographerStore((s) => s.pushActivity);
   const indexStatus = useCartographerStore((s) => s.byRepo[projectId]?.index);
+
+  // Refs for timeout cleanup
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refetchDebounceRefs = useRef<Partial<Record<LayerName, ReturnType<typeof setTimeout>>>>({});
 
   // Initial parallel fetch: index status + all four layer projections.
   useEffect(() => {
@@ -113,12 +117,18 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
         case 'node_updated':
         case 'edge_added': {
           const layer = (payload.layer as LayerName | undefined) ?? null;
-          if (layer) {
-            refetchLayer(layer);
-          } else {
-            // Unknown layer → refresh all four cheaply.
-            (['symbol', 'flow', 'architecture', 'invariant'] as LayerName[]).forEach(refetchLayer);
-          }
+          const layersToRefetch: LayerName[] = layer
+            ? [layer]
+            : (['symbol', 'flow', 'architecture', 'invariant'] as LayerName[]);
+          layersToRefetch.forEach((l) => {
+            if (refetchDebounceRefs.current[l]) {
+              clearTimeout(refetchDebounceRefs.current[l]);
+            }
+            refetchDebounceRefs.current[l] = setTimeout(() => {
+              refetchLayer(l);
+              delete refetchDebounceRefs.current[l];
+            }, 100);
+          });
           break;
         }
         case 'region_highlighted': {
@@ -152,11 +162,27 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
 
   const handleHighlight = (query: AgentQuery) => {
     setHighlightedQuery(query);
-    // Auto-dismiss after 5 seconds
-    setTimeout(() => {
+    // Auto-dismiss after 5 seconds — clear any previous pending dismiss first.
+    if (highlightTimeoutRef.current !== null) {
+      clearTimeout(highlightTimeoutRef.current);
+    }
+    highlightTimeoutRef.current = setTimeout(() => {
       setHighlightedQuery(null);
+      highlightTimeoutRef.current = null;
     }, 5000);
   };
+
+  // Cleanup the highlight timeout and all debounce timeouts on unmount.
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current !== null) {
+        clearTimeout(highlightTimeoutRef.current);
+      }
+      Object.values(refetchDebounceRefs.current).forEach((id) => {
+        if (id !== undefined) clearTimeout(id);
+      });
+    };
+  }, []);
 
   const toggleMode = (mode: GraphMode) => {
     setActiveModes(prev => {
@@ -201,14 +227,16 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
     if (isResizingAgentLog) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      };
     }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
   }, [isResizingAgentLog]);
 
-  const handleFileSelect = (file: any) => {
+  const handleFileSelect = (file: { name?: string; path?: string } | null) => {
+    if (!file) return;
     console.log('File selected:', file);
   };
 
@@ -448,7 +476,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                               <span className="text-gray-500">Dependencies:</span>
                               <div className="mt-1 space-y-1">
                                 {selectedNode.dependencies.map((dep, idx) => (
-                                  <div key={idx} className="text-blue-400 ml-2">
+                                  <div key={`${selectedNode?.id}-${dep}-${idx}`} className="text-blue-400 ml-2">
                                     → {dep}
                                   </div>
                                 ))}

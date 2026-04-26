@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Mail, Copy, Check, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -15,12 +15,35 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
   const [accessLevel, setAccessLevel] = useState<AccessLevel>('view');
   const [linkCopied, setLinkCopied] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Escape key handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  // Body scroll lock
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
 
   const handleInvite = () => {
-    if (email) {
-      toast.success(`Invitation sent to ${email}`);
-      setEmail('');
+    if (!email) return;
+    // Basic email format validation: must contain @ and a dot after the @
+    const atIndex = email.indexOf('@');
+    if (atIndex === -1 || !email.slice(atIndex + 1).includes('.')) {
+      toast.error('Please enter a valid email address');
+      return;
     }
+    toast.success(`Invitation sent to ${email}`);
+    setEmail('');
   };
 
   const handleCopyLink = () => {
@@ -28,11 +51,16 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
     navigator.clipboard.writeText(link);
     setLinkCopied(true);
     toast.success('Link copied to clipboard');
-    setTimeout(() => setLinkCopied(false), 2000);
+    // Clear any pending timeout before setting a new one
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = setTimeout(() => setLinkCopied(false), 2000);
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+    <div
+      className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div className="bg-[#2d2d2d] rounded-xl border border-gray-800 w-full max-w-md overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-gray-800">

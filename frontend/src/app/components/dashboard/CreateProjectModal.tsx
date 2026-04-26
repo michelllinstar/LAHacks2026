@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X, GitBranch, HardDrive, FolderPlus, ArrowRight, Upload, Folder, FileCode, User, Briefcase } from 'lucide-react';
 import { toast } from 'sonner';
 import { createRepo, triggerIndex } from '../../../lib/api';
@@ -35,8 +35,26 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
   const [submitting, setSubmitting] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<FileList | null>(null);
   const [folderStructure, setFolderStructure] = useState<FolderStructure>({});
+  const [validationError, setValidationError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+
+  // Escape key handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  // Body scroll lock
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
 
   const handleTypeSelect = (type: 'github' | 'local') => {
     setProjectType(type);
@@ -111,7 +129,12 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
   };
 
   const handleCreate = async () => {
-    if (!projectType || !name) return;
+    if (!projectType || !name) {
+      const msg = !name ? 'Project name is required.' : 'Please select a project type.';
+      setValidationError(msg);
+      toast.error(msg);
+      return;
+    }
 
     // File-upload path is unsupported by the backend.
     if (projectType === 'local' && uploadedFiles && !localPath) {
@@ -119,9 +142,20 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
       return;
     }
 
-    if (projectType === 'github' && !repoUrl) return;
-    if (projectType === 'local' && !localPath) return;
+    if (projectType === 'github' && !repoUrl) {
+      const msg = 'Repository URL is required.';
+      setValidationError(msg);
+      toast.error(msg);
+      return;
+    }
+    if (projectType === 'local' && !localPath) {
+      const msg = 'Local path is required.';
+      setValidationError(msg);
+      toast.error(msg);
+      return;
+    }
 
+    setValidationError('');
     setSubmitting(true);
     try {
       const body = {
@@ -130,12 +164,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
         local_path: projectType === 'local' ? localPath : undefined,
       };
       const repo = await createRepo(body);
-      try {
-        await triggerIndex(repo.hash);
-      } catch (idxErr: unknown) {
-        const msg = idxErr instanceof Error ? idxErr.message : 'Unknown error';
-        toast.error(`Repo created but indexing failed to start: ${msg}`);
-      }
+      await triggerIndex(repo.hash);
 
       onCreate({
         name,
@@ -156,7 +185,10 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+    <div
+      className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div className="bg-[#2d2d2d] rounded-2xl border border-gray-800 w-full max-w-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-800">
@@ -480,19 +512,19 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
             >
               Back
             </button>
-            <button
-              onClick={handleCreate}
-              disabled={
-                submitting ||
-                !name ||
-                (projectType === 'github' && !repoUrl) ||
-                (projectType === 'local' && !localPath)
-              }
-              className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-all flex items-center gap-5"
-            >
-              <FolderPlus className="h-4 w-4" />
-              Create Project
-            </button>
+            <div className="flex items-center gap-3">
+              {validationError && (
+                <span className="text-sm text-red-400">{validationError}</span>
+              )}
+              <button
+                onClick={handleCreate}
+                disabled={submitting}
+                className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-all flex items-center gap-5"
+              >
+                <FolderPlus className="h-4 w-4" />
+                Create Project
+              </button>
+            </div>
           </div>
         )}
       </div>

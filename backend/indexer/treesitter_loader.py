@@ -1,8 +1,8 @@
 """Cached tree-sitter parser loader.
 
-Falls back to ``None`` if the optional ``tree_sitter_languages`` dependency is
-not installed (or a specific grammar isn't shipped); the indexer runner should
-log a warning and skip indexing in that case rather than crashing the server.
+Falls back to ``None`` if the optional tree-sitter language dependencies are
+not installed; the indexer runner should log a warning and skip indexing in
+that case rather than crashing the server.
 
 SPEC §10 mandates Python + TypeScript. We expose a per-language accessor and a
 ``get_parser_for(file_path)`` router so the runner can dispatch parsing on a
@@ -29,14 +29,19 @@ _tsx_load_attempted = False
 def _try_get_parser(language: str) -> Optional[Any]:
     """Best-effort tree-sitter parser load; returns None on any failure."""
     try:
-        from tree_sitter_languages import get_parser  # type: ignore
-    except Exception as exc:  # pragma: no cover - exercised in dep-less envs
-        logger.warning("tree_sitter_languages unavailable (%s); indexing disabled", exc)
-        return None
-    try:
-        return get_parser(language)
-    except Exception as exc:  # pragma: no cover
-        logger.warning("failed to load tree-sitter %s grammar: %s", language, exc)
+        from tree_sitter import Language, Parser  # type: ignore
+        if language == "python":
+            import tree_sitter_python as tspython  # type: ignore
+            lang = Language(tspython.language())
+        elif language in ("typescript", "tsx"):
+            import tree_sitter_typescript as tstype  # type: ignore
+            lang = Language(tstype.language_typescript() if language == "typescript" else tstype.language_tsx())
+        else:
+            return None
+        parser = Parser(lang)
+        return parser
+    except Exception as exc:
+        logger.warning("tree-sitter parser unavailable for %s (%s); indexing disabled", language, exc)
         return None
 
 

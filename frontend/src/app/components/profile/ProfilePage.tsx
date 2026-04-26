@@ -43,13 +43,18 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
 
   const handleSave = async () => {
     setIsSaving(true);
-
-    // Simulate API call to MongoDB
-    setTimeout(() => {
+    try {
+      // TODO: Replace this placeholder with a real API call to persist profile changes.
+      // Currently simulates a network request with a timeout.
+      await new Promise<void>((resolve) => setTimeout(resolve, 1000));
       toast.success('Profile updated successfully');
       setIsEditing(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Failed to save profile: ${msg}`);
+    } finally {
       setIsSaving(false);
-    }, 1000);
+    }
   };
 
   const handleAvatarClick = () => {
@@ -57,9 +62,14 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
   };
 
   const handleLogout = () => {
-    onLogout();
-    router.push('/login');
-    toast.success('Logged out successfully');
+    try {
+      onLogout();
+      router.push('/login');
+      toast.success('Logged out successfully');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Logout failed: ${msg}`);
+    }
   };
 
   return (

@@ -11,29 +11,52 @@ export default function DashboardRoute() {
   const router = useRouter();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const storeUser = useCartographerStore((s) => s.user);
 
   useEffect(() => {
     let cancelled = false;
-    isAuthenticated().then((ok) => {
-      if (cancelled) return;
-      if (!ok) {
-        router.replace('/login');
-        return;
-      }
-      setAuthChecked(true);
-    });
+    isAuthenticated()
+      .then((ok) => {
+        if (cancelled) return;
+        if (!ok) {
+          router.replace('/login');
+          return;
+        }
+        setAuthChecked(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setAuthError(err instanceof Error ? err.message : 'Authentication check failed');
+      });
     return () => {
       cancelled = true;
     };
   }, [router]);
 
+  if (authError) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-red-400 text-center">
+          <p className="text-lg font-semibold">Authentication Error</p>
+          <p className="text-sm mt-1">{authError}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!authChecked) {
-    return null;
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+      </div>
+    );
   }
 
   const user = {
-    name: 'Alex Rivera',
-    email: 'alex@company.com',
+    name: '',
+    email: storeUser?.email ?? '',
   };
 
   const handleCreateProject = (project: {

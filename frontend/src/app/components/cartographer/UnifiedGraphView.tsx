@@ -158,8 +158,6 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
 
   // Auto-center and fit when viewport changes
   useEffect(() => {
-    if (!canvasRef.current) return;
-
     // Use a small timeout to ensure the viewport has resized
     const timeoutId = setTimeout(() => {
       if (!canvasRef.current) return;
@@ -654,7 +652,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                 {node.properties && node.properties.length > 0 && (
                   <div className="border-b border-[#3e3e42] px-3 py-2 bg-[#2d2d2d]">
                     {node.properties.map((prop, idx) => (
-                      <div key={idx} className="text-xs text-gray-300 font-mono">
+                      <div key={`${node.id}-prop-${idx}`} className="text-xs text-gray-300 font-mono">
                         - {prop}
                       </div>
                     ))}
@@ -665,7 +663,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                 {node.methods && node.methods.length > 0 && (
                   <div className="px-3 py-2 bg-[#1e1e1e]">
                     {node.methods.map((method, idx) => (
-                      <div key={idx} className="text-xs text-gray-300 font-mono">
+                      <div key={`${node.id}-method-${idx}`} className="text-xs text-gray-300 font-mono">
                         + {method}
                       </div>
                     ))}

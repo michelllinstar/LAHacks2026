@@ -178,9 +178,9 @@ export function LandingPage() {
                 description: 'Support for JS, Python, Java, Go, and more',
                 color: 'from-cyan-500 to-blue-500',
               },
-            ].map((feature, idx) => (
+            ].map((feature) => (
               <div
-                key={idx}
+                key={feature.title}
                 className="p-6 bg-[#2d2d2d] rounded-xl border border-gray-800 hover:border-gray-700 transition-all group"
               >
                 <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${feature.color} p-3 mb-5 group-hover:scale-110 transition-transform`}>
@@ -203,8 +203,8 @@ export function LandingPage() {
               { value: '500K+', label: 'Diagrams Generated' },
               { value: '99.9%', label: 'Uptime SLA' },
               { value: '70%', label: 'Faster Loading' },
-            ].map((stat, idx) => (
-              <div key={idx} className="text-center">
+            ].map((stat) => (
+              <div key={stat.label} className="text-center">
                 <div className="text-5xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent mb-5">
                   {stat.value}
                 </div>

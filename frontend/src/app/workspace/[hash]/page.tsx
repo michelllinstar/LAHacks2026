@@ -12,6 +12,7 @@ export default function WorkspaceRoute() {
   const hash = params?.hash ?? '';
 
   const [authChecked, setAuthChecked] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
 
   const projectName = useCartographerStore((s) =>
@@ -20,21 +21,41 @@ export default function WorkspaceRoute() {
 
   useEffect(() => {
     let cancelled = false;
-    isAuthenticated().then((ok) => {
-      if (cancelled) return;
-      if (!ok) {
-        router.replace('/login');
-        return;
-      }
-      setAuthChecked(true);
-    });
+    isAuthenticated()
+      .then((ok) => {
+        if (cancelled) return;
+        if (!ok) {
+          router.replace('/login');
+          return;
+        }
+        setAuthChecked(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setAuthError(err instanceof Error ? err.message : 'Authentication check failed');
+      });
     return () => {
       cancelled = true;
     };
   }, [router]);
 
+  if (authError) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-red-400 text-center">
+          <p className="text-lg font-semibold">Authentication Error</p>
+          <p className="text-sm mt-1">{authError}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!authChecked || !hash) {
-    return null;
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+      </div>
+    );
   }
 
   return (

@@ -32,8 +32,29 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const activeRepoHash = useCartographerStore((s) => s.activeRepoHash);
   const pushActivity = useCartographerStore((s) => s.pushActivity);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // Abort any in-flight request when the component unmounts
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success('Copied to clipboard');
+    } catch {
+      // Fallback: show a toast indicating the failure
+      toast.error('Copy failed — please copy manually');
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -70,8 +91,17 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
 
     setIsTyping(true);
 
+    // Abort any previous in-flight request before starting a new one
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const bundle = await findRelevantContext({ task: query, repo_hash: activeRepoHash });
+
+      // Do not update state if the component has unmounted or the request was aborted
+      if (!mountedRef.current || controller.signal.aborted) return;
+
       const content = formatBundle(bundle);
 
       const assistantMessage: Message = {
@@ -91,6 +121,10 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
         ts: Date.now(),
       });
     } catch (err) {
+      // Ignore abort errors — they are intentional (unmount or new request)
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (!mountedRef.current) return;
+
       toast.error('Cartographer query failed');
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -100,7 +134,9 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
       };
       setMessages(prev => [...prev, assistantMessage]);
     } finally {
-      setIsTyping(false);
+      if (mountedRef.current) {
+        setIsTyping(false);
+      }
     }
   };
 
