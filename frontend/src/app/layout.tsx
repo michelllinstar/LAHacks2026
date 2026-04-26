@@ -3,7 +3,7 @@ import { Toaster } from 'sonner';
 import '../styles/tailwind.css';
 
 export const metadata: Metadata = {
-  title: 'CodeViz AI',
+  title: 'MarkCodePolo',
   description: 'AI-powered codebase visualization and architecture explorer.',
 };
 

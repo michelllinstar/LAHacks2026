@@ -77,10 +77,10 @@ function TreeRow({ node, depth, expanded, onToggle, onPick, selectedPath }: Tree
     return (
       <div
         onClick={() => onPick({ path: node.path, kind: 'file', name: node.name })}
-        className={`flex items-center gap-1 py-0.5 text-[11px] cursor-pointer transition-colors ${
-          isSel ? 'bg-[#094771] text-white' : 'text-gray-300 hover:text-white hover:bg-[#2a2d2e]'
+        className={`flex items-center gap-2 py-1.5 text-xs cursor-pointer transition-colors ${
+          isSel ? 'bg-[#094771] text-white' : 'text-gray-300 hover:text-white hover:bg-[#2d2d2d]'
         }`}
-        style={{ paddingLeft: 6 + depth * 12 }}
+        style={{ paddingLeft: 8 + depth * 14 }}
         title={node.path}
       >
         <FileCode className="h-3 w-3 text-[#519aba] flex-shrink-0" />
@@ -100,10 +100,10 @@ function TreeRow({ node, depth, expanded, onToggle, onPick, selectedPath }: Tree
   return (
     <>
       <div
-        className={`flex items-center gap-0.5 py-0.5 text-[11px] cursor-pointer transition-colors ${
-          isSel ? 'bg-[#094771] text-white' : 'text-white hover:bg-[#2a2d2e]'
+        className={`flex items-center gap-1 py-1.5 text-xs cursor-pointer transition-colors ${
+          isSel ? 'bg-[#094771] text-white' : 'text-white hover:bg-[#2d2d2d]'
         }`}
-        style={{ paddingLeft: 4 + depth * 12 }}
+        style={{ paddingLeft: 6 + depth * 14 }}
         title={innerNode.path}
       >
         <button
@@ -169,7 +169,7 @@ export function FilesPanel({ repositoryId, selected, onFileSelect, onCollapse }:
         {onCollapse && (
           <button
             onClick={onCollapse}
-            className="p-2.5 hover:bg-[#2a2d2e] rounded transition-colors"
+            className="p-2.5 hover:bg-[#2d2d2d] rounded transition-colors"
             title="Collapse Explorer"
           >
             <ChevronLeft className="h-[13px] w-[13px] text-gray-400 hover:text-white" />
@@ -185,7 +185,7 @@ export function FilesPanel({ repositoryId, selected, onFileSelect, onCollapse }:
           </span>
           <button
             onClick={() => onFileSelect(null)}
-            className="p-2.5 hover:bg-[#2a2d2e] rounded transition-colors"
+            className="p-2.5 hover:bg-[#2d2d2d] rounded transition-colors"
             title="Clear filter"
           >
             <X className="h-[13px] w-[13px] text-gray-400 hover:text-white" />

@@ -10,8 +10,8 @@ interface GlassBubbleProps extends React.HTMLAttributes<HTMLSpanElement> {
 }
 
 const TONE_CLASS: Record<Tone, string> = {
-  blue: 'text-blue-400 shadow-[0_4px_24px_rgba(59,130,246,0.18)] group-hover:border-blue-400/40',
-  purple: 'text-purple-400 shadow-[0_4px_24px_rgba(168,85,247,0.18)] group-hover:border-purple-400/40',
+  blue: 'text-[#5EEAD4] shadow-[0_4px_24px_rgba(59,130,246,0.18)] group-hover:border-blue-400/40',
+  purple: 'text-purple-400 shadow-[0_4px_24px_rgba(251,191,36,0.18)] group-hover:border-purple-400/40',
   neutral: 'text-white shadow-[0_4px_24px_rgba(255,255,255,0.10)] group-hover:border-white/30',
 };
 

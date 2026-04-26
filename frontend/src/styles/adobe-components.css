@@ -17,7 +17,7 @@
   /* Background colors */
   .bg-\[\#1e1e1e\] { background-color: var(--adobe-bg-base) !important; }
   .bg-\[\#2d2d2d\] { background-color: var(--adobe-bg-layer-1) !important; }
-  .bg-\[\#3a3a3a\] { background-color: var(--adobe-bg-hover) !important; }
+  .bg-\[\#252526\] { background-color: var(--adobe-bg-hover) !important; }
   .bg-\[\#424242\] { background-color: var(--adobe-bg-active) !important; }
   .bg-\[\#1a1a1a\] { background-color: var(--adobe-gray-950) !important; }
 
@@ -34,17 +34,17 @@
   .text-gray-600 { color: var(--adobe-text-disabled) !important; }
 
   /* Gradients */
-  .from-blue-500 { --tw-gradient-from: var(--adobe-blue-500) !important; }
-  .to-purple-600 { --tw-gradient-to: var(--adobe-purple-600) !important; }
-  .from-blue-600 { --tw-gradient-from: var(--adobe-blue-600) !important; }
-  .to-purple-700 { --tw-gradient-to: var(--adobe-purple-600) !important; }
+  .from-[#34D399] { --tw-gradient-from: var(--adobe-blue-500) !important; }
+  .to-[#F59E0B] { --tw-gradient-to: var(--adobe-purple-600) !important; }
+  .from-[#2DD4BF] { --tw-gradient-from: var(--adobe-blue-600) !important; }
+  .to-[#FBBF24] { --tw-gradient-to: var(--adobe-purple-600) !important; }
 
   /* Blue shades */
   .bg-blue-500 { background-color: var(--adobe-blue-500) !important; }
   .bg-blue-600 { background-color: var(--adobe-blue-600) !important; }
-  .text-blue-400 { color: var(--adobe-blue-400) !important; }
+  .text-[#5EEAD4] { color: var(--adobe-blue-400) !important; }
   .text-blue-500 { color: var(--adobe-blue-500) !important; }
-  .border-blue-500 { border-color: var(--adobe-blue-500) !important; }
+  .border-[#2DD4BF] { border-color: var(--adobe-blue-500) !important; }
 
   /* Purple shades */
   .text-purple-400 { color: var(--adobe-purple-500) !important; }

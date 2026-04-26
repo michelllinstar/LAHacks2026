@@ -98,7 +98,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                   <button
                     onClick={handleSave}
                     disabled={isSaving}
-                    className="px-5 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 text-white rounded-lg transition-all flex items-center gap-5"
+                    className="px-5 py-2 bg-gradient-to-r from-[#34D399] to-[#F59E0B] hover:from-[#2DD4BF] hover:to-[#FBBF24] disabled:opacity-50 text-white rounded-lg transition-all flex items-center gap-5"
                   >
                     <Save className="h-4 w-4" />
                     {isSaving ? 'Saving...' : 'Save changes'}
@@ -107,7 +107,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
               ) : (
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="px-5 py-2 bg-[#3a3a3a] hover:bg-[#4a4a4a] text-white rounded-lg transition-colors"
+                  className="px-5 py-2 bg-[#252526] hover:bg-[#4a4a4a] text-white rounded-lg transition-colors"
                 >
                   Edit profile
                 </button>
@@ -124,7 +124,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
           <div className="md:col-span-1">
             <div className="bg-[#2d2d2d] rounded-xl border border-gray-800 p-6">
               <div className="relative group mb-5">
-                <div className="w-full aspect-square bg-gradient-to-br from-blue-400 to-purple-400 rounded-full flex items-center justify-center text-white text-6xl font-bold">
+                <div className="w-full aspect-square bg-gradient-to-br from-[#5EEAD4] to-[#FBBF24] rounded-full flex items-center justify-center text-white text-6xl font-bold">
                   {profile.name.charAt(0)}
                 </div>
                 {isEditing && (
@@ -145,7 +145,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                   value={profile.bio}
                   onChange={(e) => setProfile({ ...profile, bio: e.target.value })}
                   rows={4}
-                  className="w-full px-3 py-2 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white text-base resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white text-base resize-none focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
                   placeholder="Tell us about yourself..."
                 />
               ) : (
@@ -160,7 +160,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                       type="text"
                       value={profile.location}
                       onChange={(e) => setProfile({ ...profile, location: e.target.value })}
-                      className="flex-1 px-3 py-1 bg-[#1e1e1e] border border-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 px-3 py-1 bg-[#1e1e1e] border border-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
                       placeholder="Location"
                     />
                   ) : (
@@ -175,7 +175,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                       type="text"
                       value={profile.company}
                       onChange={(e) => setProfile({ ...profile, company: e.target.value })}
-                      className="flex-1 px-3 py-1 bg-[#1e1e1e] border border-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 px-3 py-1 bg-[#1e1e1e] border border-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
                       placeholder="Company"
                     />
                   ) : (
@@ -190,7 +190,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                       type="url"
                       value={profile.website}
                       onChange={(e) => setProfile({ ...profile, website: e.target.value })}
-                      className="flex-1 px-3 py-1 bg-[#1e1e1e] border border-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 px-3 py-1 bg-[#1e1e1e] border border-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
                       placeholder="Website URL"
                     />
                   ) : (
@@ -198,7 +198,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                       href={profile.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-400 hover:underline"
+                      className="text-[#5EEAD4] hover:underline"
                     >
                       {profile.website}
                     </a>
@@ -213,7 +213,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
             {/* Personal Information */}
             <div className="bg-[#2d2d2d] rounded-xl border border-gray-800 p-6">
               <div className="flex items-center gap-5 mb-6">
-                <div className="p-2 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg">
+                <div className="p-2 bg-gradient-to-br from-[#34D399] to-blue-600 rounded-lg">
                   <User className="h-5 w-5 text-white" />
                 </div>
                 <h3 className="text-2xl font-semibold text-white">Personal Information</h3>
@@ -229,7 +229,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                       type="text"
                       value={profile.name}
                       onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-                      className="w-full px-5 py-2.5 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-5 py-2.5 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
                       placeholder="Your full name"
                     />
                   ) : (
@@ -248,7 +248,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                       type="text"
                       value={profile.username}
                       onChange={(e) => setProfile({ ...profile, username: e.target.value })}
-                      className="w-full px-5 py-2.5 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-5 py-2.5 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
                       placeholder="username"
                     />
                   ) : (
@@ -268,13 +268,13 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                       type="email"
                       value={profile.personalEmail}
                       onChange={(e) => setProfile({ ...profile, personalEmail: e.target.value })}
-                      className="w-full px-5 py-2.5 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-5 py-2.5 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
                       placeholder="your.email@personal.com"
                     />
                   ) : (
                     <div className="px-5 py-2.5 bg-[#1e1e1e] border border-gray-800 rounded-lg text-white flex items-center gap-5">
                       {profile.personalEmail}
-                      <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded">Personal</span>
+                      <span className="px-2 py-0.5 bg-blue-500/20 text-[#5EEAD4] text-xs rounded">Personal</span>
                     </div>
                   )}
                 </div>
@@ -284,7 +284,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
             {/* Work Information */}
             <div className="bg-[#2d2d2d] rounded-xl border border-gray-800 p-6">
               <div className="flex items-center gap-5 mb-6">
-                <div className="p-2 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg">
+                <div className="p-2 bg-gradient-to-br from-purple-500 to-[#F59E0B] rounded-lg">
                   <Briefcase className="h-5 w-5 text-white" />
                 </div>
                 <h3 className="text-2xl font-semibold text-white">Work Information</h3>
@@ -301,7 +301,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                       type="email"
                       value={profile.companyEmail}
                       onChange={(e) => setProfile({ ...profile, companyEmail: e.target.value })}
-                      className="w-full px-5 py-2.5 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-5 py-2.5 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
                       placeholder="your.email@company.com"
                     />
                   ) : (
@@ -321,7 +321,7 @@ export function ProfilePage({ user, onLogout }: ProfilePageProps) {
                       type="text"
                       value={profile.company}
                       onChange={(e) => setProfile({ ...profile, company: e.target.value })}
-                      className="w-full px-5 py-2.5 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-5 py-2.5 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
                       placeholder="Your company name"
                     />
                   ) : (

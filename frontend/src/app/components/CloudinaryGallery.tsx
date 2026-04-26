@@ -29,7 +29,7 @@ export function CloudinaryGallery({ diagrams }: CloudinaryGalleryProps) {
           <div
             key={idx}
             className={`relative group cursor-pointer rounded-lg border overflow-hidden transition-all ${
-              selectedDiagram === idx ? 'ring-2 ring-blue-500' : 'hover:shadow-md'
+              selectedDiagram === idx ? 'ring-2 ring-[#2DD4BF]' : 'hover:shadow-md'
             }`}
             onClick={() => setSelectedDiagram(idx)}
           >

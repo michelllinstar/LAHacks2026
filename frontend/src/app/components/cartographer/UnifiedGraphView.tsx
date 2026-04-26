@@ -425,7 +425,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
   const getClusterColor = (cluster: string) => {
     const colors: Record<string, string> = {
       Controllers: 'border-yellow-500/30 bg-yellow-500/5',
-      Services: 'border-blue-500/30 bg-blue-500/5',
+      Services: 'border-[#2DD4BF]/30 bg-blue-500/5',
       Database: 'border-purple-500/30 bg-purple-500/5',
       Utils: 'border-green-500/30 bg-green-500/5',
       Routes: 'border-orange-500/30 bg-orange-500/5',
@@ -520,7 +520,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                       <path
                         key={`flow-${node.id}-${target.id}`}
                         d={`M ${node.x + cardW / 2} ${node.y + cardH / 2} Q ${controlX} ${controlY} ${target.x + cardW / 2} ${target.y + cardH / 2}`}
-                        stroke="#007acc"
+                        stroke="#2DD4BF"
                         strokeWidth="3"
                         fill="none"
                         markerEnd="url(#arrowhead-flow)"
@@ -542,7 +542,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                 refY="3"
                 orient="auto"
               >
-                <polygon points="0 0, 8 3, 0 6" fill="#4a5568" />
+                <polygon points="0 0, 8 3, 0 6" fill="#3e3e42" />
               </marker>
               <marker
                 id="arrowhead-flow"
@@ -552,7 +552,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                 refY="4"
                 orient="auto"
               >
-                <polygon points="0 0, 12 4, 0 8" fill="#007acc" />
+                <polygon points="0 0, 12 4, 0 8" fill="#2DD4BF" />
               </marker>
               <marker
                 id="arrowhead-inter"
@@ -680,7 +680,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
 
                   {/* Methods */}
                   {node.methods && node.methods.length > 0 && (
-                    <div style={{ borderTop: `1px solid ${colors.border}30`, borderLeft: `4px solid ${colors.border}`, background: '#161616', padding: '4px 10px' }}>
+                    <div style={{ borderTop: `1px solid ${colors.border}30`, borderLeft: `4px solid ${colors.border}`, background: '#1a1a1a', padding: '4px 10px' }}>
                       {node.methods.slice(0, 3).map((method, idx) => (
                         <div key={`${node.id}-m-${idx}`} style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>
                           + {method}
@@ -693,7 +693,7 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                   )}
 
                   {/* Footer */}
-                  <div style={{ borderTop: `1px solid #2a2a2a`, background: '#191919', padding: '4px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ borderTop: `1px solid #2d2d2d`, background: '#1e1e1e', padding: '4px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 10, color: '#6b7280' }}>{node.cluster}</span>
                     {node.dependencies && node.dependencies.length > 0 && (
                       <span style={{ fontSize: 10, color: colors.label }}>{node.dependencies.length} deps</span>

@@ -42,7 +42,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
           {/* Pan & Navigation */}
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-              <Mouse className="h-4 w-4 text-[#007acc]" />
+              <Mouse className="h-4 w-4 text-[#2DD4BF]" />
               Pan & Navigation
             </h3>
             <div className="space-y-2 text-sm text-gray-300">
@@ -70,7 +70,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
           {/* Zoom Controls */}
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-              <Zap className="h-4 w-4 text-[#007acc]" />
+              <Zap className="h-4 w-4 text-[#2DD4BF]" />
               Zoom Controls
             </h3>
             <div className="space-y-2 text-sm text-gray-300">
@@ -116,12 +116,12 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
           {/* Graph Modes */}
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-              <Move className="h-4 w-4 text-[#007acc]" />
+              <Move className="h-4 w-4 text-[#2DD4BF]" />
               Graph Modes
             </h3>
             <div className="space-y-2 text-sm text-gray-300">
               <div className="flex items-start gap-3">
-                <div className="px-2 py-1 bg-[#007acc] text-white rounded text-xs font-medium flex-shrink-0 mt-0.5">
+                <div className="px-2 py-1 bg-[#2DD4BF] text-white rounded text-xs font-medium flex-shrink-0 mt-0.5">
                   Symbol
                 </div>
                 <div>
@@ -130,7 +130,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <div className="px-2 py-1 bg-[#007acc] text-white rounded text-xs font-medium flex-shrink-0 mt-0.5">
+                <div className="px-2 py-1 bg-[#2DD4BF] text-white rounded text-xs font-medium flex-shrink-0 mt-0.5">
                   Flow
                 </div>
                 <div>
@@ -139,7 +139,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
                 </div>
               </div>
               <div className="flex items-start gap-3">
-                <div className="px-2 py-1 bg-[#007acc] text-white rounded text-xs font-medium flex-shrink-0 mt-0.5">
+                <div className="px-2 py-1 bg-[#2DD4BF] text-white rounded text-xs font-medium flex-shrink-0 mt-0.5">
                   Architecture
                 </div>
                 <div>
@@ -158,7 +158,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
           {/* Node Interaction */}
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-              <Eye className="h-4 w-4 text-[#007acc]" />
+              <Eye className="h-4 w-4 text-[#2DD4BF]" />
               Node Interaction
             </h3>
             <div className="space-y-2 text-sm text-gray-300">
@@ -212,7 +212,7 @@ export function GraphInfoModal({ onClose }: GraphInfoModalProps) {
           <div className="text-xs text-gray-500">Press ESC to close</div>
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-[#007acc] hover:bg-[#006bb3] text-white text-sm rounded transition-colors"
+            className="px-4 py-2 bg-[#2DD4BF] hover:bg-[#006bb3] text-white text-sm rounded transition-colors"
           >
             Got it
           </button>

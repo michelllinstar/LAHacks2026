@@ -115,17 +115,17 @@ export function SourceControlPanel({ onCollapse }: SourceControlPanelProps) {
           Source Control
         </h3>
         <div className="flex items-center gap-1 text-[#cccccc]">
-          <button title="Refresh" className="p-1 hover:bg-[#2a2d2e] rounded">
+          <button title="Refresh" className="p-1 hover:bg-[#2d2d2d] rounded">
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
-          <button title="Commit" className="p-1 hover:bg-[#2a2d2e] rounded">
+          <button title="Commit" className="p-1 hover:bg-[#2d2d2d] rounded">
             <Check className="h-3.5 w-3.5" />
           </button>
-          <button title="More Actions..." className="p-1 hover:bg-[#2a2d2e] rounded">
+          <button title="More Actions..." className="p-1 hover:bg-[#2d2d2d] rounded">
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
           {onCollapse && (
-            <button title="Collapse" onClick={onCollapse} className="p-1 hover:bg-[#2a2d2e] rounded">
+            <button title="Collapse" onClick={onCollapse} className="p-1 hover:bg-[#2d2d2d] rounded">
               <X className="h-3.5 w-3.5" />
             </button>
           )}
@@ -139,7 +139,7 @@ export function SourceControlPanel({ onCollapse }: SourceControlPanelProps) {
           onChange={(e) => setCommitMessage(e.target.value)}
           placeholder={`Message (Ctrl+Enter to commit on '${repos[0]?.name ?? 'main'}')`}
           rows={2}
-          className="w-full bg-[#3c3c3c] border border-[#3c3c3c] focus:border-[#007fd4] focus:outline-none px-2 py-1.5 text-[13px] text-[#cccccc] placeholder-[#6e6e6e] rounded-sm resize-none"
+          className="w-full bg-[#252526] border border-[#252526] focus:border-[#007fd4] focus:outline-none px-2 py-1.5 text-[13px] text-[#cccccc] placeholder-[#6e6e6e] rounded-sm resize-none"
         />
         <button
           disabled={staged.length === 0 || !commitMessage.trim()}
@@ -164,7 +164,7 @@ export function SourceControlPanel({ onCollapse }: SourceControlPanelProps) {
                 key={r.hash}
                 onClick={() => setActiveRepo(r.hash)}
                 className={`flex items-center gap-2 pl-6 pr-3 h-[22px] cursor-pointer ${
-                  activeRepo === r.hash ? 'bg-[#37373d]' : 'hover:bg-[#2a2d2e]'
+                  activeRepo === r.hash ? 'bg-[#37373d]' : 'hover:bg-[#2d2d2d]'
                 }`}
               >
                 <GitBranch className="h-3.5 w-3.5 text-[#cccccc] flex-shrink-0" />
@@ -289,7 +289,7 @@ function Section({
     <div className="group/section">
       <div
         onClick={onToggle}
-        className="flex items-center gap-1 pl-2 pr-3 h-[22px] cursor-pointer hover:bg-[#2a2d2e] text-[11px] uppercase tracking-wide font-semibold text-[#cccccc]"
+        className="flex items-center gap-1 pl-2 pr-3 h-[22px] cursor-pointer hover:bg-[#2d2d2d] text-[11px] uppercase tracking-wide font-semibold text-[#cccccc]"
       >
         {open ? (
           <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" />
@@ -326,7 +326,7 @@ function ChangeRow({
     <div
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
-      className="flex items-center gap-2 pl-6 pr-2 h-[22px] cursor-pointer hover:bg-[#2a2d2e]"
+      className="flex items-center gap-2 pl-6 pr-2 h-[22px] cursor-pointer hover:bg-[#2d2d2d]"
       title={change.path}
     >
       <FileText className="h-3.5 w-3.5 text-[#519aba] flex-shrink-0" />
@@ -360,7 +360,7 @@ function ChangeRow({
 
 function CommitRow({ commit, isLast }: { commit: Commit; isLast: boolean }) {
   return (
-    <div className="flex items-stretch hover:bg-[#2a2d2e] cursor-pointer h-[44px]">
+    <div className="flex items-stretch hover:bg-[#2d2d2d] cursor-pointer h-[44px]">
       {/* Graph lane */}
       <div className="relative w-8 flex-shrink-0 flex justify-center">
         {!isLast && (

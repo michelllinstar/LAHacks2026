@@ -47,7 +47,7 @@ export function DiagramGenerator({ code, filename, onDiagramGenerated }: Diagram
   if (isGenerating) {
     return (
       <div className="flex flex-col items-center justify-center p-8 bg-[#252526] min-h-[300px]">
-        <Loader2 className="h-6 w-6 animate-spin text-[#007acc] mb-5" />
+        <Loader2 className="h-6 w-6 animate-spin text-[#2DD4BF] mb-5" />
         <span className="text-xs text-gray-400">Analyzing code structure...</span>
       </div>
     );
@@ -63,7 +63,7 @@ export function DiagramGenerator({ code, filename, onDiagramGenerated }: Diagram
               {classes.map((cls, idx) => (
                 <div
                   key={idx}
-                  className="px-2 py-1 bg-[#1e1e1e] border border-[#007acc]/30 rounded text-[#4ec9b0] text-xs font-mono"
+                  className="px-2 py-1 bg-[#1e1e1e] border border-[#2DD4BF]/30 rounded text-[#4ec9b0] text-xs font-mono"
                 >
                   {cls}
                 </div>
@@ -100,7 +100,7 @@ export function DiagramGenerator({ code, filename, onDiagramGenerated }: Diagram
           </div>
         )}
 
-        <div className="mt-4 p-3 bg-[#1e1e1e] border border-[#007acc]/20 rounded">
+        <div className="mt-4 p-3 bg-[#1e1e1e] border border-[#2DD4BF]/20 rounded">
           <p className="text-xs text-gray-500">
             ✓ {code.split('\n').length} lines analyzed
           </p>

@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { UnifiedGraphView, GraphNode, GraphMode, PathFilter } from './UnifiedGraphView';
 import { InvariantView } from './InvariantView';
 import { DiagramToolbar } from './DiagramToolbar';
-import { AgentActivityLog, AgentQuery } from './AgentActivityLog';
+import { AgentQuery } from './AgentActivityLog';
+import { RightSidePanel } from './RightSidePanel';
 import { FilesPanel, SelectedPath } from '../workspace/FilesPanel';
 import { AgentsPanel } from './AgentsPanel';
 import { GraphInfoModal } from './GraphInfoModal';
@@ -277,7 +278,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
       }}
     >
       {/* VS Code Title Bar */}
-      <div className="h-9 bg-[#323233] flex items-center px-2 text-xs border-b border-[#1e1e1e]">
+      <div className="h-9 bg-[#2d2d2d] flex items-center px-2 text-xs border-b border-[#1e1e1e]">
         <button
           onClick={onBack}
           className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors mr-2"
@@ -286,11 +287,11 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
         </button>
 
         <div className="flex items-center gap-2 flex-1">
-          <Database className="h-[17px] w-[17px] text-[#007acc]" />
+          <Database className="h-[17px] w-[17px] text-[#2DD4BF]" />
           <select
             value={selectedRepository}
             onChange={(e) => setSelectedRepository(e.target.value)}
-            className="bg-[#3a3a3a] text-white text-xs px-2 py-1 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="bg-[#252526] text-white text-xs px-2 py-1 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-[#2DD4BF]"
           >
             {repositories.map((repo) => (
               <option key={repo.id} value={repo.name}>
@@ -298,7 +299,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
               </option>
             ))}
           </select>
-          <span className="text-gray-500 text-[11px]">Codebase Cartographer</span>
+          <span className="text-gray-500 text-[11px]">MarkCodePolo</span>
         </div>
 
         <div className="flex items-center gap-1">
@@ -317,7 +318,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
       {/* Main Layout */}
       <div className="flex-1 flex overflow-hidden">
         {/* Activity Bar (Far Left) */}
-        <div className="w-12 bg-[#333333] flex flex-col items-center py-2 border-r border-[#1e1e1e] flex-shrink-0">
+        <div className="w-12 bg-[#2d2d2d] flex flex-col items-center py-2 border-r border-[#1e1e1e] flex-shrink-0">
           <button
             onClick={() => {
               if (activeActivity === 'explorer' && !sidebarCollapsed) {
@@ -430,7 +431,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                 <input
                   type="text"
                   placeholder="Search symbols..."
-                  className="w-full bg-[#3c3c3c] border border-[#1e1e1e] px-3 py-1.5 text-sm text-white rounded focus:outline-none focus:border-[#007acc]"
+                  className="w-full bg-[#252526] border border-[#1e1e1e] px-3 py-1.5 text-sm text-white rounded focus:outline-none focus:border-[#2DD4BF]"
                 />
               </div>
             )}
@@ -474,7 +475,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   }`}
                 >
                   {isActive && (
-                    <span className="absolute top-0 left-0 right-0 h-[1px] bg-[#007acc]" />
+                    <span className="absolute top-0 left-0 right-0 h-[1px] bg-[#2DD4BF]" />
                   )}
                   {icons[view]}
                   <span className="text-xs whitespace-nowrap">{labels[view]}</span>
@@ -512,62 +513,24 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
               {activeView === 'invariant' && <InvariantView repositoryId={projectId} showLegend={showLegend} />}
             </div>
 
-            {/* Agent Activity Log */}
+            {/* Right Side Panel — Node Info / Agents / Activity */}
             {!agentLogCollapsed && (
               <>
-                {/* Resize Handle */}
                 <div
                   onMouseDown={() => setIsResizingAgentLog(true)}
-                  className="w-1 bg-[#1e1e1e] hover:bg-[#007acc] cursor-col-resize transition-colors flex-shrink-0"
+                  className="w-1 bg-[#1e1e1e] hover:bg-[#2DD4BF] cursor-col-resize transition-colors flex-shrink-0"
                   title="Drag to resize"
                 />
-
-                <div className="bg-[#252526] border-l border-[#1e1e1e] relative" style={{ width: `${agentLogWidth}px` }}>
-                  <AgentActivityLog
-                    onCollapse={() => setAgentLogCollapsed(true)}
+                <div
+                  className="border-l border-[#1e1e1e] flex-shrink-0"
+                  style={{ width: `${agentLogWidth}px` }}
+                >
+                  <RightSidePanel
+                    selectedNode={isGraphView ? selectedNode : null}
+                    onClearNode={() => setSelectedNode(null)}
                     onHighlight={handleHighlight}
                     highlightedQueryId={highlightedQuery?.id || null}
                   />
-
-                  {/* Node Details Overlay */}
-                  {selectedNode && isGraphView && (
-                    <div className="absolute top-0 left-0 right-0 bg-[#1e1e1e] border-b border-[#3e3e42] shadow-lg z-10">
-                      <div className="p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-sm font-bold text-white">{selectedNode.name}</h3>
-                          <button
-                            onClick={() => setSelectedNode(null)}
-                            className="p-2.5 hover:bg-[#3e3e42] rounded transition-colors"
-                            title="Close"
-                          >
-                            <X className="h-[17px] w-[17px] text-gray-400" />
-                          </button>
-                        </div>
-                        <div className="space-y-2 text-xs">
-                          <div>
-                            <span className="text-gray-500">Type:</span>
-                            <span className="text-white ml-2 capitalize">{selectedNode.type}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Cluster:</span>
-                            <span className="text-white ml-2">{selectedNode.cluster}</span>
-                          </div>
-                          {selectedNode.dependencies && selectedNode.dependencies.length > 0 && (
-                            <div>
-                              <span className="text-gray-500">Dependencies:</span>
-                              <div className="mt-1 space-y-1">
-                                {selectedNode.dependencies.map((dep, idx) => (
-                                  <div key={`${selectedNode?.id}-${dep}-${idx}`} className="text-blue-400 ml-2">
-                                    → {dep}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </>
             )}
@@ -579,7 +542,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
             <div className="w-px h-4 bg-[#3e3e42]" />
             <button
               onClick={() => setZoomLevel(Math.max(3, zoomLevel - 10))}
-              className="p-2.5 flex items-center justify-center text-sm leading-none text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
+              className="p-2.5 flex items-center justify-center text-sm leading-none text-gray-400 hover:text-white hover:bg-[#252526] rounded transition-colors"
               title="Zoom Out"
             >
               <span className="block w-[13px] h-[13px] text-center leading-[13px]">−</span>
@@ -587,7 +550,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
             <span className="text-xs text-gray-300 min-w-[42px] text-center">{zoomLevel}%</span>
             <button
               onClick={() => setZoomLevel(Math.min(200, zoomLevel + 10))}
-              className="p-2.5 flex items-center justify-center text-sm leading-none text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
+              className="p-2.5 flex items-center justify-center text-sm leading-none text-gray-400 hover:text-white hover:bg-[#252526] rounded transition-colors"
               title="Zoom In"
             >
               <span className="block w-[13px] h-[13px] text-center leading-[13px]">+</span>
@@ -595,7 +558,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
             <div className="w-px h-4 bg-[#3e3e42]" />
             <button
               onClick={resetView}
-              className="p-2.5 flex items-center text-xs leading-none text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
+              className="p-2.5 flex items-center text-xs leading-none text-gray-400 hover:text-white hover:bg-[#252526] rounded transition-colors"
               title="Reset View"
             >Reset</button>
           </div>
@@ -603,7 +566,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
       </div>
 
       {/* Status Bar */}
-      <div className="h-6 bg-[#007acc] flex items-center px-3 text-xs text-white">
+      <div className="h-6 bg-[#2DD4BF] flex items-center px-3 text-xs text-white">
         <div className="flex items-center gap-3">
           <GitBranch className="h-[17px] w-[17px]" />
           <span>main</span>

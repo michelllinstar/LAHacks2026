@@ -78,7 +78,7 @@ export function AgentActivityLog({ onCollapse, onHighlight, highlightedQueryId }
       {/* Header */}
       <div className="p-2.5 border-b border-[#1e1e1e]">
         <div className="flex items-center gap-2 mb-1">
-          <Bot className="h-[13px] w-[13px] text-[#007acc]" />
+          <Bot className="h-[13px] w-[13px] text-[#2DD4BF]" />
           <h3 className="text-sm font-bold text-white flex-1">Agent Activity</h3>
           {onCollapse && (
             <button
@@ -107,11 +107,11 @@ export function AgentActivityLog({ onCollapse, onHighlight, highlightedQueryId }
               <div
                 key={query.id}
                 className={`p-3 transition-colors group ${
-                  isSample ? 'opacity-70' : 'hover:bg-[#2a2d2e] cursor-pointer'
+                  isSample ? 'opacity-70' : 'hover:bg-[#2d2d2d] cursor-pointer'
                 }`}
               >
                 <div className="flex items-start gap-2 mb-2">
-                  <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                  <div className="w-6 h-6 rounded bg-gradient-to-br from-[#34D399] to-[#F59E0B] flex items-center justify-center flex-shrink-0">
                     <Bot className="h-3 w-3 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -153,8 +153,8 @@ export function AgentActivityLog({ onCollapse, onHighlight, highlightedQueryId }
                     onClick={() => onHighlight?.(query)}
                     className={`mt-2 w-full px-2 py-1.5 text-xs rounded transition-colors flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100 ${
                       highlightedQueryId === query.id
-                        ? 'bg-[#007acc] text-white'
-                        : 'bg-[#007acc]/10 hover:bg-[#007acc]/20 text-[#007acc]'
+                        ? 'bg-[#2DD4BF] text-white'
+                        : 'bg-[#2DD4BF]/10 hover:bg-[#2DD4BF]/20 text-[#2DD4BF]'
                     }`}
                   >
                     <Eye className="h-3 w-3" />

@@ -20,7 +20,7 @@ interface SymbolEntry {
 }
 
 const LAYERS: Array<{ key: 'symbol' | 'flow' | 'architecture'; label: string; icon: typeof Boxes; tone: string }> = [
-  { key: 'symbol', label: 'Symbol', icon: Boxes, tone: 'text-blue-400' },
+  { key: 'symbol', label: 'Symbol', icon: Boxes, tone: 'text-[#5EEAD4]' },
   { key: 'flow', label: 'Flow', icon: Workflow, tone: 'text-cyan-400' },
   { key: 'architecture', label: 'Architecture', icon: Network, tone: 'text-orange-400' },
 ];
@@ -83,8 +83,8 @@ export function LayerSummaryView({ repositoryId }: LayerSummaryViewProps) {
                 onClick={() => setFilterLayer(filter)}
                 className={`px-3 py-1 text-xs rounded transition-colors ${
                   filterLayer === filter
-                    ? 'bg-[#007acc] text-white'
-                    : 'bg-[#3a3a3a] text-gray-300 hover:bg-[#424242]'
+                    ? 'bg-[#2DD4BF] text-white'
+                    : 'bg-[#252526] text-gray-300 hover:bg-[#424242]'
                 }`}
               >
                 {filter.charAt(0).toUpperCase() + filter.slice(1)}
@@ -132,7 +132,7 @@ export function LayerSummaryView({ repositoryId }: LayerSummaryViewProps) {
                       key={entry.id}
                       onClick={() => setSelected(entry)}
                       className={`w-full p-3 text-left transition-colors ${
-                        selected?.id === entry.id ? 'bg-[#007acc]/10' : 'hover:bg-[#2a2d2e]'
+                        selected?.id === entry.id ? 'bg-[#2DD4BF]/10' : 'hover:bg-[#2d2d2d]'
                       }`}
                     >
                       <div className="flex items-start gap-2">
@@ -145,7 +145,7 @@ export function LayerSummaryView({ repositoryId }: LayerSummaryViewProps) {
                             {entry.dependencies.length > 0 && (
                               <>
                                 <span>•</span>
-                                <span className="text-blue-400">{entry.dependencies.length} deps</span>
+                                <span className="text-[#5EEAD4]">{entry.dependencies.length} deps</span>
                               </>
                             )}
                           </div>
@@ -216,7 +216,7 @@ export function LayerSummaryView({ repositoryId }: LayerSummaryViewProps) {
                 </div>
                 <div className="text-xs bg-[#1e1e1e] p-3 rounded border border-[#3e3e42] space-y-1 max-h-48 overflow-auto">
                   {selected.dependencies.map((dep, idx) => (
-                    <div key={`${selected.id}-dep-${idx}`} className="text-blue-400 font-mono break-all">
+                    <div key={`${selected.id}-dep-${idx}`} className="text-[#5EEAD4] font-mono break-all">
                       → {dep}
                     </div>
                   ))}
@@ -228,7 +228,7 @@ export function LayerSummaryView({ repositoryId }: LayerSummaryViewProps) {
               <div className="text-xs text-gray-500 mb-1">Interpretation</div>
               <div className="text-xs text-gray-300">
                 {selected.layer === 'symbol' && (
-                  <div className="text-blue-400">
+                  <div className="text-[#5EEAD4]">
                     ◆ Symbol layer — concrete classes, functions, and modules in the codebase
                   </div>
                 )}

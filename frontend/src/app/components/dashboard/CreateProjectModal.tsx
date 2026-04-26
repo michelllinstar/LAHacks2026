@@ -227,32 +227,32 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
       className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-[#2d2d2d] rounded-2xl border border-gray-800 w-full max-w-2xl max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
+      <div className="bg-[#2d2d2d] rounded-2xl border border-gray-800 w-full max-w-3xl max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-800">
+        <div className="flex items-center justify-between px-10 py-8 border-b border-gray-800">
           <h2 className="text-2xl font-bold text-white">Create New Project</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-[#3a3a3a] rounded-lg transition-colors"
+            className="p-2 hover:bg-[#252526] rounded-lg transition-colors"
           >
             <X className="h-5 w-5 text-gray-400" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto px-10 py-8">
           {step === 'type' ? (
             <div>
               <p className="text-gray-400 mb-6">Choose how you want to connect your codebase</p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* GitHub Option */}
                 <button
                   onClick={() => handleTypeSelect('github')}
-                  className="px-8 py-10 bg-[#1e1e1e] border border-gray-700 hover:border-blue-500 rounded-xl transition-all text-center group flex flex-col items-center"
+                  className="px-12 py-16 bg-[#1e1e1e] border border-gray-700 hover:border-[#2DD4BF] rounded-xl transition-all text-center group flex flex-col items-center min-h-[360px]"
                 >
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-lg flex items-center justify-center mb-6 group-hover:bg-[#3a3a3a] transition-colors">
-                    <GitBranch className="h-6 w-6 text-gray-400 group-hover:text-blue-400" />
+                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-lg flex items-center justify-center mb-6 group-hover:bg-[#252526] transition-colors">
+                    <GitBranch className="h-6 w-6 text-gray-400 group-hover:text-[#5EEAD4]" />
                   </div>
                   <h3 className="text-2xl font-semibold text-white mb-4 text-center">Version Control</h3>
                   <p className="text-base text-gray-400 mb-6 text-center max-w-xs">
@@ -267,9 +267,9 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                 {/* Local Option */}
                 <button
                   onClick={() => handleTypeSelect('local')}
-                  className="px-8 py-10 bg-[#1e1e1e] border border-gray-700 hover:border-purple-500 rounded-xl transition-all text-center group flex flex-col items-center"
+                  className="px-12 py-16 bg-[#1e1e1e] border border-gray-700 hover:border-purple-500 rounded-xl transition-all text-center group flex flex-col items-center min-h-[360px]"
                 >
-                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-lg flex items-center justify-center mb-6 group-hover:bg-[#3a3a3a] transition-colors">
+                  <div className="w-12 h-12 bg-[#2d2d2d] rounded-lg flex items-center justify-center mb-6 group-hover:bg-[#252526] transition-colors">
                     <HardDrive className="h-6 w-6 text-gray-400 group-hover:text-purple-400" />
                   </div>
                   <h3 className="text-2xl font-semibold text-white mb-4 text-center">Local Files</h3>
@@ -283,11 +283,11 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                 </button>
               </div>
 
-              <div className="mt-8 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+              <div className="mt-8 p-4 bg-blue-500/10 border border-[#2DD4BF]/20 rounded-lg">
                 <div className="flex gap-5">
                   <div className="w-1 h-auto bg-blue-500 rounded-full flex-shrink-0" />
                   <div>
-                    <h4 className="text-base font-semibold text-blue-400 mb-1">Recommended: Version Control</h4>
+                    <h4 className="text-base font-semibold text-[#5EEAD4] mb-1">Recommended: Version Control</h4>
                     <p className="text-base text-gray-400">
                       GitHub integration enables automatic updates, collaboration features, and full version history tracking.
                     </p>
@@ -300,7 +300,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
               <div className="flex items-center gap-5 p-4 bg-[#1e1e1e] rounded-lg border border-gray-700">
                 {projectType === 'github' ? (
                   <>
-                    <GitBranch className="h-5 w-5 text-blue-400" />
+                    <GitBranch className="h-5 w-5 text-[#5EEAD4]" />
                     <span className="text-white font-medium">GitHub Repository</span>
                   </>
                 ) : (
@@ -311,7 +311,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                 )}
                 <button
                   onClick={() => setStep('type')}
-                  className="ml-auto text-base text-blue-400 hover:text-blue-300"
+                  className="ml-auto text-base text-[#5EEAD4] hover:text-[#5EEAD4]"
                 >
                   Change
                 </button>
@@ -326,7 +326,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g., E-Commerce Platform"
-                  className="w-full px-5 py-3 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-5 py-3 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#2DD4BF] focus:border-transparent"
                 />
               </div>
 
@@ -339,7 +339,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Brief description of your project..."
                   rows={3}
-                  className="w-full px-5 py-3 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  className="w-full px-5 py-3 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#2DD4BF] focus:border-transparent resize-none"
                 />
               </div>
 
@@ -353,12 +353,12 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                     onClick={() => setDomain('personal')}
                     className={`flex-1 p-4 rounded-lg border-2 transition-all ${
                       domain === 'personal'
-                        ? 'border-blue-500 bg-blue-500/10'
+                        ? 'border-[#2DD4BF] bg-blue-500/10'
                         : 'border-gray-700 bg-[#1e1e1e] hover:border-gray-600'
                     }`}
                   >
                     <div className="flex items-center justify-center gap-5 mb-5">
-                      <User className={`h-5 w-5 ${domain === 'personal' ? 'text-blue-400' : 'text-gray-400'}`} />
+                      <User className={`h-5 w-5 ${domain === 'personal' ? 'text-[#5EEAD4]' : 'text-gray-400'}`} />
                     </div>
                     <div className={`text-base font-medium ${domain === 'personal' ? 'text-white' : 'text-gray-400'}`}>
                       Personal
@@ -400,7 +400,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                     value={repoUrl}
                     onChange={(e) => setRepoUrl(e.target.value)}
                     placeholder="https://github.com/username/repository"
-                    className="w-full px-5 py-3 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-5 py-3 bg-[#1e1e1e] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#2DD4BF] focus:border-transparent"
                   />
                   <p className="text-xs text-gray-500 mt-5">
                     We'll need access to clone and analyze your repository
@@ -431,7 +431,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
                       <button
                         type="button"
                         onClick={() => folderInputRef.current?.click()}
-                        className="text-sm text-blue-400 hover:text-blue-300"
+                        className="text-sm text-[#5EEAD4] hover:text-[#5EEAD4]"
                       >
                         Choose different folder
                       </button>
@@ -457,7 +457,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
 
         {/* Footer */}
         {step === 'details' && (
-          <div className="flex items-center justify-between p-6 border-t border-gray-800">
+          <div className="flex items-center justify-between px-10 py-6 border-t border-gray-800">
             <button
               onClick={() => setStep('type')}
               className="px-5 py-2 text-gray-400 hover:text-white transition-colors"
@@ -471,7 +471,7 @@ export function CreateProjectModal({ onClose, onCreate, onCreated }: CreateProje
               <button
                 onClick={handleCreate}
                 disabled={submitting}
-                className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-all flex items-center gap-5"
+                className="px-5 py-2.5 bg-gradient-to-r from-[#34D399] to-[#F59E0B] hover:from-[#2DD4BF] hover:to-[#FBBF24] disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-all flex items-center gap-5"
               >
                 <FolderPlus className="h-4 w-4" />
                 Create Project

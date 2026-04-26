@@ -212,7 +212,7 @@ select:focus {
   justify-content: space-between;
   gap: var(--adobe-space-4);
   padding: 0 1rem;
-  background: #007acc;
+  background: #2DD4BF;
   color: #ffffff;
   font-size: 0.82rem;
 }
@@ -343,7 +343,7 @@ select {
 /* Fallback for legacy Tailwind dark palette classes */
 .bg-\[\#1e1e1e\] { background-color: var(--adobe-bg-base) !important; }
 .bg-\[\#2d2d2d\] { background-color: var(--adobe-bg-layer-1) !important; }
-.bg-\[\#3a3a3a\] { background-color: var(--adobe-bg-hover) !important; }
+.bg-\[\#252526\] { background-color: var(--adobe-bg-hover) !important; }
 .bg-\[\#1a1a1a\] { background-color: var(--adobe-bg-layer-2) !important; }
 .border-gray-800 { border-color: var(--adobe-border-default) !important; }
 .border-gray-700 { border-color: var(--adobe-border-medium) !important; }

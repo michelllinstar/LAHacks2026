@@ -13,7 +13,7 @@ interface GraphToolbarProps {
 export function GraphToolbar({ activeModes, onToggleMode, zoomLevel, onZoomChange, onResetView }: GraphToolbarProps) {
   return (
     <div
-      className="h-10 bg-[#2d2d2d] border-b border-[#1e1e1e] flex items-center px-3 gap-4 overflow-x-auto scrollbar-thin scrollbar-thumb-[#3e3e42] scrollbar-track-transparent hover:scrollbar-thumb-[#4e4e52]"
+      className="h-10 bg-[#2d2d2d] border-b border-[#1e1e1e] flex items-center px-3 gap-4 overflow-x-auto scrollbar-thin scrollbar-thumb-[#3e3e42] scrollbar-track-transparent hover:scrollbar-thumb-[#3e3e42]"
       style={{
         scrollbarWidth: 'thin',
         scrollbarColor: '#3e3e42 transparent',
@@ -26,8 +26,8 @@ export function GraphToolbar({ activeModes, onToggleMode, zoomLevel, onZoomChang
           onClick={() => onToggleMode('symbol')}
           className={`px-2 py-1 text-xs rounded transition-colors flex items-center gap-1 ${
             activeModes.has('symbol')
-              ? 'bg-[#007acc] text-white'
-              : 'text-gray-300 hover:bg-[#3a3a3a]'
+              ? 'bg-[#2DD4BF] text-white'
+              : 'text-gray-300 hover:bg-[#252526]'
           }`}
           title="Toggle Symbol Graph"
         >
@@ -38,8 +38,8 @@ export function GraphToolbar({ activeModes, onToggleMode, zoomLevel, onZoomChang
           onClick={() => onToggleMode('flow')}
           className={`px-2 py-1 text-xs rounded transition-colors flex items-center gap-1 ${
             activeModes.has('flow')
-              ? 'bg-[#007acc] text-white'
-              : 'text-gray-300 hover:bg-[#3a3a3a]'
+              ? 'bg-[#2DD4BF] text-white'
+              : 'text-gray-300 hover:bg-[#252526]'
           }`}
           title="Toggle Data Flow"
         >
@@ -50,8 +50,8 @@ export function GraphToolbar({ activeModes, onToggleMode, zoomLevel, onZoomChang
           onClick={() => onToggleMode('architecture')}
           className={`px-2 py-1 text-xs rounded transition-colors flex items-center gap-1 ${
             activeModes.has('architecture')
-              ? 'bg-[#007acc] text-white'
-              : 'text-gray-300 hover:bg-[#3a3a3a]'
+              ? 'bg-[#2DD4BF] text-white'
+              : 'text-gray-300 hover:bg-[#252526]'
           }`}
           title="Toggle Architecture View"
         >
@@ -66,7 +66,7 @@ export function GraphToolbar({ activeModes, onToggleMode, zoomLevel, onZoomChang
       <div className="flex items-center gap-1 bg-[#1e1e1e] rounded border border-[#3e3e42] p-0.5 flex-shrink-0">
         <button
           onClick={() => onZoomChange(Math.max(50, zoomLevel - 10))}
-          className="p-1 hover:bg-[#3a3a3a] rounded transition-colors"
+          className="p-1 hover:bg-[#252526] rounded transition-colors"
           title="Zoom Out (- key)"
         >
           <ZoomOut className="h-3.5 w-3.5 text-gray-300" />
@@ -74,7 +74,7 @@ export function GraphToolbar({ activeModes, onToggleMode, zoomLevel, onZoomChang
         <span className="text-xs text-gray-300 px-2 min-w-[45px] text-center">{zoomLevel}%</span>
         <button
           onClick={() => onZoomChange(Math.min(200, zoomLevel + 10))}
-          className="p-1 hover:bg-[#3a3a3a] rounded transition-colors"
+          className="p-1 hover:bg-[#252526] rounded transition-colors"
           title="Zoom In (+ key)"
         >
           <ZoomIn className="h-3.5 w-3.5 text-gray-300" />
@@ -82,7 +82,7 @@ export function GraphToolbar({ activeModes, onToggleMode, zoomLevel, onZoomChang
         <div className="w-px h-5 bg-[#3e3e42] mx-0.5" />
         <button
           onClick={onResetView}
-          className="p-1 hover:bg-[#3a3a3a] rounded transition-colors"
+          className="p-1 hover:bg-[#252526] rounded transition-colors"
           title="Reset View"
         >
           <Maximize className="h-3.5 w-3.5 text-gray-300" />
