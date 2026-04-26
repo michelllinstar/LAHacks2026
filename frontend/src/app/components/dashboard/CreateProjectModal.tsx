@@ -12,13 +12,15 @@ type DomainType = 'personal' | 'work';
 
 interface CreateProjectModalProps {
  onClose: () => void;
+ // ``files`` accepts either the raw browser ``FileList`` (from a webkitdirectory
+ // picker) or a pre-filtered ``File[]`` so callers don't have to convert.
  onCreate: (project: {
    name: string;
    description: string;
    type: 'github' | 'local';
    domain: DomainType;
    repoUrl?: string;
-   files?: File[];
+   files?: FileList | File[];
  }) => void;
  onCreated?: (repo: RepoSummary) => void;
 }
