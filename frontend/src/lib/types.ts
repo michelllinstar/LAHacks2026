@@ -241,11 +241,15 @@ export interface AgentRunSummary {
 // See backend/routes/external_agents.py.
 // ---------------------------------------------------------------------------
 
+export type ExternalAgentKind = 'http' | 'fetchai';
+
 export interface ExternalAgent {
   agent_id: string;
   name: string;
   endpoint_url: string;
   has_auth: boolean; // backend never returns the raw auth header, just whether one is stored
+  kind: ExternalAgentKind;
+  agent_address?: string | null;
   created_at: string;
 }
 
@@ -253,6 +257,8 @@ export interface CreateExternalAgentBody {
   name: string;
   endpoint_url: string;
   auth_header?: string; // sent verbatim as the ``Authorization`` request header
+  kind: ExternalAgentKind;
+  agent_address?: string;
 }
 
 export interface ReasoningStep {

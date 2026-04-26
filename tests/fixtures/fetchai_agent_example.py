@@ -128,6 +128,44 @@ agent = Agent(
 # ---------------------------------------------------------------------------
 
 
+def _call_cartographer(
+    req: CartographerRequest,
+    tool: str,
+    payload: dict[str, Any],
+    timeout: float = 10.0,
+) -> tuple[Any, str | None]:
+    """Issue a read-only query against Cartographer's agent-query surface.
+
+    Returns ``(result, error)`` — exactly one of the two is non-None. The
+    function is best-effort: any HTTP / JSON failure surfaces as a string the
+    caller can fold into a ``warnings`` entry rather than crashing the run.
+    """
+    base = req.cartographer_base_url
+    token = req.cartographer_token
+    if not base or not token:
+        return None, "no callback channel; agent invoked without token"
+    url = f"{base.rstrip('/')}/api/agent-query/{tool}"
+    body = {"repo_hash": req.repo_hash, **payload}
+    try:
+        resp = requests.post(
+            url,
+            json=body,
+            headers={
+                "Content-Type": "application/json",
+                "X-Cartographer-Agent-Token": token,
+            },
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        return None, f"network error calling {tool}: {exc}"
+    if resp.status_code != 200:
+        return None, f"{tool} returned HTTP {resp.status_code}: {resp.text[:200]}"
+    try:
+        return resp.json(), None
+    except ValueError:
+        return None, f"{tool} response was not JSON"
+
+
 def _summarize(req: CartographerRequest) -> CartographerResponse:
     bundle = req.context_bundle or {}
     syms = bundle.get("relevant_symbols", []) or []
@@ -163,10 +201,11 @@ def _summarize(req: CartographerRequest) -> CartographerResponse:
     if not syms:
         warnings.append("empty context_bundle.relevant_symbols")
 
-    # Synthetic reasoning trace so the website's Agent Activity panel has
-    # something to expand. Real LLM agents would emit one step per
-    # think/act/observe turn.
-    steps = [
+    # Build the reasoning trace. When a callback channel is present we
+    # actually exercise it (read-only) so the rendered thread reflects real
+    # tool use, not a mock. Production agents would replace these synthetic
+    # think/act steps with their own LLM-driven loop.
+    steps: list[ReasoningStep] = [
         ReasoningStep(
             kind="thought",
             text=(
@@ -178,17 +217,69 @@ def _summarize(req: CartographerRequest) -> CartographerResponse:
             kind="tool_result",
             tool="find_relevant_context",
             text=(
-                f"Bundle carried {len(syms)} ranked symbol(s); taking top "
-                f"{len(citations)}."
+                f"Pre-fetched bundle carried {len(syms)} ranked symbol(s); "
+                f"taking top {len(citations)}."
             ),
             citations=citations,
         ),
+    ]
+
+    # Optional follow-up read: trace_data_flow on the top-ranked symbol so
+    # the demo shows the agent doing something the bundle didn't already
+    # contain.
+    top_qname = citations[0] if citations else None
+    if top_qname and req.cartographer_token:
+        steps.append(
+            ReasoningStep(
+                kind="tool_call",
+                tool="trace_data_flow",
+                text=f'symbol={top_qname!r}, direction="forward", depth=2',
+            )
+        )
+        result, err = _call_cartographer(
+            req,
+            "trace_data_flow",
+            {"symbol": top_qname, "direction": "forward", "depth": 2},
+        )
+        if err:
+            warnings.append(err)
+            steps.append(
+                ReasoningStep(
+                    kind="tool_result",
+                    tool="trace_data_flow",
+                    text=f"call failed: {err}",
+                )
+            )
+        else:
+            flows = (result or {}).get("flows", []) if isinstance(result, dict) else []
+            steps.append(
+                ReasoningStep(
+                    kind="tool_result",
+                    tool="trace_data_flow",
+                    text=(
+                        f"flows returned: {len(flows)}\n"
+                        + "\n".join(
+                            f"- {f.get('source_symbol')} → {f.get('sink_symbol')} "
+                            f"({f.get('flow_kind')})"
+                            for f in flows[:5]
+                        )
+                    ),
+                    citations=[
+                        c
+                        for f in flows[:5]
+                        for c in (f.get("source_symbol"), f.get("sink_symbol"))
+                        if c
+                    ],
+                )
+            )
+
+    steps.append(
         ReasoningStep(
             kind="final",
             text=summary,
             citations=citations,
-        ),
-    ]
+        )
+    )
 
     return CartographerResponse(
         summary=summary,
