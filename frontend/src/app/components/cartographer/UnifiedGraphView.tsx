@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Box, Database, Code, Users } from 'lucide-react';
 import { useCartographerStore } from '../../../lib/store';
 import type { GraphProjection, LayerName } from '../../../lib/types';
 
@@ -24,8 +23,8 @@ function mapKind(kind: string): GraphNode['type'] {
 
 // Deterministic radial layout — wire nodes have no positions, so we lay
 // them out in concentric rings keyed off their order in the projection.
-// This is intentionally cheap; a future enhancement is force-directed.
-function projectionToNodes(graph: GraphProjection | undefined): GraphNode[] {
+// Spacing scales with the rendered card size so nodes stay packed.
+function projectionToNodes(graph: GraphProjection | undefined, cardW: number, cardH: number): GraphNode[] {
   if (!graph) return [];
   const adjacency = new Map<string, string[]>();
   for (const n of graph.nodes) adjacency.set(n.id, []);
@@ -39,17 +38,19 @@ function projectionToNodes(graph: GraphProjection | undefined): GraphNode[] {
   const count = graph.nodes.length;
   const cx = 600;
   const cy = 350;
+  const innerRadius = cardW * 1.1;
+  const ringStep = Math.max(cardW, cardH) * 1.15;
   return graph.nodes.map((n, i) => {
-    // Lay out on concentric rings of ~12 nodes.
     const ringSize = 12;
     const ring = Math.floor(i / ringSize);
     const idxOnRing = i % ringSize;
-    const radius = 200 + ring * 280;
+    const radius = innerRadius + ring * ringStep;
     const ringCount = Math.min(ringSize, count - ring * ringSize);
     const angle = (idxOnRing / ringCount) * Math.PI * 2;
     const cluster = (n.metadata?.cluster_id as string | undefined) ?? (n.metadata?.cluster as string | undefined) ?? 'Unclustered';
     const methods = (n.metadata?.methods as string[] | undefined) ?? [];
     const properties = (n.metadata?.properties as string[] | undefined) ?? [];
+    const filePath = (n.metadata?.file_path as string | undefined) ?? null;
     return {
       id: n.id,
       name: n.label,
@@ -57,11 +58,25 @@ function projectionToNodes(graph: GraphProjection | undefined): GraphNode[] {
       cluster,
       methods,
       properties,
+      filePath,
       dependencies: (adjacency.get(n.id) ?? []).map((tid) => idToName.get(tid) ?? tid),
-      x: cx + Math.cos(angle) * radius - 120,
-      y: cy + Math.sin(angle) * radius - 100,
+      x: cx + Math.cos(angle) * radius - cardW / 2,
+      y: cy + Math.sin(angle) * radius - cardH / 2,
     };
   });
+}
+
+export interface PathFilter {
+  path: string;
+  kind: 'file' | 'folder';
+}
+
+function matchesPathFilter(node: GraphNode, filter: PathFilter | null): boolean {
+  if (!filter) return true;
+  if (!node.filePath) return false;
+  if (filter.kind === 'file') return node.filePath === filter.path;
+  const prefix = filter.path.endsWith('/') ? filter.path : filter.path + '/';
+  return node.filePath === filter.path || node.filePath.startsWith(prefix);
 }
 
 interface UnifiedGraphViewProps {
@@ -75,6 +90,7 @@ interface UnifiedGraphViewProps {
   onResetView: () => void;
   highlightedCluster: string | null;
   sidebarCollapsed?: boolean;
+  pathFilter?: PathFilter | null;
 }
 
 export type GraphMode = 'symbol' | 'flow' | 'architecture';
@@ -87,11 +103,12 @@ export interface GraphNode {
   methods?: string[];
   properties?: string[];
   dependencies?: string[];
+  filePath?: string | null;
   x: number;
   y: number;
 }
 
-export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, activeModes, onNodeSelect, zoomLevel, onZoomChange, onResetView, highlightedCluster, sidebarCollapsed }: UnifiedGraphViewProps) {
+export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, activeModes, onNodeSelect, zoomLevel, onZoomChange, onResetView, highlightedCluster, sidebarCollapsed, pathFilter }: UnifiedGraphViewProps) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
 
   const handleNodeClick = (node: GraphNode) => {
@@ -106,6 +123,25 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
   const [nodeDragStart, setNodeDragStart] = useState({ x: 0, y: 0 });
   const [lastTouchDistance, setLastTouchDistance] = useState<number | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const [viewportWidth, setViewportWidth] = useState(1200);
+
+  // Track viewport width so each node card can size to ~10% of it.
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const el = canvasRef.current;
+    setViewportWidth(el.clientWidth || 1200);
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width;
+        if (w > 0) setViewportWidth(w);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const cardW = Math.round(Math.max(110, Math.min(200, viewportWidth * 0.10)));
+  const cardH = Math.round(cardW * 0.85);
 
   // Live graph data sourced from the Cartographer store. The store is
   // populated by CartographerWorkspace's initial fetch + SSE handler.
@@ -117,10 +153,10 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
   // Derived nodes from the projection, then a local override layer for
   // user-driven drags so positions don't snap back when the projection
   // re-renders (e.g. after an SSE refetch).
-  const baseNodes = useMemo(() => projectionToNodes(projection), [projection]);
+  const baseNodes = useMemo(() => projectionToNodes(projection, cardW, cardH), [projection, cardW, cardH]);
   const [positionOverrides, setPositionOverrides] = useState<Record<string, { x: number; y: number }>>({});
 
-  const nodes: GraphNode[] = useMemo(
+  const allNodes: GraphNode[] = useMemo(
     () =>
       baseNodes.map((n) =>
         positionOverrides[n.id]
@@ -130,14 +166,32 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     [baseNodes, positionOverrides],
   );
 
+  // When the explorer scopes us to a file/folder, show ALL matching nodes.
+  // Otherwise cap the viewport to the 10 most-connected nodes so the canvas
+  // stays legible on large repos.
+  const MAX_VISIBLE = 10;
+  const filteredNodes = useMemo(
+    () => (pathFilter ? allNodes.filter((n) => matchesPathFilter(n, pathFilter)) : allNodes),
+    [allNodes, pathFilter],
+  );
+  const nodes: GraphNode[] = useMemo(() => {
+    if (pathFilter) return filteredNodes;
+    if (filteredNodes.length <= MAX_VISIBLE) return filteredNodes;
+    return [...filteredNodes]
+      .sort((a, b) => (b.dependencies?.length ?? 0) - (a.dependencies?.length ?? 0))
+      .slice(0, MAX_VISIBLE);
+  }, [filteredNodes, pathFilter]);
+
   // Setter shim so existing code that calls `setNodes(prev => ...)` still
   // works. Translates updates into position overrides since projection is
   // store-owned and shouldn't be mutated locally.
   const setNodes = (updater: GraphNode[] | ((prev: GraphNode[]) => GraphNode[])) => {
     const next = typeof updater === 'function' ? (updater as (p: GraphNode[]) => GraphNode[])(nodes) : updater;
-    const overrides: Record<string, { x: number; y: number }> = {};
-    for (const n of next) overrides[n.id] = { x: n.x, y: n.y };
-    setPositionOverrides(overrides);
+    setPositionOverrides((prev) => {
+      const merged = { ...prev };
+      for (const n of next) merged[n.id] = { x: n.x, y: n.y };
+      return merged;
+    });
   };
 
   // Keyboard zoom controls
@@ -156,57 +210,56 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [zoomLevel, onZoomChange]);
 
-  // Auto-center and fit when viewport changes
+  // On first load: zoom to show ~10 of the most-connected nodes centered in viewport.
+  // On sidebar/log toggle: reuse current zoom, just re-center on the same focal area.
+  const initializedRef = useRef(false);
+  const lastFilterRef = useRef<string | null>(null);
   useEffect(() => {
-    // Use a small timeout to ensure the viewport has resized
+    const filterKey = pathFilter ? `${pathFilter.kind}:${pathFilter.path}` : null;
+    if (filterKey !== lastFilterRef.current) {
+      lastFilterRef.current = filterKey;
+      initializedRef.current = false;
+    }
     const timeoutId = setTimeout(() => {
-      if (!canvasRef.current) return;
+      if (!canvasRef.current || nodes.length === 0) return;
+      const vw = canvasRef.current.clientWidth;
+      const vh = canvasRef.current.clientHeight;
 
-      const viewportWidth = canvasRef.current.clientWidth;
-      const viewportHeight = canvasRef.current.clientHeight;
+      if (!initializedRef.current) {
+        initializedRef.current = true;
+        // Pick the 10 most-connected nodes as focal set
+        const focal = [...nodes]
+          .sort((a, b) => (b.dependencies?.length ?? 0) - (a.dependencies?.length ?? 0))
+          .slice(0, 10);
 
-      // Calculate bounds of all nodes
-      if (nodes.length > 0) {
-        const padding = 50; // Padding from edges
+        const pad = 80;
+        const minX = Math.min(...focal.map(n => n.x));
+        const minY = Math.min(...focal.map(n => n.y));
+        const maxX = Math.max(...focal.map(n => n.x + cardW + 20));
+        const maxY = Math.max(...focal.map(n => n.y + cardH + 20));
+        const fw = maxX - minX;
+        const fh = maxY - minY;
+
+        const fitZoom = Math.min((vw - pad * 2) / fw, (vh - pad * 2) / fh, 1) * 100;
+        const zoom = Math.max(10, Math.min(100, fitZoom));
+        onZoomChange(Math.round(zoom));
+
+        const scale = zoom / 100;
+        setPanX((vw - fw * scale) / 2 - minX * scale);
+        setPanY((vh - fh * scale) / 2 - minY * scale);
+      } else {
+        // Just re-center without changing zoom
+        const scale = zoomLevel / 100;
         const minX = Math.min(...nodes.map(n => n.x));
         const minY = Math.min(...nodes.map(n => n.y));
-        const maxX = Math.max(...nodes.map(n => n.x + 240));
-        const maxY = Math.max(...nodes.map(n => n.y + 200));
-
-        const graphWidth = maxX - minX;
-        const graphHeight = maxY - minY;
-
-        // Calculate required zoom to fit everything in viewport
-        const widthRatio = (viewportWidth - padding * 2) / graphWidth;
-        const heightRatio = (viewportHeight - padding * 2) / graphHeight;
-        const optimalZoom = Math.min(widthRatio, heightRatio, 1) * 100; // Don't zoom in beyond 100%
-
-        // Constrain zoom between 50% and 100%
-        const constrainedZoom = Math.max(50, Math.min(100, optimalZoom));
-
-        // If current zoom would make content overflow, adjust it
-        const currentZoomRatio = zoomLevel / 100;
-        const scaledGraphWidth = graphWidth * currentZoomRatio;
-        const scaledGraphHeight = graphHeight * currentZoomRatio;
-
-        let finalZoom = zoomLevel;
-        if (scaledGraphWidth > viewportWidth - padding * 2 || scaledGraphHeight > viewportHeight - padding * 2) {
-          finalZoom = constrainedZoom;
-          onZoomChange(finalZoom);
-        }
-
-        // Center the graph in the viewport with the final zoom
-        const scale = finalZoom / 100;
-        const centerX = (viewportWidth - graphWidth * scale) / 2 - minX * scale;
-        const centerY = (viewportHeight - graphHeight * scale) / 2 - minY * scale;
-
-        setPanX(centerX);
-        setPanY(centerY);
+        const maxX = Math.max(...nodes.map(n => n.x + cardW + 20));
+        const maxY = Math.max(...nodes.map(n => n.y + cardH + 20));
+        setPanX((vw - (maxX - minX) * scale) / 2 - minX * scale);
+        setPanY((vh - (maxY - minY) * scale) / 2 - minY * scale);
       }
     }, 100);
-
     return () => clearTimeout(timeoutId);
-  }, [agentLogCollapsed, sidebarCollapsed, nodes]);
+  }, [agentLogCollapsed, sidebarCollapsed, nodes, pathFilter]);
 
   // Mouse drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -233,23 +286,14 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
       if (nodes.length > 0) {
         const minX = Math.min(...nodes.map(n => n.x));
         const minY = Math.min(...nodes.map(n => n.y));
-        const maxX = Math.max(...nodes.map(n => n.x + 240));
-        const maxY = Math.max(...nodes.map(n => n.y + 200));
+        const maxX = Math.max(...nodes.map(n => n.x + cardW + 20));
+        const maxY = Math.max(...nodes.map(n => n.y + cardH + 20));
 
         const graphWidth = (maxX - minX) * scale;
         const graphHeight = (maxY - minY) * scale;
 
-        // Allow panning but ensure at least 20% of the graph stays visible
-        const maxPanX = viewportWidth * 0.8;
-        const minPanX = -(graphWidth - viewportWidth * 0.2);
-        const maxPanY = viewportHeight * 0.8;
-        const minPanY = -(graphHeight - viewportHeight * 0.2);
-
-        const constrainedPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
-        const constrainedPanY = Math.max(minPanY, Math.min(maxPanY, newPanY));
-
-        setPanX(constrainedPanX);
-        setPanY(constrainedPanY);
+        setPanX(newPanX);
+        setPanY(newPanY);
       } else {
         setPanX(newPanX);
         setPanY(newPanY);
@@ -369,20 +413,15 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     setLastTouchDistance(null);
   };
 
-  const getNodeColor = (type: string) => {
-    switch (type) {
-      case 'class':
-        return 'from-blue-500 to-blue-600';
-      case 'interface':
-        return 'from-purple-500 to-purple-600';
-      case 'function':
-        return 'from-green-500 to-green-600';
-      case 'module':
-        return 'from-orange-500 to-orange-600';
-      default:
-        return 'from-gray-500 to-gray-600';
-    }
+  // Color palette per node type — border, header bg, header text, badge bg
+  const NODE_COLORS: Record<string, { border: string; header: string; label: string; badge: string; dot: string }> = {
+    class:     { border: '#3b82f6', header: '#1e3a5f', label: '#93c5fd', badge: '#172a4a', dot: '#3b82f6' },
+    interface: { border: '#a855f7', header: '#3b1f5e', label: '#d8b4fe', badge: '#2a1545', dot: '#a855f7' },
+    function:  { border: '#22c55e', header: '#14432a', label: '#86efac', badge: '#0e2e1c', dot: '#22c55e' },
+    module:    { border: '#f59e0b', header: '#432d09', label: '#fcd34d', badge: '#2e1e06', dot: '#f59e0b' },
+    variable:  { border: '#6b7280', header: '#1f2937', label: '#d1d5db', badge: '#111827', dot: '#6b7280' },
   };
+  const getNodeColors = (type: string) => NODE_COLORS[type] ?? NODE_COLORS.variable;
 
   const getClusterColor = (cluster: string) => {
     const colors: Record<string, string> = {
@@ -414,8 +453,8 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
     const padding = 30;
     const minX = Math.min(...clusterNodes.map(n => n.x)) - padding;
     const minY = Math.min(...clusterNodes.map(n => n.y)) - padding;
-    const maxX = Math.max(...clusterNodes.map(n => n.x + 240)) + padding;
-    const maxY = Math.max(...clusterNodes.map(n => n.y + 200)) + padding;
+    const maxX = Math.max(...clusterNodes.map(n => n.x + cardW + 20)) + padding;
+    const maxY = Math.max(...clusterNodes.map(n => n.y + cardH + 20)) + padding;
 
     return {
       left: minX,
@@ -445,19 +484,27 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
         }}
       >
         <div
-          className="absolute inset-0"
           style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
             transform: `translate(${panX}px, ${panY}px) scale(${zoomLevel / 100})`,
-            transformOrigin: 'center center',
+            transformOrigin: '0 0',
             transition: isDragging ? 'none' : 'transform 0.2s ease-out',
           }}
         >
-          {/* Connection Lines */}
+          {/* Connection Lines — overflow:visible lets edges extend beyond SVG bounds */}
           <svg
-            className="absolute inset-0 w-full h-full pointer-events-none"
             style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              overflow: 'visible',
               zIndex: 0,
-              transition: draggingNodeId ? 'none' : 'all 0.1s ease-out'
+              pointerEvents: 'none',
+              transition: draggingNodeId ? 'none' : 'all 0.1s ease-out',
             }}
           >
             {activeModes.has('symbol') &&
@@ -466,10 +513,10 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                   const target = nodes.find((n) => n.name === depName);
                   if (target) {
                     // Offset from center of node
-                    const startX = node.x + 120;
-                    const startY = node.y + 100;
-                    const endX = target.x + 120;
-                    const endY = target.y + 100;
+                    const startX = node.x + cardW / 2;
+                    const startY = node.y + cardH / 2;
+                    const endX = target.x + cardW / 2;
+                    const endY = target.y + cardH / 2;
 
                     return (
                       <g key={`symbol-${node.id}-${target.id}`}>
@@ -495,13 +542,13 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                   const target = nodes.find((n) => n.name === depName);
                   if (target) {
                     // Dynamic control point for curved flow
-                    const controlX = (node.x + target.x) / 2 + 120;
+                    const controlX = (node.x + target.x) / 2 + cardW / 2;
                     const controlY = Math.min(node.y, target.y) - 50;
 
                     return (
                       <path
                         key={`flow-${node.id}-${target.id}`}
-                        d={`M ${node.x + 120} ${node.y + 100} Q ${controlX} ${controlY} ${target.x + 120} ${target.y + 100}`}
+                        d={`M ${node.x + cardW / 2} ${node.y + cardH / 2} Q ${controlX} ${controlY} ${target.x + cardW / 2} ${target.y + cardH / 2}`}
                         stroke="#007acc"
                         strokeWidth="3"
                         fill="none"
@@ -519,10 +566,10 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
                 node.dependencies?.map((depName) => {
                   const target = nodes.find((n) => n.name === depName);
                   if (target) {
-                    const startX = node.x + 120;
-                    const startY = node.y + 100;
-                    const endX = target.x + 120;
-                    const endY = target.y + 100;
+                    const startX = node.x + cardW / 2;
+                    const startY = node.y + cardH / 2;
+                    const endX = target.x + cardW / 2;
+                    const endY = target.y + cardH / 2;
 
                     // Different colors for cross-cluster vs same-cluster dependencies
                     const isInterCluster = node.cluster !== target.cluster;
@@ -604,100 +651,108 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
             </>
           )}
 
-          {/* Graph Nodes with UML Diagrams */}
-          {nodes.map((node) => (
-            <div
-              key={node.id}
-              onClick={() => handleNodeClick(node)}
-              onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
-              className={`graph-node absolute cursor-move hover:scale-105 ${
-                selectedNode?.id === node.id ? 'ring-2 ring-[#007acc] scale-105' : ''
-              } ${draggingNodeId === node.id ? 'scale-105 opacity-80' : ''}`}
-              style={{
-                left: node.x,
-                top: node.y,
-                width: 240,
-                transition: draggingNodeId === node.id ? 'none' : 'transform 0.2s ease-out',
-              }}
-            >
-              {/* Agent Highlight Indicator */}
-              {highlightedCluster === node.cluster && (
-                <div
-                  className="absolute -top-2 -right-2 z-20 animate-pulse"
-                  style={{
-                    width: '16px',
-                    height: '16px',
-                    borderRadius: '50%',
-                    backgroundColor: getAgentColor(node.cluster),
-                    boxShadow: `0 0 12px ${getAgentColor(node.cluster)}`,
+          {/* Graph Nodes */}
+          {nodes.map((node) => {
+            const colors = getNodeColors(node.type);
+            const isSelected = selectedNode?.id === node.id;
+            const isDraggingThis = draggingNodeId === node.id;
+            return (
+              <div
+                key={node.id}
+                onClick={() => handleNodeClick(node)}
+                onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
+                className="graph-node absolute cursor-move"
+                style={{
+                  left: node.x,
+                  top: node.y,
+                  width: cardW,
+                  transition: isDraggingThis ? 'none' : 'transform 0.15s ease-out',
+                  transform: isSelected || isDraggingThis ? 'scale(1.04)' : 'scale(1)',
+                  zIndex: isSelected || isDraggingThis ? 10 : 1,
+                }}
+              >
+                {/* Agent highlight pulse */}
+                {highlightedCluster === node.cluster && (
+                  <div className="absolute -top-2 -right-2 z-20 animate-pulse" style={{
+                    width: 14, height: 14, borderRadius: '50%',
+                    backgroundColor: colors.dot,
+                    boxShadow: `0 0 10px ${colors.dot}`,
                     border: '2px solid white',
-                  }}
-                />
-              )}
-
-              {/* UML-style component box */}
-              <div className="bg-[#252526] border-2 border-[#3e3e42] rounded-lg overflow-hidden shadow-lg hover:border-[#007acc] hover:shadow-2xl transition-all">
-                {/* Header */}
-                <div className={`bg-gradient-to-r ${getNodeColor(node.type)} px-3 py-2`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    {node.type === 'class' && <Box className="h-4 w-4 text-white" />}
-                    {node.type === 'function' && <Code className="h-4 w-4 text-white" />}
-                    {node.type === 'module' && <Database className="h-4 w-4 text-white" />}
-                    <span className="text-xs text-white/70 uppercase">&lt;&lt;{node.type}&gt;&gt;</span>
-                  </div>
-                  <div className="text-sm font-bold text-white">{node.name}</div>
-                </div>
-
-                {/* Properties */}
-                {node.properties && node.properties.length > 0 && (
-                  <div className="border-b border-[#3e3e42] px-3 py-2 bg-[#2d2d2d]">
-                    {node.properties.map((prop, idx) => (
-                      <div key={`${node.id}-prop-${idx}`} className="text-xs text-gray-300 font-mono">
-                        - {prop}
-                      </div>
-                    ))}
-                  </div>
+                  }} />
                 )}
 
-                {/* Methods */}
-                {node.methods && node.methods.length > 0 && (
-                  <div className="px-3 py-2 bg-[#1e1e1e]">
-                    {node.methods.map((method, idx) => (
-                      <div key={`${node.id}-method-${idx}`} className="text-xs text-gray-300 font-mono">
-                        + {method}
+                <div style={{
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  border: `2px solid ${isSelected ? colors.border : '#3e3e42'}`,
+                  boxShadow: isSelected ? `0 0 0 1px ${colors.border}40, 0 4px 20px ${colors.border}30` : '0 2px 8px #0008',
+                  background: '#1e1e1e',
+                  transition: 'border-color 0.15s, box-shadow 0.15s',
+                }}>
+                  {/* Colored left stripe + header */}
+                  <div style={{
+                    background: colors.header,
+                    borderLeft: `4px solid ${colors.border}`,
+                    padding: '6px 10px 7px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: colors.dot, flexShrink: 0 }} />
+                      <span style={{ fontSize: 10, color: colors.label, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        {node.type}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', lineHeight: 1.3, wordBreak: 'break-all' }}>
+                      {node.name.split('.').pop() ?? node.name}
+                    </div>
+                    {node.name.includes('.') && (
+                      <div style={{ fontSize: 10, color: colors.label + 'aa', marginTop: 2, wordBreak: 'break-all' }}>
+                        {node.name}
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
 
-                {/* Cluster Badge */}
-                <div className="px-3 py-1.5 bg-[#252526] border-t border-[#3e3e42] flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <Users className="h-3 w-3 text-gray-500" />
-                    <span className="text-xs text-gray-500">{node.cluster}</span>
-                  </div>
-                  {activeModes.has('symbol') && node.dependencies && node.dependencies.length > 0 && (
-                    <span className="text-xs text-blue-400">{node.dependencies.length} deps</span>
+                  {/* Properties */}
+                  {node.properties && node.properties.length > 0 && (
+                    <div style={{ borderTop: `1px solid ${colors.border}30`, borderLeft: `4px solid ${colors.border}`, background: '#1a1a1a', padding: '4px 10px' }}>
+                      {node.properties.slice(0, 3).map((prop, idx) => (
+                        <div key={`${node.id}-p-${idx}`} style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>
+                          – {prop}
+                        </div>
+                      ))}
+                      {node.properties.length > 3 && (
+                        <div style={{ fontSize: 10, color: '#6b7280' }}>+{node.properties.length - 3} more</div>
+                      )}
+                    </div>
                   )}
+
+                  {/* Methods */}
+                  {node.methods && node.methods.length > 0 && (
+                    <div style={{ borderTop: `1px solid ${colors.border}30`, borderLeft: `4px solid ${colors.border}`, background: '#161616', padding: '4px 10px' }}>
+                      {node.methods.slice(0, 3).map((method, idx) => (
+                        <div key={`${node.id}-m-${idx}`} style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace' }}>
+                          + {method}
+                        </div>
+                      ))}
+                      {node.methods.length > 3 && (
+                        <div style={{ fontSize: 10, color: '#6b7280' }}>+{node.methods.length - 3} more</div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Footer */}
+                  <div style={{ borderTop: `1px solid #2a2a2a`, background: '#191919', padding: '4px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 10, color: '#6b7280' }}>{node.cluster}</span>
+                    {node.dependencies && node.dependencies.length > 0 && (
+                      <span style={{ fontSize: 10, color: colors.label }}>{node.dependencies.length} deps</span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      {/* Mode Info */}
-      <div className="absolute bottom-4 left-4 bg-[#252526] border border-[#3e3e42] rounded-lg px-3 py-2">
-        <div className="text-xs text-gray-400 mb-1">
-          Active Layers: {Array.from(activeModes).map(m => m.charAt(0).toUpperCase() + m.slice(1)).join(', ')}
-        </div>
-        <div className="text-[10px] text-gray-500 flex items-center gap-3">
-          <span>🖱️ Drag background to pan</span>
-          <span>📦 Drag nodes - connections follow</span>
-          <span>⌨️ +/- or pinch to zoom</span>
-          <span>🎯 Click for details</span>
-        </div>
-      </div>
     </div>
   );
 }

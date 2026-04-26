@@ -2,14 +2,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ArrowLeft, Settings, Share2, Database, Files, Search, GitBranch, Info, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { UnifiedGraphView, GraphNode, GraphMode } from './UnifiedGraphView';
+import { UnifiedGraphView, GraphNode, GraphMode, PathFilter } from './UnifiedGraphView';
 import { InvariantView } from './InvariantView';
+import { DiagramToolbar } from './DiagramToolbar';
 import { AgentActivityLog, AgentQuery } from './AgentActivityLog';
-import { FilesPanel } from '../workspace/FilesPanel';
+import { FilesPanel, SelectedPath } from '../workspace/FilesPanel';
 import { GraphInfoModal } from './GraphInfoModal';
-import { GraphToolbar } from './GraphToolbar';
 import { InvariantToolbar } from './InvariantToolbar';
-import { LayerTabs } from './LayerTabs';
 import { getGraph, getIndexStatus } from '../../../lib/api';
 import { useRepoStream } from '../../../lib/sse';
 import { useCartographerStore } from '../../../lib/store';
@@ -22,25 +21,33 @@ interface CartographerWorkspaceProps {
   onShare: () => void;
 }
 
-type LayerView = 'graph' | 'invariant';
+type ActiveView = 'diagram' | 'invariant';
 type ActivityBarItem = 'explorer' | 'search' | 'source-control' | 'info';
 
 export function CartographerWorkspace({ projectId, projectName, onBack, onShare }: CartographerWorkspaceProps) {
   const router = useRouter();
-  const [activeLayer, setActiveLayer] = useState<LayerView>('graph');
-  const [activeModes, setActiveModes] = useState<Set<GraphMode>>(new Set<GraphMode>(['symbol']));
+  const [activeView, setActiveView] = useState<ActiveView>('diagram');
+  const [diagramLayer, setDiagramLayer] = useState<GraphMode>('symbol');
   const [selectedRepository, setSelectedRepository] = useState(projectName);
   const [activeActivity, setActiveActivity] = useState<ActivityBarItem>('explorer');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarWidth] = useState(280); // Fixed consistent width for explorer
-  const [agentLogCollapsed, setAgentLogCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarWidth] = useState(280);
+  const [agentLogCollapsed, setAgentLogCollapsed] = useState(true);
   const [agentLogWidth, setAgentLogWidth] = useState(280);
   const [isResizingAgentLog, setIsResizingAgentLog] = useState(false);
-  const [showLegend, setShowLegend] = useState(true);
+  const [showLegend, setShowLegend] = useState(false);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [highlightedQuery, setHighlightedQuery] = useState<AgentQuery | null>(null);
   const [showInfoModal, setShowInfoModal] = useState(false);
+  const [selectedPath, setSelectedPath] = useState<SelectedPath | null>(null);
+  const pathFilter: PathFilter | null = selectedPath
+    ? { path: selectedPath.path, kind: selectedPath.kind }
+    : null;
+
+  // Derive activeModes from the selected diagram layer.
+  const isGraphView = activeView === 'diagram';
+  const activeModes: Set<GraphMode> = new Set(isGraphView ? [diagramLayer] : []);
 
   // ---------------------------------------------------------------------
   // Live data wiring — projectId is the repo hash after dashboard wiring.
@@ -184,19 +191,6 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
     };
   }, []);
 
-  const toggleMode = (mode: GraphMode) => {
-    setActiveModes(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(mode)) {
-        if (newSet.size > 1) { // Keep at least one mode active
-          newSet.delete(mode);
-        }
-      } else {
-        newSet.add(mode);
-      }
-      return newSet;
-    });
-  };
 
   const resetView = () => {
     // Reset will be handled by the auto-fit logic in UnifiedGraphView
@@ -235,9 +229,8 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
     };
   }, [isResizingAgentLog]);
 
-  const handleFileSelect = (file: { name?: string; path?: string } | null) => {
-    if (!file) return;
-    console.log('File selected:', file);
+  const handleFileSelect = (item: SelectedPath | null) => {
+    setSelectedPath(item);
   };
 
   return (
@@ -368,6 +361,8 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
           >
             {activeActivity === 'explorer' && (
               <FilesPanel
+                repositoryId={projectId}
+                selected={selectedPath}
                 onFileSelect={handleFileSelect}
                 onCollapse={() => setSidebarCollapsed(true)}
               />
@@ -396,25 +391,39 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
 
         {/* Editor Group */}
         <div className="flex-1 flex flex-col">
-          {/* Layer Tabs Component */}
-          <LayerTabs activeLayer={activeLayer} onLayerChange={setActiveLayer} />
+          {/* Top Bar — primary view tabs */}
+          <div className="h-11 bg-[#252526] border-b border-[#1e1e1e] flex items-stretch flex-shrink-0">
+            {(['diagram', 'invariant'] as ActiveView[]).map((view) => {
+              const labels: Record<ActiveView, string> = {
+                diagram: 'Diagram',
+                invariant: 'Invariants',
+              };
+              const isActive = activeView === view;
+              return (
+                <button
+                  key={view}
+                  onClick={() => setActiveView(view)}
+                  className={`px-8 flex items-center border-r border-[#1e1e1e] text-xs font-medium tracking-wide transition-colors flex-shrink-0 ${
+                    isActive
+                      ? 'bg-[#1e1e1e] text-white border-t-2 border-t-[#007acc]'
+                      : 'bg-[#252526] text-gray-400 hover:text-gray-200 hover:bg-[#2a2a2a] border-t-2 border-t-transparent'
+                  }`}
+                >
+                  {labels[view]}
+                </button>
+              );
+            })}
+          </div>
 
-          {/* Toolbar Component */}
-          {activeLayer === 'graph' && (
-            <GraphToolbar
-              activeModes={activeModes}
-              onToggleMode={toggleMode}
-              zoomLevel={zoomLevel}
-              onZoomChange={setZoomLevel}
-              onResetView={resetView}
-            />
+          {activeView === 'diagram' && (
+            <DiagramToolbar layer={diagramLayer} onLayerChange={setDiagramLayer} />
           )}
-          {activeLayer === 'invariant' && <InvariantToolbar />}
+          {activeView === 'invariant' && <InvariantToolbar />}
 
           {/* Visualization Content */}
           <div className="flex-1 overflow-hidden flex">
             <div className="flex-1 overflow-hidden">
-              {activeLayer === 'graph' && (
+              {isGraphView && (
                 <UnifiedGraphView
                   repositoryId={projectId}
                   showLegend={showLegend}
@@ -426,9 +435,10 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   onResetView={resetView}
                   highlightedCluster={highlightedQuery?.cluster || null}
                   sidebarCollapsed={sidebarCollapsed}
+                  pathFilter={pathFilter}
                 />
               )}
-              {activeLayer === 'invariant' && <InvariantView repositoryId={projectId} showLegend={showLegend} />}
+              {activeView === 'invariant' && <InvariantView repositoryId={projectId} showLegend={showLegend} />}
             </div>
 
             {/* Agent Activity Log */}
@@ -449,7 +459,7 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                   />
 
                   {/* Node Details Overlay */}
-                  {selectedNode && activeLayer === 'graph' && (
+                  {selectedNode && isGraphView && (
                     <div className="absolute top-0 left-0 right-0 bg-[#1e1e1e] border-b border-[#3e3e42] shadow-lg z-10">
                       <div className="p-3">
                         <div className="flex items-center justify-between mb-2">
@@ -490,6 +500,29 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                 </div>
               </>
             )}
+          </div>
+
+          {/* Bottom Bar — zoom controls */}
+          <div className="h-9 bg-[#252526] border-t border-[#1e1e1e] flex items-center px-4 gap-3 flex-shrink-0">
+            <span className="text-xs text-gray-500 tracking-wide">ZOOM</span>
+            <div className="w-px h-4 bg-[#3e3e42]" />
+            <button
+              onClick={() => setZoomLevel(Math.max(3, zoomLevel - 10))}
+              className="w-7 h-7 flex items-center justify-center text-sm text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
+              title="Zoom Out"
+            >−</button>
+            <span className="text-xs text-gray-300 min-w-[42px] text-center">{zoomLevel}%</span>
+            <button
+              onClick={() => setZoomLevel(Math.min(200, zoomLevel + 10))}
+              className="w-7 h-7 flex items-center justify-center text-sm text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
+              title="Zoom In"
+            >+</button>
+            <div className="w-px h-4 bg-[#3e3e42]" />
+            <button
+              onClick={resetView}
+              className="px-3 h-7 flex items-center text-xs text-gray-400 hover:text-white hover:bg-[#3a3a3a] rounded transition-colors"
+              title="Reset View"
+            >Reset</button>
           </div>
         </div>
       </div>

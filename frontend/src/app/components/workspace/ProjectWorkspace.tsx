@@ -8,6 +8,7 @@ import {
   Bot, Send, Sparkles
 } from 'lucide-react';
 import { FilesPanel } from './FilesPanel';
+import { SourceControlPanel } from './SourceControlPanel';
 import { DiagramGenerator } from '../DiagramGenerator';
 import { CloudinaryUploader } from '../CloudinaryUploader';
 import { CodePreview } from '../CodePreview';
@@ -532,6 +533,8 @@ What would you like to know?`;
             <div className="bg-[#252526] border-r border-[#1e1e1e] flex flex-col" style={{ width: `${sidebarWidth}px` }}>
               {activeActivity === 'explorer' && (
                 <FilesPanel
+                  repositoryId={projectId}
+                  selected={null}
                   onFileSelect={handleFileSelect}
                   onCollapse={() => setSidebarCollapsed(true)}
                 />
@@ -547,13 +550,7 @@ What would you like to know?`;
               </div>
             )}
             {activeActivity === 'source-control' && (
-              <div className="p-4">
-                <h3 className="text-xs uppercase text-gray-400 font-semibold mb-3">Source Control</h3>
-                <div className="flex items-center gap-2 text-sm text-gray-400">
-                  <GitBranch className="h-4 w-4" />
-                  <span>main</span>
-                </div>
-              </div>
+              <SourceControlPanel onCollapse={() => setSidebarCollapsed(true)} />
             )}
             {activeActivity === 'extensions' && (
               <div className="p-4">

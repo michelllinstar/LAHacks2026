@@ -44,3 +44,4 @@ Thumbs.db
 .vscode/
 *.swp
 frontend/tsconfig.tsbuildinfo
+backend/venv311/

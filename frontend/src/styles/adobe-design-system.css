@@ -88,18 +88,17 @@
      ============================================ */
 
   /* Font Families */
-  --adobe-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                     "Helvetica Neue", Arial, sans-serif;
-  --adobe-font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono",
-                     Consolas, "Courier New", monospace;
+  --adobe-font-sans: Menlo, Monaco, 'Courier New', monospace;
+  --adobe-font-mono: Menlo, Monaco, 'Courier New', monospace;
 
   /* Font Sizes */
-  --adobe-text-xs: 0.75rem;      /* 12px */
-  --adobe-text-sm: 0.875rem;     /* 14px */
-  --adobe-text-base: 1rem;       /* 16px */
+  --adobe-text-xs: 0.625rem;     /* 10px */
+  --adobe-text-sm: 0.6875rem;    /* 11px */
+  --adobe-text-base: 0.75rem;    /* 12px — standard text */
+  --adobe-text-subtitle: 1rem;   /* 16px — subtitles */
   --adobe-text-lg: 1.125rem;     /* 18px */
   --adobe-text-xl: 1.25rem;      /* 20px */
-  --adobe-text-2xl: 1.5rem;      /* 24px */
+  --adobe-text-2xl: 1.5rem;      /* 24px — titles */
   --adobe-text-3xl: 1.875rem;    /* 30px */
   --adobe-text-4xl: 2.25rem;     /* 36px */
   --adobe-text-5xl: 3rem;        /* 48px */
@@ -368,49 +367,56 @@
    ============================================ */
 
 .adobe-heading-1 {
-  font-size: var(--adobe-text-6xl);
+  font-size: 24px;
   font-weight: var(--adobe-font-bold);
   line-height: var(--adobe-leading-tight);
   color: var(--adobe-text-primary);
 }
 
 .adobe-heading-2 {
-  font-size: var(--adobe-text-4xl);
+  font-size: 24px;
   font-weight: var(--adobe-font-bold);
   line-height: var(--adobe-leading-tight);
   color: var(--adobe-text-primary);
 }
 
 .adobe-heading-3 {
-  font-size: var(--adobe-text-2xl);
+  font-size: 16px;
   font-weight: var(--adobe-font-semibold);
   line-height: var(--adobe-leading-normal);
   color: var(--adobe-text-primary);
 }
 
+.adobe-subtitle {
+  font-size: 16px;
+  font-weight: var(--adobe-font-medium);
+  line-height: var(--adobe-leading-normal);
+  color: var(--adobe-text-secondary);
+}
+
 .adobe-body-large {
-  font-size: var(--adobe-text-lg);
+  font-size: 12px;
   font-weight: var(--adobe-font-normal);
   line-height: var(--adobe-leading-relaxed);
   color: var(--adobe-text-secondary);
 }
 
 .adobe-body {
-  font-size: var(--adobe-text-base);
+  font-size: 12px;
   font-weight: var(--adobe-font-normal);
   line-height: var(--adobe-leading-normal);
   color: var(--adobe-text-secondary);
 }
 
 .adobe-body-small {
-  font-size: var(--adobe-text-sm);
+  font-size: 11px;
   font-weight: var(--adobe-font-normal);
   line-height: var(--adobe-leading-normal);
   color: var(--adobe-text-tertiary);
 }
 
 .adobe-caption {
-  font-size: var(--adobe-text-xs);
+  font-size: 10px;
   font-weight: var(--adobe-font-normal);
   line-height: var(--adobe-leading-normal);
   color: var(--adobe-text-quaternary);
