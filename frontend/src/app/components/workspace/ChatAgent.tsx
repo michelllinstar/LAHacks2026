@@ -82,7 +82,7 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Open a project first to ask Cartographer about it.',
+        content: 'Open a project first to ask MarkCodePolo about it.',
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, assistantMessage]);
@@ -125,7 +125,7 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
       if (err instanceof DOMException && err.name === 'AbortError') return;
       if (!mountedRef.current) return;
 
-      toast.error('Cartographer query failed');
+      toast.error('MarkCodePolo query failed');
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -163,7 +163,7 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
     <div className="fixed bottom-4 right-4 z-50">
       <button
         onClick={onToggleMinimize}
-        className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all"
+        className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-[#34D399] to-[#F59E0B] text-white rounded-full shadow-lg hover:shadow-xl transition-all"
       >
         <Bot className="h-5 w-5" />
         <span className="font-medium">AI Assistant</span>
@@ -180,7 +180,7 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
       <div className="p-4 border-b" style={{ borderColor: 'var(--adobe-border-default)' }}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
+            <div className="p-2 bg-gradient-to-br from-[#34D399] to-[#F59E0B] rounded-lg">
               <Bot className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -241,7 +241,7 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
           >
             {message.role === 'assistant' && (
               <div className="flex-shrink-0">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#34D399] to-[#F59E0B] flex items-center justify-center">
                   <Bot className="h-4 w-4 text-white" />
                 </div>
               </div>
@@ -250,7 +250,7 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
             <div
               className={`max-w-[80%] rounded-lg p-3 ${
                 message.role === 'user'
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white'
+                  ? 'bg-gradient-to-r from-[#34D399] to-[#F59E0B] text-white'
                   : ''
               }`}
               style={message.role === 'assistant' ? {
@@ -286,7 +286,7 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
         {isTyping && (
           <div className="flex gap-3 justify-start">
             <div className="flex-shrink-0">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#34D399] to-[#F59E0B] flex items-center justify-center">
                 <Bot className="h-4 w-4 text-white" />
               </div>
             </div>
@@ -328,7 +328,7 @@ export function ChatAgent({ projectName, onClose, isMinimized, onToggleMinimize 
           <button
             onClick={handleSend}
             disabled={!input.trim() || isTyping}
-            className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-all flex items-center gap-2"
+            className="px-4 py-2 bg-gradient-to-r from-[#34D399] to-[#F59E0B] hover:from-[#2DD4BF] hover:to-[#FBBF24] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-all flex items-center gap-2"
           >
             <Send className="h-4 w-4" />
           </button>

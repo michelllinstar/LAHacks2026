@@ -9,7 +9,7 @@ export function LandingPage() {
       {/* Hero Section - Adobe Cloud Style */}
       <div className="relative overflow-hidden">
         {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 via-purple-600/20 to-pink-600/20" />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#2DD4BF]/20 via-purple-600/20 to-pink-600/20" />
 
         {/* Grid pattern overlay */}
         <div className="absolute inset-0 opacity-10" style={{
@@ -22,11 +22,11 @@ export function LandingPage() {
           <div className="max-w-7xl mx-auto px-5 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-5">
-                <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
+                <div className="p-2 bg-gradient-to-br from-[#34D399] to-[#F59E0B] rounded-lg">
                   <Code2 className="h-6 w-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="font-bold text-white text-xl">CodeViz AI</h1>
+                  <h1 className="font-bold text-white text-xl">MarkCodePolo</h1>
                   <p className="text-xs text-gray-400">Powered by Cloudinary</p>
                 </div>
               </div>
@@ -54,14 +54,20 @@ export function LandingPage() {
         {/* Hero Content */}
         <div className="relative z-10 max-w-7xl mx-auto px-5 pt-20 pb-32">
           <div className="text-center max-w-4xl mx-auto">
-            <div className="inline-flex items-center gap-5 px-5 py-2 bg-blue-500/10 border border-blue-500/20 rounded-full mb-8">
-              <Sparkles className="h-4 w-4 text-blue-400" />
-              <span className="text-base text-blue-400">Powered by AI & Cloudinary</span>
+            <div className="inline-flex items-center gap-5 px-5 py-2 bg-blue-500/10 border border-[#2DD4BF]/20 rounded-full mb-8">
+              <Sparkles className="h-4 w-4 text-[#5EEAD4]" />
+              <span className="text-base text-[#5EEAD4]">Powered by AI & Cloudinary</span>
             </div>
 
             <h2 className="text-6xl font-bold text-white mb-6 leading-tight">
               Transform Code into
-              <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent"> Beautiful Architecture</span>
+              <span
+                className="bg-clip-text text-transparent"
+                style={{
+                  backgroundImage:
+                    'radial-gradient(ellipse at center, #5EEAD4 0%, #34D399 35%, #FBBF24 70%, #F59E0B 100%)',
+                }}
+              > Beautiful Architecture</span>
             </h2>
 
             <p className="text-2xl text-gray-300 mb-10 leading-relaxed">
@@ -72,7 +78,7 @@ export function LandingPage() {
             <div className="flex items-center justify-center gap-5">
               <Link
                 href="/login"
-                className="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-lg transition-all transform hover:scale-105 flex items-center gap-5"
+                className="px-8 py-4 bg-gradient-to-r from-[#34D399] to-[#F59E0B] hover:from-[#2DD4BF] hover:to-[#FBBF24] text-white font-semibold rounded-lg transition-all transform hover:scale-105 flex items-center gap-5"
               >
                 Start Free Trial
                 <ArrowRight className="h-5 w-5" />
@@ -134,7 +140,7 @@ export function LandingPage() {
                 icon: Sparkles,
                 title: 'AI-Powered Analysis',
                 description: 'Smart detection of classes, functions, and relationships',
-                color: 'from-blue-500 to-cyan-500',
+                color: 'from-[#34D399] to-cyan-500',
               },
               {
                 icon: GitBranch,
@@ -205,7 +211,13 @@ export function LandingPage() {
               { value: '70%', label: 'Faster Loading' },
             ].map((stat) => (
               <div key={stat.label} className="text-center">
-                <div className="text-5xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent mb-5">
+                <div
+                  className="text-5xl font-bold bg-clip-text text-transparent mb-5"
+                  style={{
+                    backgroundImage:
+                      'radial-gradient(ellipse at center, #5EEAD4 0%, #2DD4BF 50%, #FBBF24 100%)',
+                  }}
+                >
                   {stat.value}
                 </div>
                 <div className="text-gray-400">{stat.label}</div>
@@ -216,13 +228,13 @@ export function LandingPage() {
       </div>
 
       {/* CTA Section */}
-      <div className="py-24 bg-gradient-to-br from-blue-600/10 via-purple-600/10 to-pink-600/10">
+      <div className="py-24 bg-gradient-to-br from-[#2DD4BF]/10 via-purple-600/10 to-pink-600/10">
         <div className="max-w-4xl mx-auto px-5 text-center">
           <h3 className="text-4xl font-bold text-white mb-6">
             Ready to visualize your architecture?
           </h3>
           <p className="text-2xl text-gray-300 mb-10">
-            Join thousands of developers who trust CodeViz AI for their documentation needs.
+            Join thousands of developers who trust MarkCodePolo for their documentation needs.
           </p>
           <Link href="/login" className="group inline-block">
             <GlassBubble tone="blue" size="lg" className="font-semibold">
@@ -239,10 +251,10 @@ export function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
               <div className="flex items-center gap-5 mb-5">
-                <div className="p-1.5 bg-gradient-to-br from-blue-500 to-purple-600 rounded">
+                <div className="p-1.5 bg-gradient-to-br from-[#34D399] to-[#F59E0B] rounded">
                   <Code2 className="h-4 w-4 text-white" />
                 </div>
-                <span className="font-bold text-white">CodeViz AI</span>
+                <span className="font-bold text-white">MarkCodePolo</span>
               </div>
               <p className="text-base text-gray-400">
                 Transform code into beautiful architecture diagrams with AI.
@@ -278,7 +290,7 @@ export function LandingPage() {
           </div>
 
           <div className="border-t border-gray-800 mt-12 pt-8 flex items-center justify-between text-base text-gray-400">
-            <p>© 2026 CodeViz AI. Built with Cloudinary React AI Starter Kit.</p>
+            <p>© 2026 MarkCodePolo. Built with Cloudinary React AI Starter Kit.</p>
             <div className="flex items-center gap-6">
               <a href="#" className="hover:text-white transition-colors">Privacy</a>
               <a href="#" className="hover:text-white transition-colors">Terms</a>

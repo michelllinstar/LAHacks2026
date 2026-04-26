@@ -39,7 +39,7 @@ export function CodeUploader({ onCodeUpload }: CodeUploaderProps) {
     <div
       className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
         isDragging
-          ? 'border-blue-500 bg-blue-50'
+          ? 'border-[#2DD4BF] bg-blue-50'
           : 'border-gray-300 hover:border-gray-400'
       }`}
       onDragOver={(e) => {

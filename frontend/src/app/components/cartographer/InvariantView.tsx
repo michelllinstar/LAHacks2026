@@ -57,7 +57,7 @@ export function InvariantView({ repositoryId }: InvariantViewProps) {
       case 'test':
         return <CheckCircle className="h-4 w-4 text-green-400" />;
       case 'defensive-check':
-        return <Shield className="h-4 w-4 text-blue-400" />;
+        return <Shield className="h-4 w-4 text-[#5EEAD4]" />;
       case 'comment':
         return <AlertCircle className="h-4 w-4 text-yellow-400" />;
       default:
@@ -85,8 +85,8 @@ export function InvariantView({ repositoryId }: InvariantViewProps) {
                 onClick={() => setFilterConfidence(filter)}
                 className={`px-3 py-1 text-xs rounded transition-colors ${
                   filterConfidence === filter
-                    ? 'bg-[#007acc] text-white'
-                    : 'bg-[#3a3a3a] text-gray-300 hover:bg-[#424242]'
+                    ? 'bg-[#2DD4BF] text-white'
+                    : 'bg-[#252526] text-gray-300 hover:bg-[#424242]'
                 }`}
               >
                 {filter.charAt(0).toUpperCase() + filter.slice(1)}
@@ -123,7 +123,7 @@ export function InvariantView({ repositoryId }: InvariantViewProps) {
                 }}
               >
                 <div className="flex items-center gap-2">
-                  <FileCode className="h-4 w-4 text-[#007acc]" />
+                  <FileCode className="h-4 w-4 text-[#2DD4BF]" />
                   <h3 className="text-sm font-bold text-white">{symbol}</h3>
                   <span className="text-xs text-gray-500">
                     {invs.length} {invs.length === 1 ? 'invariant' : 'invariants'}
@@ -138,8 +138,8 @@ export function InvariantView({ repositoryId }: InvariantViewProps) {
                     onClick={() => setSelectedInvariant(inv)}
                     className={`w-full p-3 text-left transition-colors ${
                       selectedInvariant?.id === inv.id
-                        ? 'bg-[#007acc]/10'
-                        : 'hover:bg-[#2a2d2e]'
+                        ? 'bg-[#2DD4BF]/10'
+                        : 'hover:bg-[#2d2d2d]'
                     }`}
                   >
                     <div className="flex items-start gap-2">
@@ -207,7 +207,7 @@ export function InvariantView({ repositoryId }: InvariantViewProps) {
 
             <div>
               <div className="text-xs text-gray-500 mb-1">Source Location</div>
-              <div className="text-xs font-mono text-blue-400 hover:underline cursor-pointer">
+              <div className="text-xs font-mono text-[#5EEAD4] hover:underline cursor-pointer">
                 {selectedInvariant.sourceLocation}
               </div>
             </div>

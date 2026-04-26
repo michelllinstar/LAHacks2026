@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Search, Grid, List, Clock, Users, Star, MoreVertical, Folder, GitBranch, HardDrive, Briefcase, User } from 'lucide-react';
 import { toast } from 'sonner';
@@ -151,6 +151,13 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
     p.domain === activeDomain
   );
 
+  // Direction for the slide-in animation when toggling Personal ↔ Work.
+  const prevDomainRef = useRef<DomainType>(activeDomain);
+  const slideFromRight = activeDomain === 'work' && prevDomainRef.current === 'personal';
+  useEffect(() => {
+    prevDomainRef.current = activeDomain;
+  }, [activeDomain]);
+
   return (
     <div className="min-h-screen bg-[#1e1e1e]">
       {/* Top Navigation */}
@@ -159,12 +166,12 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-4">
-                <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-md">
+                <div className="p-2 bg-gradient-to-br from-[#34D399] to-[#F59E0B] rounded-md">
                   <Folder className="h-5 w-5 text-white" />
                 </div>
                 <div>
                   <h1 className="text-xl font-bold text-white leading-tight">Repositories</h1>
-                  <p className="text-sm text-gray-400 leading-tight">Cartographer Indexes</p>
+                  <p className="text-sm text-gray-400 leading-tight">markcodepolo</p>
                 </div>
               </div>
             </div>
@@ -172,9 +179,9 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
             <div className="flex items-center gap-3">
               <button
                 onClick={() => router.push('/profile')}
-                className="flex items-center gap-3 hover:bg-[#3a3a3a] rounded-md px-3 py-1.5 transition-colors"
+                className="flex items-center gap-3 hover:bg-[#252526] rounded-md px-3 py-1.5 transition-colors"
               >
-                <div className="w-9 h-9 bg-gradient-to-br from-blue-400 to-purple-400 rounded-full flex items-center justify-center">
+                <div className="w-9 h-9 bg-gradient-to-br from-[#5EEAD4] to-[#FBBF24] rounded-full flex items-center justify-center">
                   <span className="text-white text-base font-semibold">
                     {user.name.charAt(0)}
                   </span>
@@ -201,14 +208,14 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search projects..."
-                className="w-full pl-11 pr-4 py-2.5 bg-[#2d2d2d] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-11 pr-4 py-2.5 bg-[#2d2d2d] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#2DD4BF] focus:border-transparent"
               />
             </div>
           </div>
 
           <div className="flex items-center gap-5">
             <div
-              className="relative flex items-center p-1 rounded-lg border border-white/10"
+              className="relative flex items-center p-2 rounded-lg border border-white/10"
               style={{
                 background: 'rgba(255,255,255,0.04)',
                 backdropFilter: 'blur(10px)',
@@ -217,17 +224,17 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
             >
               <span
                 aria-hidden
-                className="absolute top-1 bottom-1 w-9 rounded-md border border-white/15 transition-transform duration-300 ease-out"
+                className="absolute top-2 bottom-2 w-11 rounded-md border border-white/15 transition-transform duration-300 ease-out"
                 style={{
                   background: 'linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.04))',
                   boxShadow: '0 2px 10px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)',
                   transform: viewMode === 'grid' ? 'translateX(0)' : 'translateX(100%)',
-                  left: 4,
+                  left: 8,
                 }}
               />
               <button
                 onClick={() => setViewMode('grid')}
-                className={`relative z-10 w-9 h-9 flex items-center justify-center rounded transition-colors ${
+                className={`relative z-10 w-11 h-11 flex items-center justify-center rounded transition-colors ${
                   viewMode === 'grid' ? 'text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
@@ -235,7 +242,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
               </button>
               <button
                 onClick={() => setViewMode('list')}
-                className={`relative z-10 w-9 h-9 flex items-center justify-center rounded transition-colors ${
+                className={`relative z-10 w-11 h-11 flex items-center justify-center rounded transition-colors ${
                   viewMode === 'list' ? 'text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
@@ -250,13 +257,13 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
                 e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`);
                 e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`);
               }}
-              className="relative overflow-hidden px-5 py-2.5 rounded-lg text-white font-medium transition-all flex items-center gap-2 border border-white/20 group"
+              className="relative overflow-hidden px-7 py-4 rounded-lg text-white font-medium transition-all flex items-center gap-2 border border-white/20 group"
               style={{
                 background:
-                  'linear-gradient(135deg, rgba(99,102,241,0.35) 0%, rgba(168,85,247,0.25) 100%)',
+                  'linear-gradient(135deg, rgba(45,212,191,0.35) 0%, rgba(251,191,36,0.25) 100%)',
                 backdropFilter: 'blur(14px)',
                 WebkitBackdropFilter: 'blur(14px)',
-                boxShadow: '0 4px 20px rgba(99,102,241,0.25), inset 0 1px 0 rgba(255,255,255,0.18)',
+                boxShadow: '0 4px 20px rgba(45,212,191,0.25), inset 0 1px 0 rgba(255,255,255,0.18)',
               }}
             >
               <span
@@ -267,8 +274,8 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
                     'radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.18), transparent 60%)',
                 }}
               />
-              <Plus className="h-4 w-4 relative" />
-              <span className="relative p-[5px]">New Project</span>
+              <Plus className="h-6 w-6 relative mr-3" strokeWidth={2.5} />
+              <span className="relative">New Project</span>
             </button>
           </div>
         </div>
@@ -276,7 +283,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
         {/* Domain Toggle */}
         <div className="mb-6">
           <div
-            className="relative inline-flex items-center gap-3 p-1.5 rounded-lg border border-white/10"
+            className="relative inline-flex items-center gap-2 p-1 rounded-lg border border-white/10"
             style={{
               background: 'rgba(255,255,255,0.04)',
               backdropFilter: 'blur(10px)',
@@ -285,19 +292,19 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
           >
             <span
               aria-hidden
-              className="absolute top-1.5 bottom-1.5 rounded-md border border-white/15 transition-transform duration-300 ease-out"
+              className="absolute top-1 bottom-1 rounded-md border border-white/15 transition-transform duration-300 ease-out"
               style={{
-                width: 122,
-                left: 10,
+                width: 104,
+                left: 4,
                 background: 'linear-gradient(135deg, rgba(255,255,255,0.18), rgba(255,255,255,0.05))',
                 boxShadow: '0 2px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.18)',
-                transform: activeDomain === 'personal' ? 'translateX(0)' : 'translateX(142px)',
+                transform: activeDomain === 'personal' ? 'translateX(0)' : 'translateX(116px)',
               }}
             />
             <button
               onClick={() => setActiveDomain('personal')}
-              style={{ width: 130 }}
-              className={`relative z-10 py-2.5 rounded-md text-base font-medium transition-colors flex items-center justify-center gap-2 ${
+              style={{ width: 108 }}
+              className={`relative z-10 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
                 activeDomain === 'personal' ? 'text-white' : 'text-gray-400 hover:text-white'
               }`}
             >
@@ -306,8 +313,8 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
             </button>
             <button
               onClick={() => setActiveDomain('work')}
-              style={{ width: 130 }}
-              className={`relative z-10 py-2.5 rounded-md text-base font-medium transition-colors flex items-center justify-center gap-2 ${
+              style={{ width: 108 }}
+              className={`relative z-10 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
                 activeDomain === 'work' ? 'text-white' : 'text-gray-400 hover:text-white'
               }`}
             >
@@ -320,12 +327,26 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
           </div>
         </div>
 
+        <style>{`
+          @keyframes domainSlideIn {
+            from { opacity: 0; transform: translateX(var(--slide-from, 40px)); }
+            to { opacity: 1; transform: translateX(0); }
+          }
+        `}</style>
+
         {/* Loading state */}
         {loading && (
           <div className="text-center py-8 text-gray-400">Loading repositories...</div>
         )}
 
         {/* Projects Grid/List */}
+        <div
+          key={activeDomain}
+          style={{
+            animation: 'domainSlideIn 0.32s cubic-bezier(0.22, 1, 0.36, 1)',
+            '--slide-from': slideFromRight ? '40px' : '-40px',
+          } as CSSProperties}
+        >
         {!loading && (viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredProjects.map((project) => (
@@ -358,7 +379,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
                 {/* Soft accent glow */}
                 <div
                   className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full opacity-40 group-hover:opacity-60 transition-opacity"
-                  style={{ background: 'radial-gradient(circle, rgba(99,102,241,0.35) 0%, transparent 70%)' }}
+                  style={{ background: 'radial-gradient(circle, rgba(45,212,191,0.35) 0%, transparent 70%)' }}
                 />
 
                 <div className="relative p-5">
@@ -369,9 +390,9 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
                         style={{ background: 'rgba(255,255,255,0.05)' }}
                       >
                         {project.type === 'github' ? (
-                          <GitBranch className="h-5 w-5 text-blue-300" />
+                          <GitBranch className="h-5 w-5 text-[#5EEAD4]" />
                         ) : (
-                          <HardDrive className="h-5 w-5 text-purple-300" />
+                          <HardDrive className="h-5 w-5 text-[#FBBF24]" />
                         )}
                       </div>
                       <div className="min-w-0">
@@ -420,39 +441,74 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
               <div
                 key={project.id}
                 onClick={() => handleProjectClick(project.id)}
-                className="bg-[#2d2d2d] rounded-lg border border-gray-800 hover:border-gray-700 transition-all cursor-pointer p-4"
+                onMouseMove={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`);
+                  e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`);
+                }}
+                className="glass-card relative rounded-xl cursor-pointer group overflow-hidden border border-white/10 hover:border-white/20 transition-all p-4"
+                style={{
+                  background:
+                    'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+                  backdropFilter: 'blur(14px)',
+                  WebkitBackdropFilter: 'blur(14px)',
+                  boxShadow: '0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.06)',
+                }}
               >
-                <div className="flex items-center gap-5">
-                  <div className="w-12 h-12 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <Folder className="h-6 w-6 text-gray-600" />
+                {/* Mouse-following spotlight */}
+                <div
+                  className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                  style={{
+                    background:
+                      'radial-gradient(360px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.10), transparent 60%)',
+                  }}
+                />
+
+                {/* Soft accent glow */}
+                <div
+                  className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full opacity-40 group-hover:opacity-60 transition-opacity"
+                  style={{ background: 'radial-gradient(circle, rgba(45,212,191,0.35) 0%, transparent 70%)' }}
+                />
+
+                <div className="relative flex items-center gap-5">
+                  <div
+                    className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 border border-white/10"
+                    style={{ background: 'rgba(255,255,255,0.05)' }}
+                  >
+                    {project.type === 'github' ? (
+                      <GitBranch className="h-5 w-5 text-[#5EEAD4]" />
+                    ) : (
+                      <HardDrive className="h-5 w-5 text-[#FBBF24]" />
+                    )}
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-5 mb-1">
                       <h3 className="font-semibold text-white truncate">{project.name}</h3>
-                      {project.starred && <Star className="h-4 w-4 text-yellow-500 fill-yellow-500 flex-shrink-0" />}
+                      {project.starred && <Star className="h-4 w-4 text-yellow-400 fill-yellow-400 flex-shrink-0" />}
                     </div>
                     <p className="text-base text-gray-400 truncate">{project.description}</p>
                   </div>
 
                   <div className="flex items-center gap-6 text-base text-gray-400">
-                    <div className="flex items-center gap-5">
-                      {project.type === 'github' ? (
-                        <GitBranch className="h-4 w-4" />
-                      ) : (
-                        <HardDrive className="h-4 w-4" />
-                      )}
-                      <span>{project.type === 'github' ? 'GitHub' : 'Local'}</span>
-                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-xs">
+                      {project.type === 'github' ? 'GitHub' : 'Local'}
+                    </span>
                     <div>{project.diagramCount} symbols</div>
                     <div className="flex items-center gap-1">
                       <Users className="h-4 w-4" />
                       <span>{project.collaborators}</span>
                     </div>
-                    <div className="text-xs">{project.lastModified.toLocaleDateString()}</div>
+                    <div className="text-xs flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5" />
+                      {project.lastModified.toLocaleDateString()}
+                    </div>
                   </div>
 
-                  <button className="p-2 hover:bg-[#3a3a3a] rounded transition-colors">
+                  <button
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-2 hover:bg-white/5 rounded transition-colors"
+                  >
                     <MoreVertical className="h-4 w-4 text-gray-400" />
                   </button>
                 </div>
@@ -463,7 +519,7 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
 
         {/* Empty State */}
         {!loading && filteredProjects.length === 0 && (
-          <div className="flex flex-col items-center justify-center text-center py-16 min-h-[50vh]">
+          <div className="flex flex-col items-center justify-center text-center py-16 min-h-[50vh]" key="empty">
             <Folder className="h-16 w-16 text-gray-600 mb-5" />
             <h3 className="text-2xl font-semibold text-white mb-5">No projects found</h3>
             <p className="text-gray-400 mb-6">
@@ -477,13 +533,13 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
                   e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`);
                   e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`);
                 }}
-                className="relative overflow-hidden px-6 py-3 rounded-lg text-white font-medium transition-all inline-flex items-center gap-2.5 border border-white/20 group"
+                className="relative overflow-hidden px-8 py-5 rounded-lg text-white font-medium transition-all inline-flex items-center gap-0 border border-white/20 group"
                 style={{
                   background:
-                    'linear-gradient(135deg, rgba(99,102,241,0.35) 0%, rgba(168,85,247,0.25) 100%)',
+                    'linear-gradient(135deg, rgba(45,212,191,0.35) 0%, rgba(251,191,36,0.25) 100%)',
                   backdropFilter: 'blur(14px)',
                   WebkitBackdropFilter: 'blur(14px)',
-                  boxShadow: '0 4px 20px rgba(99,102,241,0.25), inset 0 1px 0 rgba(255,255,255,0.18)',
+                  boxShadow: '0 4px 20px rgba(45,212,191,0.25), inset 0 1px 0 rgba(255,255,255,0.18)',
                 }}
               >
                 <span
@@ -494,12 +550,13 @@ export function ProjectsDashboard({ onCreateProject, onOpenProject, user }: Proj
                       'radial-gradient(240px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.20), transparent 60%)',
                   }}
                 />
-                <Plus className="h-5 w-5 relative" />
-                <span className="relative p-[5px]">Create Project</span>
+                <Plus className="h-6 w-6 relative mr-3" strokeWidth={2.5} />
+                <span className="relative">Create Project</span>
               </button>
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import { CheckCircle, Shield, AlertCircle } from 'lucide-react';
 export function InvariantToolbar() {
   return (
     <div
-      className="h-10 bg-[#2d2d2d] border-b border-[#1e1e1e] flex items-center px-3 gap-4 overflow-x-auto scrollbar-thin scrollbar-thumb-[#3e3e42] scrollbar-track-transparent hover:scrollbar-thumb-[#4e4e52]"
+      className="h-10 bg-[#2d2d2d] border-b border-[#1e1e1e] flex items-center px-3 gap-4 overflow-x-auto scrollbar-thin scrollbar-thumb-[#3e3e42] scrollbar-track-transparent hover:scrollbar-thumb-[#3e3e42]"
       style={{
         scrollbarWidth: 'thin',
         scrollbarColor: '#3e3e42 transparent',
@@ -22,7 +22,7 @@ export function InvariantToolbar() {
           <span className="text-xs text-gray-300 whitespace-nowrap">Test</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Shield className="h-[13px] w-[13px] text-blue-400 flex-shrink-0" />
+          <Shield className="h-[13px] w-[13px] text-[#5EEAD4] flex-shrink-0" />
           <span className="text-xs text-gray-300 whitespace-nowrap">Check</span>
         </div>
         <div className="flex items-center gap-1.5">

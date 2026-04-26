@@ -365,7 +365,7 @@ What would you like to know?`;
       }}
     >
       {/* VS Code Title Bar */}
-      <div className="h-9 bg-[#323233] flex items-center px-2 text-xs border-b border-[#1e1e1e]">
+      <div className="h-9 bg-[#2d2d2d] flex items-center px-2 text-xs border-b border-[#1e1e1e]">
         <button
           onClick={onBack}
           className="p-1.5 hover:bg-[#3e3e42] rounded transition-colors mr-2"
@@ -374,7 +374,7 @@ What would you like to know?`;
         </button>
 
         <div className="flex items-center gap-2 flex-1">
-          <FileCode className="h-3.5 w-3.5 text-[#007acc]" />
+          <FileCode className="h-3.5 w-3.5 text-[#2DD4BF]" />
           <span className="text-gray-300 font-medium">{projectName}</span>
           <span className="text-gray-500">-</span>
           <span className="text-gray-500 text-[11px]">{projectType === 'github' ? 'GitHub' : 'Local'}</span>
@@ -412,7 +412,7 @@ What would you like to know?`;
               }
             }}
             className={`px-2 py-1 hover:bg-[#3e3e42] rounded transition-colors flex items-center gap-1.5 ${
-              splitView ? 'text-[#007acc]' : 'text-gray-400 hover:text-white'
+              splitView ? 'text-[#2DD4BF]' : 'text-gray-400 hover:text-white'
             }`}
             title="Toggle split view"
           >
@@ -442,7 +442,7 @@ What would you like to know?`;
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex overflow-hidden">
         {/* Activity Bar (Far Left) */}
-        <div className="w-12 bg-[#333333] flex flex-col items-center py-2 border-r border-[#1e1e1e]">
+        <div className="w-12 bg-[#2d2d2d] flex flex-col items-center py-2 border-r border-[#1e1e1e]">
           <button
             onClick={() => {
               if (activeActivity === 'explorer' && !sidebarCollapsed) {
@@ -545,7 +545,7 @@ What would you like to know?`;
                 <input
                   type="text"
                   placeholder="Search in files..."
-                  className="w-full bg-[#3c3c3c] border border-[#1e1e1e] px-3 py-1.5 text-sm text-white rounded focus:outline-none focus:border-[#007acc]"
+                  className="w-full bg-[#252526] border border-[#1e1e1e] px-3 py-1.5 text-sm text-white rounded focus:outline-none focus:border-[#2DD4BF]"
                 />
               </div>
             )}
@@ -563,7 +563,7 @@ What would you like to know?`;
             {/* Resize Handle */}
             <div
               onMouseDown={() => setIsResizingSidebar(true)}
-              className="w-1 bg-[#1e1e1e] hover:bg-[#007acc] cursor-col-resize transition-colors flex-shrink-0"
+              className="w-1 bg-[#1e1e1e] hover:bg-[#2DD4BF] cursor-col-resize transition-colors flex-shrink-0"
               title="Drag to resize"
             />
           </>
@@ -647,7 +647,7 @@ What would you like to know?`;
                             Auto-generated structure analysis for {activeTab.fileName.replace(' (UML)', '')}
                           </p>
                           <div className="flex items-center gap-2 text-xs text-gray-500">
-                            <span className="px-2 py-0.5 bg-[#007acc]/20 text-[#007acc] rounded">
+                            <span className="px-2 py-0.5 bg-[#2DD4BF]/20 text-[#2DD4BF] rounded">
                               Interactive Diagram
                             </span>
                             <span>•</span>
@@ -675,7 +675,7 @@ What would you like to know?`;
 
           return (
             <div
-              className="absolute bg-[#252526] border border-[#007acc] rounded-lg shadow-2xl flex flex-col overflow-hidden"
+              className="absolute bg-[#252526] border border-[#2DD4BF] rounded-lg shadow-2xl flex flex-col overflow-hidden"
               style={{
                 left: `${umlWindowPosition.x}px`,
                 top: `${umlWindowPosition.y}px`,
@@ -720,7 +720,7 @@ What would you like to know?`;
                       Auto-generated structure analysis for {diagramTab.fileName.replace(' (UML)', '')}
                     </p>
                     <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <span className="px-2 py-0.5 bg-[#007acc]/20 text-[#007acc] rounded">
+                      <span className="px-2 py-0.5 bg-[#2DD4BF]/20 text-[#2DD4BF] rounded">
                         Interactive Diagram
                       </span>
                       <span>•</span>
@@ -743,7 +743,7 @@ What would you like to know?`;
                   setIsResizingUml(true);
                 }}
                 style={{
-                  background: 'linear-gradient(135deg, transparent 50%, #007acc 50%)',
+                  background: 'linear-gradient(135deg, transparent 50%, #2DD4BF 50%)',
                 }}
               />
             </div>
@@ -756,7 +756,7 @@ What would you like to know?`;
             {/* Resize Handle */}
             <div
               onMouseDown={() => setIsResizingRight(true)}
-              className="w-1 bg-[#1e1e1e] hover:bg-[#007acc] cursor-col-resize transition-colors flex-shrink-0"
+              className="w-1 bg-[#1e1e1e] hover:bg-[#2DD4BF] cursor-col-resize transition-colors flex-shrink-0"
               title="Drag to resize"
             />
 
@@ -764,7 +764,7 @@ What would you like to know?`;
               {/* Panel Header */}
               <div className="h-9 bg-[#252526] flex items-center justify-between px-3 border-b border-[#1e1e1e]">
                 <div className="flex items-center gap-2">
-                  <Bot className="h-4 w-4 text-[#007acc]" />
+                  <Bot className="h-4 w-4 text-[#2DD4BF]" />
                   <h3 className="text-xs font-semibold text-white">AI Assistant</h3>
                 </div>
                 <button
@@ -785,7 +785,7 @@ What would you like to know?`;
                   >
                     {message.role === 'assistant' && (
                       <div className="flex-shrink-0">
-                        <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                        <div className="w-6 h-6 rounded bg-gradient-to-br from-[#34D399] to-[#F59E0B] flex items-center justify-center">
                           <Bot className="h-3.5 w-3.5 text-white" />
                         </div>
                       </div>
@@ -794,7 +794,7 @@ What would you like to know?`;
                     <div
                       className={`max-w-[85%] rounded px-3 py-2 text-xs ${
                         message.role === 'user'
-                          ? 'bg-[#007acc] text-white'
+                          ? 'bg-[#2DD4BF] text-white'
                           : 'bg-[#1e1e1e] text-gray-300 border border-[#3e3e42]'
                       }`}
                     >
@@ -809,7 +809,7 @@ What would you like to know?`;
                 {isTyping && (
                   <div className="flex gap-2 justify-start">
                     <div className="flex-shrink-0">
-                      <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                      <div className="w-6 h-6 rounded bg-gradient-to-br from-[#34D399] to-[#F59E0B] flex items-center justify-center">
                         <Bot className="h-3.5 w-3.5 text-white" />
                       </div>
                     </div>
@@ -835,12 +835,12 @@ What would you like to know?`;
                     onChange={(e) => setChatInput(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     placeholder="Ask about the UML diagram..."
-                    className="flex-1 bg-[#3c3c3c] border border-[#1e1e1e] px-3 py-2 text-xs text-white rounded focus:outline-none focus:border-[#007acc]"
+                    className="flex-1 bg-[#252526] border border-[#1e1e1e] px-3 py-2 text-xs text-white rounded focus:outline-none focus:border-[#2DD4BF]"
                   />
                   <button
                     onClick={handleSendMessage}
                     disabled={!chatInput.trim() || isTyping}
-                    className="px-3 py-2 bg-[#007acc] hover:bg-[#1177bb] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded transition-colors flex items-center gap-1 text-xs"
+                    className="px-3 py-2 bg-[#2DD4BF] hover:bg-[#1177bb] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded transition-colors flex items-center gap-1 text-xs"
                   >
                     <Send className="h-3 w-3" />
                   </button>
@@ -857,7 +857,7 @@ What would you like to know?`;
       </div>
 
       {/* Status Bar */}
-      <div className="h-6 bg-[#007acc] flex items-center px-3 text-xs text-white">
+      <div className="h-6 bg-[#2DD4BF] flex items-center px-3 text-xs text-white">
         <div className="flex items-center gap-3">
           <GitBranch className="h-3 w-3" />
           <span>main</span>

@@ -47,7 +47,7 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
   };
 
   const handleCopyLink = () => {
-    const link = `https://codeviz.ai/projects/${projectName.toLowerCase().replace(/\s+/g, '-')}`;
+    const link = `https://markcodepolo.com/projects/${projectName.toLowerCase().replace(/\s+/g, '-')}`;
     navigator.clipboard.writeText(link);
     setLinkCopied(true);
     toast.success('Link copied to clipboard');
@@ -70,7 +70,7 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-[#3a3a3a] rounded-lg transition-colors"
+            className="p-1.5 hover:bg-[#252526] rounded-lg transition-colors"
           >
             <X className="h-4 w-4 text-gray-400" />
           </button>
@@ -103,7 +103,7 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
               <div className="flex items-center gap-2">
                 <input
                   type="text"
-                  value={`https://codeviz.ai/projects/${projectName.toLowerCase().replace(/\s+/g, '-')}`}
+                  value={`https://markcodepolo.com/projects/${projectName.toLowerCase().replace(/\s+/g, '-')}`}
                   readOnly
                   className="flex-1 px-2 py-1.5 bg-[#2d2d2d] border border-gray-700 rounded text-xs text-gray-300 focus:outline-none"
                 />
@@ -138,7 +138,7 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Enter email address"
-                  className="w-full pl-9 pr-3 py-2 bg-[#1e1e1e] border border-gray-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-9 pr-3 py-2 bg-[#1e1e1e] border border-gray-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-[#2DD4BF] focus:border-transparent"
                   onKeyPress={(e) => {
                     if (e.key === 'Enter') handleInvite();
                   }}
@@ -149,7 +149,7 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
                 <select
                   value={accessLevel}
                   onChange={(e) => setAccessLevel(e.target.value as AccessLevel)}
-                  className="flex-1 px-3 py-2 bg-[#1e1e1e] border border-gray-700 rounded text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="flex-1 px-3 py-2 bg-[#1e1e1e] border border-gray-700 rounded text-sm text-white focus:outline-none focus:ring-1 focus:ring-[#2DD4BF]"
                 >
                   <option value="view">View Only</option>
                   <option value="edit">Can Edit</option>
@@ -159,7 +159,7 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
                 <button
                   onClick={handleInvite}
                   disabled={!email}
-                  className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition-all"
+                  className="px-4 py-2 bg-gradient-to-r from-[#34D399] to-[#F59E0B] hover:from-[#2DD4BF] hover:to-[#FBBF24] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition-all"
                 >
                   Invite
                 </button>
@@ -172,7 +172,7 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
         <div className="flex items-center justify-end gap-3 p-4 border-t border-gray-800">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-[#3a3a3a] hover:bg-[#424242] text-white text-sm rounded transition-colors"
+            className="px-4 py-2 bg-[#252526] hover:bg-[#424242] text-white text-sm rounded transition-colors"
           >
             Done
           </button>

@@ -140,7 +140,7 @@ export function CloudinaryInfo() {
           </div>
 
           {/* CTA */}
-          <div className="mt-4 p-4 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg text-white">
+          <div className="mt-4 p-4 bg-gradient-to-r from-[#2DD4BF] to-indigo-600 rounded-lg text-white">
             <h4 className="font-semibold mb-2">Get Started with Cloudinary</h4>
             <p className="text-sm mb-3 text-blue-100">
               Sign up for free and get 25GB storage + 25GB monthly bandwidth at no cost.

@@ -21,7 +21,7 @@ export function UploadModal({ onClose, onUpload }: UploadModalProps) {
           <h2 className="text-2xl font-bold text-white">Upload Code</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-[#3a3a3a] rounded-lg transition-colors"
+            className="p-2 hover:bg-[#252526] rounded-lg transition-colors"
           >
             <X className="h-5 w-5 text-gray-400" />
           </button>

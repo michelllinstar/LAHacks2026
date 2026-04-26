@@ -71,12 +71,12 @@ export function ArchitectureView({ repositoryId }: ArchitectureViewProps) {
               onClick={() => setSelectedCluster(cluster)}
               className={`p-5 rounded-lg border-2 transition-all text-left aspect-square ${
                 selectedCluster?.id === cluster.id
-                  ? 'border-[#007acc] bg-[#007acc]/10'
+                  ? 'border-[#2DD4BF] bg-[#2DD4BF]/10'
                   : 'border-gray-700 bg-[#252526] hover:border-gray-600'
               }`}
             >
               <div className="flex items-start gap-5 mb-5">
-                <Layers className="h-5 w-5 text-[#007acc] flex-shrink-0 mt-1" />
+                <Layers className="h-5 w-5 text-[#2DD4BF] flex-shrink-0 mt-1" />
                 <div className="flex-1">
                   <h3 className="text-base font-bold text-white mb-1">{cluster.name}</h3>
                   <p className="text-xs text-gray-400">{cluster.role}</p>
