@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { X, Mail, Copy, Check, Globe } from 'lucide-react';
+import { X, Mail, Copy, Check, Globe, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface ShareModalProps {
@@ -10,11 +10,23 @@ interface ShareModalProps {
 
 type AccessLevel = 'view' | 'edit' | 'admin';
 
+interface Invitee {
+  email: string;
+  access: AccessLevel;
+}
+
+const ACCESS_LABELS: Record<AccessLevel, string> = {
+  view: 'View only',
+  edit: 'Can edit',
+  admin: 'Admin',
+};
+
 export function ShareModal({ projectName, onClose }: ShareModalProps) {
   const [email, setEmail] = useState('');
   const [accessLevel, setAccessLevel] = useState<AccessLevel>('view');
   const [linkCopied, setLinkCopied] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
+  const [invitees, setInvitees] = useState<Invitee[]>([]);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Escape key handler
@@ -35,17 +47,36 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
   }, []);
 
   const handleInvite = () => {
-    if (!email) return;
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed) return;
     // Basic email format validation: must contain @ and a dot after the @
-    const atIndex = email.indexOf('@');
-    if (atIndex === -1 || !email.slice(atIndex + 1).includes('.')) {
+    const atIndex = trimmed.indexOf('@');
+    if (atIndex <= 0 || !trimmed.slice(atIndex + 1).includes('.')) {
       toast.error('Invalid email', {
         description: 'Enter a valid email address to send an invite.',
       });
       return;
     }
-    toast.success(`Invitation sent to ${email}`);
+    if (invitees.some((i) => i.email === trimmed)) {
+      toast.warning(`${trimmed} is already invited`, {
+        description: 'Update their access level below or remove them first.',
+      });
+      return;
+    }
+    setInvitees((prev) => [...prev, { email: trimmed, access: accessLevel }]);
+    toast.success(`Invitation sent to ${trimmed}`, {
+      description: `Access level: ${ACCESS_LABELS[accessLevel]}`,
+    });
     setEmail('');
+  };
+
+  const handleRemoveInvitee = (target: string) => {
+    setInvitees((prev) => prev.filter((i) => i.email !== target));
+    toast.info(`Removed ${target}`);
+  };
+
+  const handleChangeAccess = (target: string, level: AccessLevel) => {
+    setInvitees((prev) => prev.map((i) => (i.email === target ? { ...i, access: level } : i)));
   };
 
   const handleCopyLink = () => {
@@ -160,13 +191,58 @@ export function ShareModal({ projectName, onClose }: ShareModalProps) {
 
                 <button
                   onClick={handleInvite}
-                  disabled={!email}
+                  disabled={!email.trim()}
                   className="px-4 py-2 bg-gradient-to-r from-[#34D399] to-[#F59E0B] hover:from-[#2DD4BF] hover:to-[#FBBF24] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition-all"
                 >
                   Invite
                 </button>
               </div>
             </div>
+
+            {/* Invited list — shows the people already invited so the user
+                can confirm what was sent, change access, or remove. */}
+            {invitees.length > 0 && (
+              <div className="mt-4 border border-gray-700 rounded-lg overflow-hidden">
+                <div className="px-3 py-2 bg-[#252526] text-[11px] uppercase tracking-wide text-gray-400 font-semibold flex items-center justify-between">
+                  <span>People with access</span>
+                  <span className="text-gray-500 normal-case">
+                    {invitees.length} invited
+                  </span>
+                </div>
+                <ul className="divide-y divide-gray-800">
+                  {invitees.map((i) => (
+                    <li
+                      key={i.email}
+                      className="flex items-center gap-2 px-3 py-2 bg-[#1e1e1e]"
+                    >
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#5EEAD4] to-[#FBBF24] flex items-center justify-center text-xs font-semibold text-white flex-shrink-0">
+                        {i.email.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="flex-1 text-sm text-gray-200 truncate" title={i.email}>
+                        {i.email}
+                      </span>
+                      <select
+                        value={i.access}
+                        onChange={(e) => handleChangeAccess(i.email, e.target.value as AccessLevel)}
+                        className="px-2 py-1 bg-[#2d2d2d] border border-gray-700 rounded text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-[#2DD4BF]"
+                      >
+                        <option value="view">View only</option>
+                        <option value="edit">Can edit</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveInvitee(i.email)}
+                        className="p-1 text-gray-500 hover:text-red-400 hover:bg-white/[0.05] rounded transition-colors"
+                        title={`Remove ${i.email}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
 

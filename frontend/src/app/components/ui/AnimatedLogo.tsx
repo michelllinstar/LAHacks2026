@@ -168,7 +168,10 @@ export function AnimatedLogo({ size = 56, className = '' }: AnimatedLogoProps) {
       className={`inline-block cursor-pointer ${className}`}
       style={{ width: size, height: size }}
     >
-      <svg viewBox="0 0 600 600" width="100%" height="100%" style={{ overflow: 'visible' }}>
+      {/* pointerEvents:none lets clicks fall through to a wrapping <Link>
+          or <button>; the stage div still receives mouseenter/leave for the
+          hover animation because those bubble before being suppressed. */}
+      <svg viewBox="0 0 600 600" width="100%" height="100%" style={{ overflow: 'visible', pointerEvents: 'none' }}>
         <defs>
           <radialGradient
             id="al-white-drop-mask"

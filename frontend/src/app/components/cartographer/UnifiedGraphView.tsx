@@ -1109,7 +1109,8 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
         : 'uml-tier-4';
 
   return (
-    <div className="h-full flex flex-col bg-[#1e1e1e] uml-view-fade">
+    <div className="h-full flex flex-col bg-[#1e1e1e] uml-view-fade relative">
+      {showLegend && <LegendOverlay activeModes={activeModes} />}
       {/* Mind Map Canvas */}
       <div
         ref={canvasRef}
@@ -1840,6 +1841,88 @@ export function UnifiedGraphView({ repositoryId, showLegend, agentLogCollapsed, 
         )}
       </div>
 
+    </div>
+  );
+}
+
+// Floating legend overlay shown on top of the canvas when the user toggles
+// "Legend" from the activity bar. Documents the node-color palette and the
+// six UML edge styles that ship with the renderer.
+//
+// Color values are sourced directly from the same NODE_COLORS table the
+// renderer uses, so anything the user sees on the canvas has a matching
+// chip in the legend (and vice versa).
+function LegendOverlay({ activeModes }: { activeModes: Set<GraphMode> }) {
+  const PALETTE: Record<GraphNode['type'], { border: string; header: string; dot: string }> = {
+    class:     { border: '#3b82f6', header: '#1e3a5f', dot: '#3b82f6' },
+    interface: { border: '#a855f7', header: '#3b1f5e', dot: '#a855f7' },
+    function:  { border: '#22c55e', header: '#14432a', dot: '#22c55e' },
+    module:    { border: '#f59e0b', header: '#432d09', dot: '#f59e0b' },
+  };
+  const nodeRows: Array<{ label: string; type: GraphNode['type']; description: string }> = [
+    { label: 'Class',     type: 'class',     description: 'concrete class' },
+    { label: 'Interface', type: 'interface', description: 'italic name' },
+    { label: 'Function',  type: 'function',  description: 'free function' },
+    { label: 'Module',    type: 'module',    description: 'package / file' },
+  ];
+  const edgeRows: Array<{ kind: 'open' | 'triangle' | 'diamondH' | 'diamondF'; dashed: boolean; label: string }> = [
+    { kind: 'open',     dashed: false, label: 'Association' },
+    { kind: 'diamondH', dashed: false, label: 'Aggregation' },
+    { kind: 'diamondF', dashed: false, label: 'Composition' },
+    { kind: 'triangle', dashed: false, label: 'Inheritance' },
+    { kind: 'triangle', dashed: true,  label: 'Realization' },
+    { kind: 'open',     dashed: true,  label: 'Dependency' },
+  ];
+  return (
+    <div
+      className="absolute top-3 right-3 z-30 rounded-lg border border-white/10 backdrop-blur-md p-3 shadow-2xl"
+      style={{ background: 'rgba(20,20,20,0.85)', minWidth: 220 }}
+    >
+      <div className="text-[10px] uppercase tracking-wider text-gray-400 mb-2">Legend</div>
+      {/* Each chip mirrors the canvas card: colored left stripe + tinted
+          header + dot, so the user can map a color back to a node at a
+          glance instead of guessing what a flat swatch corresponds to. */}
+      <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 mb-3">
+        {nodeRows.map((r) => {
+          const c = PALETTE[r.type];
+          return (
+            <div
+              key={r.label}
+              className="flex items-center gap-2 rounded overflow-hidden"
+              style={{
+                background: '#1e1e1e',
+                border: `1px solid ${c.border}aa`,
+              }}
+              title={r.description}
+            >
+              <span style={{ display: 'inline-block', width: 4, height: 18, background: c.border }} />
+              <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 999, background: c.dot, marginLeft: 2 }} />
+              <span className="text-[11px] text-gray-200 pr-2 py-0.5">{r.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="text-[10px] uppercase tracking-wider text-gray-400 mb-1.5">UML edges</div>
+      <div className="space-y-1">
+        {edgeRows.map((e) => (
+          <div key={`${e.kind}-${e.dashed}-${e.label}`} className="flex items-center gap-2">
+            <svg width="60" height="14" viewBox="0 0 60 14">
+              <line x1="2" y1="7" x2="44" y2="7" stroke="#cbd5e1" strokeWidth="1.4" strokeDasharray={e.dashed ? '4 3' : undefined} />
+              {e.kind === 'open' && <path d="M52 7 L44 3 M52 7 L44 11" stroke="#cbd5e1" strokeWidth="1.4" fill="none" />}
+              {e.kind === 'triangle' && <path d="M44 2 L56 7 L44 12 z" fill="#1a1a1a" stroke="#cbd5e1" strokeWidth="1.2" />}
+              {e.kind === 'diamondH' && <path d="M44 7 L50 2 L56 7 L50 12 z" fill="#1a1a1a" stroke="#cbd5e1" strokeWidth="1.2" />}
+              {e.kind === 'diamondF' && <path d="M44 7 L50 2 L56 7 L50 12 z" fill="#cbd5e1" stroke="#cbd5e1" strokeWidth="1.2" />}
+            </svg>
+            <span className="text-[11px] text-gray-200">{e.label}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 pt-2 border-t border-white/10 text-[10px] text-gray-400">
+        Active overlays:{' '}
+        <span className="text-gray-200">
+          {Array.from(activeModes).map((m) => m[0].toUpperCase() + m.slice(1)).join(' + ') || 'none'}
+        </span>
+      </div>
     </div>
   );
 }

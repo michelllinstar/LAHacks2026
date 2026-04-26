@@ -16,7 +16,6 @@ interface ViewLevelToolbarProps {
 const LEVELS: { id: ViewLevel; label: string }[] = [
   { id: 'tiers',    label: 'Tiers' },
   { id: 'layers',   label: 'Layers' },
-  { id: 'contexts', label: 'Contexts' },
   { id: 'packages', label: 'Packages' },
   { id: 'classes',  label: 'Classes' },
 ];

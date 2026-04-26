@@ -763,11 +763,23 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
 
           <div className="flex-1" />
 
+          {/* Legend toggle — flips the floating legend overlay on the canvas. */}
+          <button
+            onClick={() => setShowLegend((v) => !v)}
+            className={`w-12 h-12 flex items-center justify-center transition-colors relative ${
+              showLegend ? 'text-white' : 'text-gray-400 hover:text-white'
+            }`}
+            title={showLegend ? 'Hide legend' : 'Show legend'}
+          >
+            <Layers className="h-6 w-6" />
+            {showLegend && <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-white" />}
+          </button>
+
           {/* Graph Info */}
           <button
             onClick={() => setShowInfoModal(true)}
             className="w-12 h-12 flex items-center justify-center transition-colors relative text-gray-400 hover:text-white"
-            title="Graph Controls & Help"
+            title="Workspace help"
           >
             <Info className="h-6 w-6" />
           </button>
@@ -867,8 +879,6 @@ export function CartographerWorkspace({ projectId, projectName, onBack, onShare 
                 <DiagramToolbar
                   activeLayers={diagramLayers}
                   onToggleLayer={toggleDiagramLayer}
-                  density={diagramDensity}
-                  onDensityChange={setDiagramDensity}
                 />
               )}
             </>
