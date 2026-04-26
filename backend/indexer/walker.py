@@ -22,8 +22,9 @@ _SKIP_DIRS = {
     ".vscode",
 }
 
-# MVP supports Python only.
-_SUPPORTED_SUFFIXES = {".py"}
+# SPEC §10 — Python + TypeScript. ``.d.ts`` declaration files are skipped
+# explicitly because they contain only type signatures, no executable code.
+_SUPPORTED_SUFFIXES = {".py", ".ts", ".tsx"}
 
 
 def walk_repo(root: str | Path) -> Iterator[Path]:
@@ -32,8 +33,12 @@ def walk_repo(root: str | Path) -> Iterator[Path]:
     if not root_path.exists():
         return
     for path in _iter(root_path):
-        if path.suffix in _SUPPORTED_SUFFIXES:
-            yield path
+        if path.suffix not in _SUPPORTED_SUFFIXES:
+            continue
+        # Skip TypeScript declaration files (foo.d.ts).
+        if path.name.endswith(".d.ts"):
+            continue
+        yield path
 
 
 def _iter(root: Path) -> Iterator[Path]:

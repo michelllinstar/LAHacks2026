@@ -583,7 +583,7 @@ def _annotate_cluster(
             "heuristic",
         )
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    if not (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")):
         return _heuristic_annotation(file_paths, symbols_by_file), "heuristic"
 
     selected = _select_central_files(file_paths, incoming_refs_by_file, limit=5)

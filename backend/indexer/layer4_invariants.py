@@ -8,7 +8,7 @@ sources in an indexed repo:
   in the enclosing function body.
 * **Defensive checks** (confidence 0.60): early-return-on-falsy patterns,
   intra-body asserts, and parameter-validating raises inside function bodies.
-* **Comment-derived** (confidence 0.35, optional): when ``ANTHROPIC_API_KEY``
+* **Comment-derived** (confidence 0.35, optional): when ``GEMINI_API_KEY``
   is set, run a small Claude prompt over functions whose docstring/comment
   block sits within ``comment_distance_lines`` of a risky construct
   (``raise``/``try``/``return None``).
@@ -116,7 +116,7 @@ def build(
     candidates: list[dict] = []
     rejected = 0
     comment_budget = max_comment_invariants
-    use_llm = bool(os.getenv("ANTHROPIC_API_KEY"))
+    use_llm = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
     comment_tasks: list[dict] = []
 
     for path in walk_repo(repo_path):
@@ -648,7 +648,7 @@ def _run_comment_tasks(tasks: list[dict], *, max_workers: int = 4) -> list[dict]
     """Dispatch comment-derivation LLM calls concurrently.
 
     Uses a small ``ThreadPoolExecutor`` cap so we don't fan out to hundreds
-    of in-flight requests against the Anthropic API. Works under both the
+    of in-flight requests against the Gemini API. Works under both the
     FastAPI BackgroundTask runner and the standalone agent runtime — neither
     needs to own an asyncio event loop.
     """

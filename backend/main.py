@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.db.store import init_control_db
+from backend.db.store import get_db, init_control_db
 from backend.routes import auth, graph, index, query, repos, stream
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")

@@ -19,7 +19,7 @@ from backend.db import store as db_store
 from backend.lib import events as event_bus
 
 from . import embeddings, layer1_symbols, layer2_flows, layer3_clusters, layer4_invariants
-from .treesitter_loader import get_python_parser
+from .treesitter_loader import get_parser_for, get_python_parser, get_typescript_parser
 from .walker import walk_repo
 
 logger = logging.getLogger(__name__)
@@ -83,9 +83,13 @@ def _run_layer1(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> No
     )
     emit("index_progress", {"layer": layer, "state": "running", "count": 0})
 
-    parser = get_python_parser()
-    if parser is None:
-        logger.warning("tree-sitter parser unavailable; skipping Layer 1 indexing")
+    # SPEC §10: Python + TypeScript. Only short-circuit when *all* grammars
+    # are missing — otherwise a TS-only repo would silently skip Layer 1
+    # because the Python grammar wasn't installed (and vice versa).
+    py_parser = get_python_parser()
+    ts_parser = get_typescript_parser()
+    if py_parser is None and ts_parser is None:
+        logger.warning("tree-sitter parsers unavailable; skipping Layer 1 indexing")
         ended = _now_iso()
         db_store.upsert_index_job(
             job_id=f"{job_id}-{layer}",
@@ -105,13 +109,20 @@ def _run_layer1(repo_hash: str, repo_path: str, emit: EmitFn, job_id: str) -> No
     files_seen: list[tuple[str, Optional[str]]] = []
 
     for path in walk_repo(repo_root):
+        # Per-file parser dispatch by extension. ``get_parser_for`` returns
+        # None when the relevant grammar isn't installed; in that case we
+        # silently drop the file (the early short-circuit above already
+        # handled the all-grammars-missing case).
+        file_parser = get_parser_for(str(path))
+        if file_parser is None:
+            continue
         try:
             source_bytes = path.read_bytes()
         except OSError as exc:
             logger.warning("could not read %s: %s", path, exc)
             continue
         try:
-            tree = parser.parse(source_bytes)
+            tree = file_parser.parse(source_bytes)
         except Exception as exc:  # pragma: no cover
             logger.warning("parse failure for %s: %s", path, exc)
             continue

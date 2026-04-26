@@ -10,6 +10,6 @@ sentence-transformers
 numpy
 uagents
 mcp
-anthropic
+google-genai
 sse-starlette
 pymongo

@@ -110,6 +110,13 @@ def _ensure_repo_indexes(db: Database) -> None:
         [("repo_hash", ASCENDING), ("file_path", ASCENDING), ("line_start", ASCENDING)],
         name="symbols_repo_file_line",
     )
+    # Layer 2's flow builder filters symbols to function/method kinds only;
+    # without this index that filter scans every symbol per repo. SPEC §9.2
+    # sub-200ms p95 budget for direct queries depends on it.
+    db["symbols"].create_index(
+        [("repo_hash", ASCENDING), ("kind", ASCENDING)],
+        name="symbols_repo_kind",
+    )
     # Text index for replacing FTS5. Mongo allows only one text index per
     # collection but multiple fields can participate.
     try:
