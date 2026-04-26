@@ -41,13 +41,21 @@ def complete(system: str, user: str, max_tokens: int = 512, model: Optional[str]
         from google.genai import types  # type: ignore
     except ImportError:  # pragma: no cover
         return ""
+    # Disable Gemini 2.5 "thinking" tokens — they consume max_output_tokens
+    # before any visible text is emitted, which silently truncates short
+    # callers (e.g. layer4 invariants uses max_tokens=100). Only Gemini
+    # models accept ``thinking_config``; Gemma 3 / Gemma 4 reject it with
+    # 400 INVALID_ARGUMENT, so gate by model family.
+    config_kwargs = {
+        "system_instruction": system,
+        "max_output_tokens": max_tokens,
+    }
+    if hasattr(types, "ThinkingConfig") and model.startswith("gemini-"):
+        config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
     resp = client.models.generate_content(
         model=model,
         contents=user,
-        config=types.GenerateContentConfig(
-            system_instruction=system,
-            max_output_tokens=max_tokens,
-        ),
+        config=types.GenerateContentConfig(**config_kwargs),
     )
     # ``resp.text`` is a convenience accessor that raises when the response was
     # blocked by safety filters or returned no candidates. Fall back to walking

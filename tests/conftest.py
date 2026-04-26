@@ -35,9 +35,21 @@ os.environ.setdefault("MONGODB_DB_NAME", "cartographer_test")
 # the MCP server fail-open. We keep existing route tests authenticated by
 # attaching a valid session cookie in the ``client`` fixture below.
 os.environ.setdefault("CARTOGRAPHER_DEV", "1")
+
 # Existing test_routes_repos.py posts /tmp/bar; widen the workspace jail to
-# /tmp so the contract assertions still pass under the new path validator.
-os.environ.setdefault("CARTOGRAPHER_WORKSPACE_ROOT", "/tmp")
+# /tmp. Use direct assignment instead of setdefault because the developer's
+# .env may carry an empty CARTOGRAPHER_WORKSPACE_ROOT= entry, which counts
+# as "set" for setdefault but resolves to ~/.cartographer/repos at request
+# time and rejects /tmp/bar with 400.
+os.environ["CARTOGRAPHER_WORKSPACE_ROOT"] = "/tmp"
+
+# Pin the LLM keys to empty BEFORE backend.db.store's load_dotenv runs.
+# The decomposer treats empty-string keys as "no LLM available" and falls
+# back to the heuristic — which is what the existing tests assert against.
+# Override at the shell to exercise the live LLM path:
+#     GEMINI_API_KEY=... pytest tests/test_decomposer_llm.py
+os.environ["GEMINI_API_KEY"] = ""
+os.environ["GOOGLE_API_KEY"] = ""
 
 
 @pytest.fixture
