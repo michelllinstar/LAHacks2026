@@ -7,13 +7,17 @@ separate specialist agents (see SPEC §7.2.5 hackathon scope reduction).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import re
 import uuid
 from typing import Optional
 
 from backend.db import store as db_store
+from backend.indexer.runner import run_index
 from backend.lib import events as event_bus
+from backend.lib.repo_hash import hash_repo
 from backend.models import FindContextRequest
 from backend.query.engine import QueryEngine
 
@@ -21,6 +25,71 @@ from . import architecture_analyst, flow_analyst, invariant_reporter
 from .protocols import UserQuery, UserResponse
 
 logger = logging.getLogger(__name__)
+
+
+# Detect a GitHub (or any https/ssh git) URL anywhere in a chat message so users
+# can say "index https://github.com/owner/repo" without crafting JSON. We accept
+# the full https form and the .git suffix; ssh URLs (git@github.com:...) are
+# matched too since `git clone` handles both.
+_GIT_URL_RE = re.compile(
+    r"(?:https?://[^\s]+?\.git\b|https?://github\.com/[^\s/]+/[^\s/?#]+|git@[^\s:]+:[^\s]+\.git)",
+    re.IGNORECASE,
+)
+
+
+def _workspace_root() -> "os.PathLike":
+    from pathlib import Path
+
+    root = os.getenv("CARTOGRAPHER_WORKSPACE_ROOT")
+    path = Path(root).expanduser().resolve() if root else (Path.home() / ".cartographer" / "repos").resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _clone_and_index(git_url: str) -> tuple[str, str]:
+    """Shallow-clone ``git_url`` into the workspace and run a full index.
+
+    Returns ``(repo_hash, repo_name)``. Raises ``RuntimeError`` on failure with
+    a human-readable reason suitable for surfacing back through ASI:One chat.
+    """
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    git_url = git_url.strip().rstrip("/")
+    name = git_url.split("/")[-1].removesuffix(".git") or "repo"
+    repo_hash = hash_repo(git_url=git_url, local_path=None)
+    dest = (Path(_workspace_root()) / repo_hash).resolve()
+
+    if shutil.which("git") is None:
+        raise RuntimeError("git is not installed on the server")
+
+    if not (dest / ".git").exists():
+        if dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", "--single-branch", git_url, str(dest)],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode != 0:
+            shutil.rmtree(dest, ignore_errors=True)
+            msg = (result.stderr or result.stdout or "").strip().splitlines()
+            detail = msg[-1] if msg else f"exit {result.returncode}"
+            raise RuntimeError(f"git clone failed: {detail}")
+
+    db_store.upsert_repo(
+        hash=repo_hash,
+        name=name,
+        git_url=git_url,
+        local_path=str(dest),
+        status="pending",
+    )
+    db_store.init_repo_db(repo_hash)
+    emit = event_bus.make_emitter(repo_hash)
+    run_index(repo_hash, str(dest), emit, job_id=f"chat-{uuid.uuid4().hex[:8]}")
+    return repo_hash, name
 
 
 _USER_QUERY_DECLARED = {"repo_hash", "question"}
@@ -449,25 +518,86 @@ def build_agent(seed: Optional[str] = None, port: int = 8001):
         try:
             raw = "".join(
                 item.text for item in msg.content if isinstance(item, TextContent)
-            )
-            try:
-                payload = json.loads(raw)
-                repo_hash = payload.get("repo_hash", "")
-                question = payload.get("question", raw)
-            except (json.JSONDecodeError, AttributeError):
-                repo_hash = ""
-                question = raw
+            ).strip()
+            repo_hash = ""
+            question = raw
+
+            # GitHub-URL fast path: clone + index, then answer the rest of the
+            # message (or just confirm the index) without requiring the user to
+            # use the web UI first.
+            url_match = _GIT_URL_RE.search(raw)
+            if url_match:
+                git_url = url_match.group(0)
+                try:
+                    repo_hash, repo_name = await asyncio.to_thread(
+                        _clone_and_index, git_url
+                    )
+                except Exception as exc:
+                    logger.exception("chat clone/index failed: %s", exc)
+                    response_text = f"Failed to index {git_url}: {exc}"
+                    await ctx.send(
+                        sender,
+                        ChatMessage(
+                            timestamp=datetime.now(timezone.utc),
+                            msg_id=uuid4(),
+                            content=[
+                                TextContent(type="text", text=response_text),
+                                EndSessionContent(type="end-session"),
+                            ],
+                        ),
+                    )
+                    return
+                # Strip the URL from the question so the remaining text (if any)
+                # is treated as a follow-up query against the freshly indexed repo.
+                question = (raw[: url_match.start()] + raw[url_match.end():]).strip()
+                if not question:
+                    response_text = (
+                        f"Indexed {repo_name} (repo_hash={repo_hash}). "
+                        "Ask a question about it — e.g. 'where is auth handled?'"
+                    )
+                    await ctx.send(
+                        sender,
+                        ChatMessage(
+                            timestamp=datetime.now(timezone.utc),
+                            msg_id=uuid4(),
+                            content=[
+                                TextContent(type="text", text=response_text),
+                                EndSessionContent(type="end-session"),
+                            ],
+                        ),
+                    )
+                    return
+            if raw.startswith("{"):
+                try:
+                    payload = json.loads(raw)
+                    repo_hash = (payload.get("repo_hash") or "").strip()
+                    question = (payload.get("question") or "").strip() or raw
+                except (json.JSONDecodeError, AttributeError):
+                    pass
 
             if not repo_hash:
-                response_text = (
-                    "Please provide a repo_hash. "
-                    'Send JSON: {"repo_hash": "<hash>", "question": "<question>"}'
-                )
-            else:
-                result = handle_user_query(
-                    UserQuery(repo_hash=repo_hash, question=question)
-                )
-                response_text = json.dumps(result.bundle)
+                # Natural-language path: pick the most recently indexed repo.
+                repos = db_store.list_repos()
+                if not repos:
+                    response_text = (
+                        "No repositories are indexed yet. Please index a repo "
+                        "via the Cartographer UI first, then ask again."
+                    )
+                    repo_hash = ""
+                else:
+                    repo_hash = repos[0].get("repo_hash") or ""
+
+            if repo_hash:
+                if not question:
+                    response_text = (
+                        "I'm Cartographer. Ask me about your codebase — e.g. "
+                        "'where is auth handled?' or 'trace data flow from login'."
+                    )
+                else:
+                    result = handle_user_query(
+                        UserQuery(repo_hash=repo_hash, question=question)
+                    )
+                    response_text = json.dumps(result.bundle)
         except Exception as exc:
             logger.exception("Coordinator Chat Protocol error: %s", exc)
             response_text = f"Error: {exc}"
