@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.db.store import get_db, init_control_db
-from backend.routes import auth, graph, index, query, repos, stream
+from backend.routes import auth, graph, index, omegaclaw, query, repos, stream
 
 # Load .env first as the canonical config (matches .env.example), then let
 # .env.local override any values for local-dev customization without editing
@@ -59,6 +59,7 @@ app.include_router(index.router, prefix="/api/repos")
 app.include_router(graph.router, prefix="/api/repos")
 app.include_router(query.router, prefix="/api/query")
 app.include_router(stream.router, prefix="/api/stream")
+app.include_router(omegaclaw.router, prefix="/api/omegaclaw")
 
 
 @app.on_event("startup")
