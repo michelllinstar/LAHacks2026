@@ -550,6 +550,14 @@ def build_agent(seed: Optional[str] = None, port: int = 8001):
                 # Strip the URL from the question so the remaining text (if any)
                 # is treated as a follow-up query against the freshly indexed repo.
                 question = (raw[: url_match.start()] + raw[url_match.end():]).strip()
+                # Strip leading command words like "index", "use", "load" so
+                # "index <url>" / "use <url>" don't get fed into the query
+                # engine as standalone meaningless searches.
+                _STRIP = {"index", "use", "load", "add", "scan", "analyze", "analyse", "ingest", "please", "and", "then", "for"}
+                tokens = [t for t in re.split(r"[\s,.:;!?]+", question) if t]
+                while tokens and tokens[0].lower().strip("@") in _STRIP:
+                    tokens.pop(0)
+                question = " ".join(tokens).strip()
                 if not question:
                     response_text = (
                         f"Indexed {repo_name} (repo_hash={repo_hash}). "
