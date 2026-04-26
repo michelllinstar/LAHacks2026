@@ -1,12 +1,11 @@
 'use client';
-import { useState } from 'react';
 
 interface FlowViewProps {
   repositoryId: string;
   showLegend: boolean;
 }
 
-export function FlowView({ repositoryId }: FlowViewProps) {
+export function FlowView({}: FlowViewProps) {
 
   return (
     <div className="h-full flex flex-col bg-[#1e1e1e]">

@@ -270,7 +270,10 @@ def handle_user_query(query: UserQuery) -> UserResponse:
         bundle = engine.find_relevant_context(
             FindContextRequest(task=query.question, repo_hash=query.repo_hash)
         )
-        symbol_ids = [s.qualified_name for s in bundle.relevant_symbols]
+        # Frontend graph store keys nodes by stringified ObjectId, not qname,
+        # so resolve before publishing the highlight event.
+        qnames = [s.qualified_name for s in bundle.relevant_symbols]
+        highlight_ids = _symbol_ids_for_qnames(query.repo_hash, qnames)
         event_bus.publish(
             query.repo_hash,
             "agent_activity",
@@ -278,15 +281,15 @@ def handle_user_query(query: UserQuery) -> UserResponse:
                 "query_id": query_id,
                 "query_type": query_type,
                 "cluster_id": bundle.region.cluster_id,
-                "symbol_ids": symbol_ids,
+                "symbol_ids": highlight_ids,
             },
         )
-        if symbol_ids:
+        if highlight_ids:
             event_bus.publish(
                 query.repo_hash,
                 "region_highlighted",
                 {
-                    "node_ids": symbol_ids,
+                    "node_ids": highlight_ids,
                     "color": "#ffb347",
                     "ttl_ms": 4000,
                 },
@@ -367,12 +370,7 @@ def handle_user_query(query: UserQuery) -> UserResponse:
         target_qnames = list(
             {inv.get("target_symbol") for inv in invariants if inv.get("target_symbol")}
         )
-        highlight_ids: list[str] = []
-        if target_qnames:
-            wanted = set(target_qnames)
-            for sym in db_store.iter_symbols(query.repo_hash):
-                if sym.get("qualified_name") in wanted:
-                    highlight_ids.append(str(sym["_id"]))
+        highlight_ids = _symbol_ids_for_qnames(query.repo_hash, target_qnames)
         event_bus.publish(
             query.repo_hash,
             "agent_activity",

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Network, GitBranch, Boxes, Box, Database, Code, Users, Minimize2, Maximize2, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
+import { Box, Database, Code, Users } from 'lucide-react';
 import { useCartographerStore } from '../../../lib/store';
 import type { GraphProjection, LayerName } from '../../../lib/types';
 

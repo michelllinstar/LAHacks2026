@@ -2,7 +2,9 @@
 //
 // Backend route: GET /api/stream?repo={hash} (backend/routes/stream.py).
 // Emits events of types declared in types.ts: index_progress, node_added,
-// node_updated, edge_added, region_highlighted, agent_activity.
+// edge_added, region_highlighted, agent_activity. (``node_updated`` is
+// reserved in the type union for forward compatibility but is not currently
+// emitted by the backend — see backend/lib/events.py call sites.)
 //
 // The hook owns one EventSource per (repoHash) it is mounted with and
 // re-establishes the connection if the browser drops it. Consumers receive
