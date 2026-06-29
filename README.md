@@ -1,4 +1,4 @@
-# Codebase Cartographer
+# MarkCodePolo
 
 A four-layer semantic index over a source repository, exposed as a FastAPI
 backend, a Next.js visualization frontend, and an MCP stdio server. Cartographer
